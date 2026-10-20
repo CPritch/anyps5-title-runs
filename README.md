@@ -84,8 +84,8 @@ A followed PR's code runs on the tester's machine. What stands between that code
   access to that branch can push to it. Keep the list short.
 - **The build runs unsandboxed.** CMake and the compiler run as the tester's user, with the network (submodule pins
   may be fetched). A malicious PR can run code at build time. Building is the step the allowlist protects.
-- **The title runs in bubblewrap:** `/usr`, `/etc`, `/sys` read-only; an empty `/home`, `/tmp` and `/run`; a fresh
-  `/proc`; a minimal `/dev` with only the GPU's device nodes (`/dev/dri`, `/dev/nvidia*`); the display sockets
+- **The title runs in bubblewrap:** `/usr`, `/etc`, `/sys` read-only; an empty `/home`, `/tmp` and `/run`; its own PID
+  namespace (the host's processes are not visible in its `/proc`); a minimal `/dev` with only the GPU's device nodes (`/dev/dri`, `/dev/nvidia*`); the display sockets
   (Wayland, X11) and nothing else of the session (no D-Bus, no audio server, no SSH agent); no network (its own
   network namespace). The dump, `app0` (hard links to the dump's files) and `libs` are read-only; only the title's
   game directory, its caches and the run directory are writable.

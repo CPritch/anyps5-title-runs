@@ -49,7 +49,7 @@ def command(mode, argv, cwd, read_only=(), writable=(), env=None):
         raise SandboxError(f"unknown sandbox mode {mode}")
     if not shutil.which("bwrap"):
         raise SandboxError("bwrap is not installed (bubblewrap); install it or set sandbox.mode = \"none\" explicitly")
-    args = ["bwrap", "--die-with-parent", "--new-session", "--unshare-net", "--unshare-uts", "--unshare-cgroup-try"]
+    args = ["bwrap", "--die-with-parent", "--new-session", "--unshare-net", "--unshare-pid", "--unshare-uts", "--unshare-cgroup-try"]
     for path in SYSTEM_RO:
         if os.path.exists(path):
             args += ["--ro-bind", path, path]
