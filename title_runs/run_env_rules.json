@@ -1,0 +1,4 @@
+[
+  {"commit": "74dad0097", "set": {"APS5_NO_COMMIT_REAPER": "1"},
+   "reason": "#6617 at 74dad0097: the commit reaper thread is never stopped and double-frees at exit (CPritch/gtav-harness run-env-rules.txt)"}
+]
