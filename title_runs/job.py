@@ -1,14 +1,16 @@
 """One job: a followed PR's head, built as GitHub's merge ref and as main at the merge's base, run on the tester's titles."""
 
+import contextlib
 import datetime
 import json
 import os
+import shlex
 import subprocess
-import sys
 import traceback
 from pathlib import Path
 
-from . import VENDOR, build, game, protocol, route as routes, sandbox, sources
+from . import build, game, protocol, route as routes, sandbox, sources
+from .game import title_run
 
 
 RULES = Path(__file__).with_name("run_env_rules.json")
@@ -24,22 +26,43 @@ def run_env_rules(tree):
     return found
 
 
-def boot_and_classify(config, title, side_tree, build_dir, out, log):
-    """#7264's generic run, inside the sandbox: title_run.py boots the title twice (cold, then warm) and classifies."""
-    runner = VENDOR / "title_run" / "tools" / "title_run.py"
+TITLE_ENV = ("PATH", "LANG", "DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY", "XDG_SESSION_TYPE")
+
+
+@contextlib.contextmanager
+def title_environment():
+    """title_run.run_title passes os.environ on to the title: keep only what a title needs (no tokens) for the call."""
+    saved = dict(os.environ)
+    os.environ.clear()
+    os.environ.update({key: saved[key] for key in TITLE_ENV if key in saved})
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
+
+def boot_and_classify(config, title, build_dir, work, out, log):
+    """#7264's generic run for a title without a route: title_run.run_title, unchanged, twice (cold, then warm). Its
+    Session starts an executable, so the executable it is given is a wrapper that starts the relinked title in the
+    sandbox (bwrap passes the environment run_title builds on to the title)."""
+    executable, found = game.prepare(title, build_dir, work)
     out.mkdir(parents=True, exist_ok=True)
-    argv = [sys.executable, "-I", str(runner), "--games", str(title.dump), "--build", str(build_dir), "--out", str(out),
-            "--runs", "2", "--seconds", str(title.boot_seconds), "--note", "title-runs", title.title_id]
-    env = {"PATH": "/usr/bin:/bin"}
-    for key in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE"):
-        if os.environ.get(key):
-            env[key] = os.environ[key]
-    command = sandbox.command(config.sandbox, argv, out, read_only=[title.dump, build_dir, VENDOR, side_tree], writable=[out], env=env)
-    with open(out / "title_run.log", "w") as stream:
-        subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT, cwd=out, env=env if config.sandbox == "bwrap" else None)
-    summaries = sorted(out.glob("*/summary.json"))
-    log(f"title_run: {len(summaries)} summary in {out}")
-    return json.loads(summaries[-1].read_text()) if summaries else None
+    argv = sandbox.command(config.sandbox, [str(executable)], work, read_only=[title.dump, work / "app0", work / "libs", executable],
+                           writable=[work, out])
+    wrapper = work / "sandboxed"
+    wrapper.write_text("#!/bin/sh\nexec " + shlex.join(argv) + ' "$@"\n')
+    wrapper.chmod(0o755)
+    machine, runs = {}, []
+    with title_environment():
+        for number in (1, 2):
+            result = title_run.run_title(wrapper, work, out / f"run{number}", title.boot_seconds, title.env)
+            for key in ("os", "gpu", "driver", "cpu"):
+                machine[key] = machine.get(key) or result.pop(key)
+            runs.append({"run": number, "cache": "cold" if number == 1 else "warm", **result})
+            log(f"title_run run{number}: {result['outcome']}{' (' + result['first_error'] + ')' if result.get('first_error') else ''}")
+    (out / "runs.json").write_text(json.dumps(runs, indent=2, default=str))
+    return {"name": found["name"], "version": found["version"], "machine": machine, "runs": runs, "outcome": title_run.worst(runs)}
 
 
 def run(config, state_dir, number, head, log):
@@ -93,10 +116,14 @@ def run(config, state_dir, number, head, log):
                 entry.update(ab=ab, verdict=protocol.verdict(ab.get("runs", [])), runs_dir=str(state_dir / "runs" / title_id))
                 entry["outcome"] = outcome_of(ab)
             else:
+                entry["scene"] = f"boot, {title.boot_seconds} s (no route)"
                 for key, label in (("A", "main"), ("B", "pr")):
-                    summary = boot_and_classify(config, title, trees[key], builds[key]["dir"], job_dir / f"title_run-{label}", note)
-                    entry.setdefault("boot", {})[key] = summary
-                entry["outcome"] = {key: worst_outcome(entry["boot"].get(key), title_id) for key in ("A", "B")}
+                    boot = boot_and_classify(config, title, builds[key]["dir"], state_dir / "games" / title_id / label,
+                                             job_dir / f"boot-{title_id}-{label}", note)
+                    entry.setdefault("boot", {})[key] = boot
+                    entry.setdefault("name", boot["name"])
+                    entry.setdefault("version", boot["version"])
+                entry["outcome"] = {key: entry["boot"][key]["outcome"] for key in ("A", "B")}
         results["status"] = "done"
     except Exception as error:
         results["status"] = "failed"
@@ -127,13 +154,6 @@ def outcome_of(ab):
         else:
             out[key] = "not run"
     return out
-
-
-def worst_outcome(summary, title_id):
-    if not summary:
-        return "not run"
-    runs = summary["titles"].get(title_id, {}).get("runs", [])
-    return game.title_run.worst(runs) if runs else "not run"
 
 
 def finish(job_dir, results):
