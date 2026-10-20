@@ -84,6 +84,8 @@ def render(config, number, results, history, notes=()):
              f"Numbers are from one machine and one scene; they are not a review.", ""]
     lines += [f"**Head `{head[:9]}`** (merged as `{merge[:9]}` on main `{base[:9]}`), {results.get('started', '')[:16].replace('T', ' ')}",
               f"Machine: {machine_line(results)}. Sandbox: {sandbox}.", ""]
+    if results.get("simulated"):
+        lines += [f"**Simulated head** (a fixture for the dry-run demonstration, not a run): {results['simulated']}", ""]
     if results.get("status") == "failed":
         lines += [f"The job failed: `{results.get('error', '?')}`", ""]
     if results.get("status") == "superseded":

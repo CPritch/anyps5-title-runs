@@ -6,6 +6,8 @@
   title-runs run [--pr PR] [--post]      run the ready jobs (or one PR's ready head), render, post (dry-run unless --post
                                          and poster.enabled)
   title-runs render PR [--results FILE]  print the comment the last results (or FILE) give
+  title-runs publish PR --results FILE   mark the PR's current head done with FILE's results, render and post (dry-run);
+                                         for results made elsewhere, and for the simulated head of the README's demo
 """
 
 import argparse
@@ -112,6 +114,18 @@ def cmd_render(config, args):
     return 0
 
 
+def cmd_publish(config, args):
+    state_dir, state, _ = paths(config)
+    results = json.loads(Path(args.results).read_text())
+    head = state.current(args.pr)
+    if head is None or head["head"] != results["head"]:
+        raise SystemExit(f"#{args.pr}: the current head is {head and head['head'][:9]}, the results are for {results['head'][:9]}")
+    poller.finish(state, args.pr, results["head"], DONE if results.get("status") == "done" else FAILED, args.results)
+    publish(config, state, args.pr, results, args.post)
+    state.save()
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="title-runs", description="Title runs of followed AnyPS5 pull requests.")
     parser.add_argument("--config", type=Path, default=ROOT / "config.toml")
@@ -129,9 +143,13 @@ def main(argv=None):
     p = sub.add_parser("render")
     p.add_argument("pr", type=int)
     p.add_argument("--results", type=Path)
+    p = sub.add_parser("publish")
+    p.add_argument("pr", type=int)
+    p.add_argument("--results", type=Path, required=True)
+    p.add_argument("--post", action="store_true")
     args = parser.parse_args(argv)
     config = configs.load(args.config)
-    return {"poll": cmd_poll, "status": cmd_status, "confirm": cmd_confirm, "run": cmd_run, "render": cmd_render}[args.command](config, args)
+    return {"poll": cmd_poll, "status": cmd_status, "confirm": cmd_confirm, "run": cmd_run, "render": cmd_render, "publish": cmd_publish}[args.command](config, args)
 
 
 if __name__ == "__main__":
