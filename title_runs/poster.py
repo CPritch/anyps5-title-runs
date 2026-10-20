@@ -1,7 +1,7 @@
 """Post or edit the bot's comment. Dry-run by default: the body and the API call it would make go to the outbox.
 
 The real poster is used only when poster.enabled is true in the config and is not asked for a dry run. It reads the
-bot's token from the environment variable poster.token_env (a fine-grained token of the bot account, see README), edits
+bot's token from the environment variable poster.token_env (see the README's "The bot account" for the token), edits
 the bot's existing comment by id, and posts a new one only when the report's rule says so.
 """
 

@@ -65,6 +65,21 @@ files (save data and settings copied into the title's private game directory bef
 (package entries to leave out of `app0`), the Graphics Mode the seeded settings select (for the report) and extra
 environment.
 
+## The bot account
+
+The poster is off until `poster.enabled = true`, and even then posts only with `run --post`. To turn it on:
+
+- a GitHub account for the bot (GitHub's terms allow one machine account per person, run by that person);
+- a token for it in the environment variable `poster.token_env`. The repository belongs to someone else, so a
+  fine-grained token cannot write to it (those reach only the token owner's repositories, and other public ones
+  read-only). Use either a classic token of the bot account with the `public_repo` scope, which can comment on any
+  public repository and also edit or delete the bot's own comments there, or a GitHub App that the repository's
+  maintainer installs, with "Pull requests: Read and write" (comments on a PR go through the issues API);
+- for the poll, no write access: the `gh` CLI's login or any token, since the pull request data is public.
+
+The poster keeps the bot's comment id in `state.json`. If that file is lost, the next post is a new comment; it
+does not yet look for the bot's earlier comment by its marker.
+
 ## Routes
 
 A route is data (JSON): pad steps and frame-state conditions to a named scene, as the harness's `nav.sh` does. Frames
