@@ -196,8 +196,7 @@ class Protocol:
         try:
             self.driver(side, run, game).run(stop_at=self.route.get("timed_stop_after", "resume"))
             waited = 0
-            summary = side.work / "aps5-summary.jsonl"
-            while game.alive() and not (summary.exists() and '"trace":"aps5-trace' in summary.read_text(errors="replace")):
+            while game.alive() and not capture.window_line(side.work):
                 time.sleep(2)
                 waited += 2
                 if waited >= CAPTURE_TIMEOUT_S:
