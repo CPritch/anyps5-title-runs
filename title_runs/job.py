@@ -68,12 +68,13 @@ def boot_and_classify(config, title, build_dir, work, out, log):
             "outcome": title_run.worst(runs)}
 
 
-def run(config, state_dir, number, head, log, recheck=None, progress=None, should_stop=None):
+def run(config, state_dir, number, head, log, recheck=None, progress=None, should_stop=None, remote=None, main=None):
     """Build and run head (the approved SHA); returns the job's results (also written to jobs/<number>-<head>/results.json).
 
     recheck() -> a reason or None, called after the trees are ready and just before anything is built: the client asks
     the queue again whether this SHA is still the approved one. progress(text) and should_stop() go to the A/B protocol:
-    a job whose head is superseded ends after the run it is in."""
+    a job whose head is superseded ends after the run it is in. remote: where the head and main come from (default the
+    config's); main: a main SHA pinned in advance (the overnight list's), instead of main's tip now."""
     state_dir = Path(state_dir)
     job_dir = state_dir / "jobs" / f"{number}-{head[:12]}"
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -86,7 +87,8 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
             stream.write(f"{datetime.datetime.now():%H:%M:%S} {text}\n")
 
     try:
-        base = sources.fetch_approved(config.repo_dir, config.remote, head)
+        remote = remote or config.remote
+        base = sources.fetch_pinned(config.repo_dir, remote, head, main) if main else sources.fetch_approved(config.repo_dir, remote, head)
         trees = {"A": state_dir / "trees" / "main", "B": state_dir / "trees" / "pr"}
         sources.worktree(config.repo_dir, trees["A"], base)
         sources.worktree(config.repo_dir, trees["B"], base)

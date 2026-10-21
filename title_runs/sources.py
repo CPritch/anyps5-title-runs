@@ -46,6 +46,26 @@ def fetch_approved(repo_dir, remote, head, main_branch="main"):
     return git(repo_dir, "rev-parse", "refs/title-runs/main")
 
 
+def fetch_pinned(repo_dir, remote, head, main):
+    """fetch_approved for a main fixed in advance (an overnight list pins main for the whole night): the head and that
+    main, both by SHA. Returns main."""
+    for sha in (main, head):
+        if subprocess.run(["git", "-C", str(repo_dir), "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode != 0:
+            git(repo_dir, "fetch", "--no-tags", "-q", remote, sha)
+        if git(repo_dir, "rev-parse", f"{sha}^{{commit}}") != sha:
+            raise SourceError(f"{sha} did not resolve to itself")
+    git(repo_dir, "update-ref", f"refs/title-runs/approved/{head}", head)
+    return main
+
+
+def main_tip(remote, main_branch="main"):
+    """The SHA main is at on remote now, without fetching anything."""
+    out = subprocess.run(["git", "ls-remote", remote, f"refs/heads/{main_branch}"], capture_output=True, text=True, timeout=120)
+    if out.returncode != 0 or not out.stdout.strip():
+        raise SourceError(f"could not read main from {remote}: {out.stderr.strip()[:200]}")
+    return out.stdout.split()[0]
+
+
 def merge_onto(tree, main, head):
     """Merge head onto main in the worktree (already checked out at main). Returns the merge commit; raises SourceError
     when they conflict."""

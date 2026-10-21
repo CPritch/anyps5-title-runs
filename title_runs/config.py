@@ -97,6 +97,9 @@ class Config:
     tray: bool = False  # keep running in the system tray when the window is closed (otherwise closing quits)
     text_size: str = "normal"
     view: str = "simple"
+    overnight_repository: str = ""  # [overnight]: pull requests tested in the tester's hours with nothing posted (overnight.py)
+    overnight_prs: list = field(default_factory=list)
+    overnight_authors: list = field(default_factory=list)
     machine_info: dict = field(default_factory=dict)
 
     @property
@@ -175,5 +178,8 @@ def load(path):
         tray=bool(data.get("client", {}).get("tray", False)),
         text_size=str(data.get("client", {}).get("text_size", "normal")),
         view=str(data.get("client", {}).get("view", "simple")),
+        overnight_repository=str(data.get("overnight", {}).get("repository", "")),
+        overnight_prs=[int(n) for n in data.get("overnight", {}).get("prs", [])],
+        overnight_authors=[str(a) for a in data.get("overnight", {}).get("authors", [])],
         machine_info=dict(data.get("machine", {})),
     )

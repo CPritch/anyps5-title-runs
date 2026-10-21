@@ -398,6 +398,56 @@ class SettingsTab(QWidget):
         self.engine.save_config()
 
 
+class OvernightTab(QWidget):
+    """Tonight's list: pull requests of a project you follow, tested in your hours with nothing posted (overnight.py)."""
+
+    def __init__(self, engine):
+        super().__init__()
+        self.engine = engine
+        config = engine.config
+        form = QFormLayout(self)
+        form.addRow(theme.mark(QLabel("Changes you pick, tested in your hours. Nothing is posted: each result stays on this computer, with a draft "
+                                      "comment you can post yourself."), role="muted"))
+        self.repository = QLineEdit(config.overnight_repository)
+        self.repository.setPlaceholderText("the project on GitHub, OWNER/NAME")
+        form.addRow("Project", self.repository)
+        self.prs = QLineEdit(", ".join(str(n) for n in config.overnight_prs))
+        self.prs.setPlaceholderText("pull request numbers, separated by commas")
+        form.addRow("Pull requests", self.prs)
+        self.authors = QLineEdit(", ".join(config.overnight_authors))
+        self.authors.setPlaceholderText("GitHub names: their open pull requests too (optional)")
+        form.addRow("People", self.authors)
+        row = QHBoxLayout()
+        self.state = QLabel("")
+        self.state.setWordWrap(True)
+        row.addWidget(self.state, 1)
+        check = QPushButton("Check now")
+        check.clicked.connect(lambda: (self.save(), engine.work.put(("overnight", None))))
+        row.addWidget(check)
+        save = QPushButton("Save")
+        save.clicked.connect(self.save)
+        row.addWidget(save)
+        form.addRow(row)
+
+    def refresh(self):
+        if not self.engine.overnight.enabled():
+            self.state.setText("Empty: add a project and some pull requests.")
+            return
+        data = self.engine.overnight.read()
+        count = {s: sum(1 for e in data["entries"] if e["status"] == s) for s in ("queued", "done", "failed", "skipped")}
+        pinned = (data.get("pinned") or {}).get("main")
+        self.state.setText(f"{count['queued']} waiting, {count['done']} tested, {count['failed']} didn't run, {count['skipped']} skipped"
+                           + (f" · main {pinned[:9]} for tonight" if pinned else ""))
+
+    def save(self):
+        config = self.engine.config
+        config.overnight_repository = self.repository.text().strip()
+        config.overnight_prs = sorted({int(x) for x in self.prs.text().replace("#", "").replace(",", " ").split() if x.isdigit()})
+        config.overnight_authors = [a for a in self.authors.text().replace(",", " ").split() if a]
+        self.engine.save_config()
+        self.refresh()
+
+
 class AppTab(QWidget):
     """How the app looks and behaves: text size, the simple or advanced view, and whether closing the window quits."""
 
@@ -455,7 +505,9 @@ class SettingsPage(QScrollArea):
         self.engine = engine
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.account, self.schedule, self.titles, self.app = SettingsTab(engine), ScheduleTab(engine), TitlesTab(engine), AppTab(engine)
-        for title, widget in (("", self.account), ("When to test", self.schedule), ("Your games", self.titles), ("This app", self.app)):
+        self.overnight = OvernightTab(engine)
+        for title, widget in (("", self.account), ("When to test", self.schedule), ("Tonight's list", self.overnight), ("Your games", self.titles),
+                              ("This app", self.app)):
             if title:
                 layout.addWidget(theme.mark(QLabel(title), role="heading"))
             layout.addWidget(widget)
@@ -466,7 +518,7 @@ class SettingsPage(QScrollArea):
         advanced = self.engine.config.view == "advanced"
         self.account.trusted_group.setVisible(advanced)  # the simple view keeps to what a tester sets
         self.account.logs_group.setVisible(advanced)
-        for part in (self.account, self.schedule, self.titles, self.app):
+        for part in (self.account, self.schedule, self.overnight, self.titles, self.app):
             part.refresh()
 
 

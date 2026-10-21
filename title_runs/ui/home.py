@@ -118,7 +118,7 @@ class HomePage(QWidget):
         box.addWidget(self.upcoming)
         lists.addWidget(upcoming, 1)
         done, box = card()
-        box.addWidget(theme.mark(QLabel("Results sent"), role="heading"))
+        box.addWidget(theme.mark(QLabel("Results"), role="heading"))
         self.recent = RowList()
         box.addWidget(self.recent)
         lists.addWidget(done, 1)
@@ -188,11 +188,15 @@ class HomePage(QWidget):
     def fill_recent(self):
         rows = self.engine.recent_rows()
         if not rows:
-            self.recent.set_rows(["No results yet. Each finished test sends its result to the change on GitHub."])
+            self.recent.set_rows(["No results yet. A queued test sends its result to the change on GitHub; one from tonight's list stays on this computer."])
             return
         out = []
         for row in rows:
-            link = self.engine.comment_link(row["number"])
-            where = f" · <a href='{link}'>see it on GitHub</a>" if link.startswith("https://") else ""
+            if row.get("local"):
+                draft = row.get("draft", "")
+                where = (f" · kept on this computer · <a href='file://{draft}'>the draft comment</a>" if draft else " · kept on this computer")
+            else:
+                link = self.engine.comment_link(row["number"])
+                where = f" · <a href='{link}'>see it on GitHub</a>" if link.startswith("https://") else ""
             out.append(f"<b>#{row['number']}</b> {row['verdict']}<br><small style='color:{theme.COLOURS['muted']}'>{utc(row['at'])}{where}</small>")
         self.recent.set_rows(out)

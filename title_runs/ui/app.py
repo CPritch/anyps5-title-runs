@@ -38,6 +38,9 @@ class Engine(QObject):
         self.dir = Path(config.state_dir) / "client"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.client = clients.Client(config, log=lambda text: None)
+        from .. import overnight
+        self.overnight = overnight.Overnight(config, log=self.log)
+        self._overnight_checked = None
         words.set_team(self.client.repo.read("config.json", {}).get("team"))  # the walkthrough reads it before the first load
         self.listing_file = Path(listing) if listing else None
         self.window = None
@@ -242,7 +245,15 @@ class Engine(QObject):
     # -- the main screen -----------------------------------------------------------------------------------------------
 
     def up_next_rows(self):
-        return model.up_next(self.ranked, self.status())
+        rows = model.up_next(self.ranked, self.status())
+        job = self.status().get("job") or {}
+        for entry in self.overnight.queued() if self.overnight.enabled() else []:
+            if job.get("pr") == entry["pr"] and job.get("head") == entry["head"]:
+                continue
+            rows.append({"number": entry["pr"], "title": entry["title"], "author": entry["author"], "head": entry["head"], "queued_by": "",
+                         "queued_at": entry["added"], "score": 0.5, "why": "Tonight's list (results stay on this computer)", "reasons": [],
+                         "overnight": True})
+        return rows
 
     def recent_rows(self):
         try:
@@ -250,7 +261,14 @@ class Engine(QObject):
             rules = verdict.settings(self.client.repo.read("config.json", {}))
         except Exception:  # noqa: BLE001 (no checkout yet)
             results, rules = {}, verdict.DEFAULT
-        return model.recent(self.status(), results, self.config.machine, rules)
+        status = self.status()
+        posted = {**status, "recent": [r for r in status.get("recent", []) if not r.get("local")]}
+        rows = model.recent(posted, results, self.config.machine, rules)
+        if self.overnight.enabled():
+            done = [e for e in self.overnight.read()["entries"] if e["status"] in ("done", "failed")]
+            rows = [{"number": e["pr"], "head": e["head"], "at": e.get("at", ""), "status": e["status"], "verdict": e.get("verdict", e["status"]),
+                     "draft": e.get("draft", ""), "local": True} for e in reversed(done)] + rows
+        return rows
 
     def home(self):
         ready, why, _ = self.readiness()
@@ -354,6 +372,38 @@ class Engine(QObject):
         ok = net.returncode != 0 and home.returncode != 0
         return ("The sandbox works: " if ok else "The sandbox is NOT working: ") + ", ".join(parts) + "."
 
+    def schedule_allows(self):
+        """The schedule alone (hours, power, fullscreen), for tonight's list, which needs no registered machine."""
+        ready = self.client.ready
+        try:
+            self.client.ready = lambda: (True, "")
+            return self.client.allowed_now()
+        finally:
+            self.client.ready = ready
+
+    def run_overnight(self):
+        """The next head on tonight's list, if there is one. Returns what was done, or None."""
+        if not self.overnight.enabled():
+            return None
+        queued = self.overnight.queued()
+        if not queued:
+            return None
+        result = self.overnight.run(queued[0], self.client)
+        return f"tested #{queued[0]['pr']} from tonight's list" if result else f"stopped #{queued[0]['pr']}"
+
+    def refresh_overnight(self, force=False):
+        """Tonight's list from GitHub every 15 minutes (read only, with the tester's sign-in)."""
+        if not self.overnight.enabled() or not self.client.tester():
+            return
+        now = formats.now()
+        if not force and self._overnight_checked and now - self._overnight_checked < datetime.timedelta(minutes=15):
+            return
+        self._overnight_checked = now
+        try:
+            self.overnight.refresh(self.client.flow().token())
+        except Exception as error:  # noqa: BLE001
+            self.log(f"could not read tonight's list: {error}")
+
     RELAY_STALE = datetime.timedelta(minutes=6)
     RELAY_EVERY = datetime.timedelta(minutes=5)
 
@@ -392,14 +442,13 @@ class Engine(QObject):
         self.thread.start()
 
     def run_best(self):
-        """Start (the Start button): the best test for this machine now, schedule or not."""
+        """Start (the Start button): the best test for this machine now, schedule or not: the queue's, then tonight's list."""
         ready, why = self.client.ready()
-        if not ready:
+        if not ready and not (self.overnight.enabled() and self.client.onboarded()):
             return why
-        best = self.client.next_job()
+        best = self.client.next_job() if ready else None
         if best is None:
-            self.client.status.update(state="idle", line="Idle: nothing in the queue for this machine")
-            return "nothing to do"
+            return self.run_overnight() or "nothing to do"
         entry = best.entry
         self.client.run(entry["pr"], entry["head"], "queue", entry.get("title", ""), entry.get("author", ""))
         return f"ran {entry['job']}"
@@ -421,9 +470,13 @@ class Engine(QObject):
                 elif kind == "next":
                     self.log(self.run_best())
                 elif self.config.automatic:
-                    self.log(self.client.run_next())
+                    done = self.client.run_next()
+                    if not done.startswith("ran ") and self.schedule_allows()[0]:  # nothing queued for this machine: tonight's list
+                        done = self.run_overnight() or done
+                    self.log(done)
                 if kind != "listing" and not self.quitting:
                     self.refresh_listing()
+                    self.refresh_overnight(force=kind == "overnight")
             except Exception as error:  # noqa: BLE001
                 if not self.quitting:
                     self.client.status.update(state="error", line=f"Error: {clients.clean(error, 200)}")
