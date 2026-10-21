@@ -16,7 +16,7 @@ import datetime
 import json
 from pathlib import Path
 
-from . import formats, gh, job, sources, verdict
+from . import formats, gh, job, sandbox, sources, verdict
 from .relay import render
 
 PIN_HOURS = 12  # a pin older than this starts a new night
@@ -153,7 +153,7 @@ class Overnight:
             return None
         result = report_result(results, head, client)
         counted = side is None and result["status"] == "done" and all((entry.get("sides") or {}) for entry in result["titles"].values())
-        record.update(status="done" if counted else "failed", at=formats.iso(formats.now()), main=main,
+        record.update(status="done" if counted else "failed", at=formats.iso(formats.now()), main=main, display=sandbox.game_display(),
                       verdict=summary_words(result, verdict.DEFAULT) if side is None else f"the change doesn't start the game: {reason}",
                       job=f"{pr}-{head[:12]}")
         self.write(data)
@@ -191,7 +191,9 @@ class Overnight:
         lines = [f"# Overnight, the night of {night}", "", f"{data['repository']}, main `{((data.get('pinned') or {}).get('main') or '?')[:9]}`.", ""]
         for e in data["entries"]:
             if e["status"] in ("done", "failed"):
-                lines.append(f"- #{e['pr']} `{e['head'][:9]}` {e['title']} ({e['author']}): {e.get('verdict', e['status'])}. Draft: {e.get('draft', '-')}")
+                shown = " (game shown inside the app: X11)" if e.get("display") == "x11" else ""
+                lines.append(f"- #{e['pr']} `{e['head'][:9]}` {e['title']} ({e['author']}): {e.get('verdict', e['status'])}{shown}. "
+                             f"Draft: {e.get('draft', '-')}")
         if data.get("paused"):
             lines += ["", f"**Paused** at {data['paused']['at']}: main `{data['paused']['main'][:9]}` doesn't start the game: "
                           f"{data['paused']['reason']}"]
