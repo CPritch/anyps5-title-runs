@@ -247,3 +247,9 @@ python3 -I -m unittest discover -s tests -t tests
 The poller against fixture listings (first and incremental polls, direct reads), the follow rules (Unblocks:, labels,
 drafts, closed PRs), debounce and supersede, the allowlist and confirmations, the verdict rule, the comment's
 contents, history and the edit-or-new rule, the dry-run poster, and `publish` refusing a head that is not ready.
+
+## License
+
+GNU General Public License version 2 only, the same as AnyPS5 (`LICENSE` is AnyPS5's). `vendor/title_run/` is
+#7264's code from AnyPS5 under that licence; `vendor/gtav_harness/` is from CPritch/gtav-harness, included under it
+too.
