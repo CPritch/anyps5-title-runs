@@ -295,6 +295,28 @@ class Sources(unittest.TestCase):
         self.clone = self.root / "clone"
         git(self.root, "clone", "-q", str(self.history.dir), str(self.clone))
 
+    def test_a_submodule_added_after_the_clone_was_made(self):
+        """Upstream adds a submodule; the tester's clone has no checkout of it. The job clones its own bare copy from the
+        url in .gitmodules (relative to the project's remote) and fills the worktree from that."""
+        lib = self.root / "vgmstream"
+        git(self.root, "init", "-q", "-b", "main", str(lib))
+        (lib / "lib.c").write_text("int vgm;\n")
+        git(lib, "add", "-A")
+        git(lib, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "lib")
+        pin = git(lib, "rev-parse", "HEAD")
+        upstream = self.history.dir
+        git(upstream, "-c", "protocol.file.allow=always", "-c", "user.name=t", "-c", "user.email=t@t", "submodule", "add", "-q", "../vgmstream",
+            "3rdparty/vgmstream")
+        git(upstream, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "add vgmstream")
+        main = git(upstream, "rev-parse", "HEAD")
+        base = sources.fetch_pinned(self.clone, str(upstream), main, main)
+        tree = self.root / "tree"
+        sources.worktree(self.clone, tree, base)
+        self.assertFalse((self.clone / "3rdparty" / "vgmstream").exists())
+        pins = sources.submodules(self.clone, tree, base, str(upstream))
+        self.assertEqual(pins, {"3rdparty/vgmstream": pin})
+        self.assertEqual((tree / "3rdparty" / "vgmstream" / "lib.c").read_text(), "int vgm;\n")
+
     def test_approved_head_merged_onto_main_the_same_on_every_machine(self):
         h = self.history
         main = sources.fetch_approved(self.clone, "origin", h.A)

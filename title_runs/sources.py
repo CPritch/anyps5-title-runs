@@ -95,10 +95,49 @@ def worktree(repo_dir, path, commit):
     return path
 
 
-def _fill(source, target, pin):
+def _urls(tree):
+    """{submodule path: url} from a tree's .gitmodules."""
+    names = {}
+    for kind in ("path", "url"):
+        text = git(tree, "config", "-f", ".gitmodules", "--get-regexp", rf"submodule\..*\.{kind}", check=False)
+        for line in text.splitlines():
+            key, value = line.split(None, 1)
+            names.setdefault(key[len("submodule."):-len(kind) - 1], {})[kind] = value
+    return {n["path"]: n.get("url", "") for n in names.values() if "path" in n}
+
+
+def _resolve(url, remote):
+    """A .gitmodules url, with a relative one (../vgmstream.git) taken against the superproject's remote."""
+    if url.startswith(("./", "../")) and remote:
+        import posixpath
+        import urllib.parse
+        parts = urllib.parse.urlsplit(remote.rstrip("/"))
+        return urllib.parse.urlunsplit(parts._replace(path=posixpath.normpath(posixpath.join(parts.path, url))))
+    return url
+
+
+def _source(source, url, cache):
+    """The repository to take a submodule from: the clone's own checkout of it, or, for a submodule the clone doesn't
+    have (upstream added it after the clone was made), a bare copy kept in cache, cloned from its url."""
+    if Path(source).exists() and subprocess.run(["git", "-C", str(source), "rev-parse", "--git-dir"], capture_output=True).returncode == 0:
+        return Path(source)
+    if not url or cache is None:
+        raise SourceError(f"{source}: the clone has no such submodule and its url is unknown")
+    import hashlib
+    bare = Path(cache) / (Path(url).stem + "-" + hashlib.sha256(url.encode()).hexdigest()[:10] + ".git")
+    if not bare.exists():
+        bare.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "clone", "-q", "--bare", "--filter=blob:none", url, str(bare)], capture_output=True, check=False)
+        if not bare.exists():
+            raise SourceError(f"could not clone the submodule {url}")
+    return bare
+
+
+def _fill(source, target, pin, url="", cache=None, remote=None):
     """Extract <pin> of the repository at <source> into <target>, then its own submodules, recursively."""
+    source = _source(source, url, cache)
     if subprocess.run(["git", "-C", str(source), "cat-file", "-e", f"{pin}^{{commit}}"], capture_output=True).returncode != 0:
-        git(source, "fetch", "-q", "origin", pin)
+        git(source, "fetch", "-q", "origin", pin)  # a bare copy's origin is its url
     if target.exists():
         shutil.rmtree(target)
     target.mkdir(parents=True)
@@ -106,8 +145,9 @@ def _fill(source, target, pin):
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
         tar.extractall(target, filter="tar")
     if (target / ".gitmodules").exists():
+        urls = _urls(target)
         for sub, nested in _pins(source, target, pin).items():
-            _fill(Path(source) / sub, target / sub, nested)
+            _fill(Path(source) / sub, target / sub, nested, _resolve(urls.get(sub, ""), url or remote), cache, url or remote)
 
 
 def _pins(repo, tree, commit):
@@ -121,7 +161,7 @@ def _pins(repo, tree, commit):
     return pins
 
 
-def submodules(repo_dir, path, commit):
+def submodules(repo_dir, path, commit, remote=None):
     """Fill each submodule directory of the worktree with the tree its pin names, nested submodules included (the
     clone's own nested checkouts supply them). Returns {path: pin}. The pins a worktree holds are recorded next to it
     (<worktree>.pins.json), not inside it, so the tree stays clean."""
@@ -129,11 +169,13 @@ def submodules(repo_dir, path, commit):
     record = path.with_name(path.name + ".pins.json")
     held = json.loads(record.read_text()) if record.exists() else {}
     pins = _pins(repo_dir, path, commit)
+    urls = _urls(path)
+    cache = Path(git(repo_dir, "rev-parse", "--path-format=absolute", "--git-common-dir")) / "title-runs-modules"
     for sub, pin in pins.items():
         target = path / sub
         if held.get(sub) == pin and target.is_dir() and any(target.iterdir()):
             continue
-        _fill(Path(repo_dir) / sub, target, pin)
+        _fill(Path(repo_dir) / sub, target, pin, _resolve(urls.get(sub, ""), remote), cache, remote)
         held[sub] = pin
         record.write_text(json.dumps(held, indent=1, sort_keys=True))
     return pins

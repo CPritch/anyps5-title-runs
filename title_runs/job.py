@@ -97,7 +97,7 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
         note(f"#{number}: {head[:9]} merged onto main {base[:9]} as {merge[:9]}")
         commits = {"A": base, "B": merge}
         for key in ("A", "B"):
-            pins = sources.submodules(config.repo_dir, trees[key], commits[key])
+            pins = sources.submodules(config.repo_dir, trees[key], commits[key], remote)
             note(f"{key}: {commits[key][:9]}, {len(pins)} submodules filled")
         # The last check before anything is built: the tree merges exactly the approved SHA, and the queue still names it.
         built = sources.git(trees["B"], "rev-parse", "HEAD^2")
