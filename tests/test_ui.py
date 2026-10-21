@@ -4,6 +4,7 @@ the author's name typed exactly; Enter does not accept."""
 import json
 import os
 import unittest
+from pathlib import Path
 
 import helpers  # noqa: F401
 
@@ -249,6 +250,58 @@ class WalkthroughAndOverview(unittest.TestCase):
         window.refresh()
         self.assertIn("1 comment from an account without a registered machine", window.overview.ignored.text())
         self.assertIn("The workflow did not use your comment", window.queue.not_ready.text())
+
+    def test_a_new_tester_names_the_results_repository_in_the_walkthrough(self):
+        from title_runs import config as configs
+        from title_runs.ui import app
+        from title_runs.ui.walkthrough import Walkthrough
+        fresh = self.root / "fresh" / "config.toml"
+        app.new_config(fresh, "", self.stand.endpoint, self.root / "fresh-state")
+        engine = app.Engine(configs.load(fresh))
+        self.assertEqual(engine.config.results_url, "")
+        wizard = Walkthrough(engine, str(self.dumps))  # kept: its pages go with it
+        page = wizard.sign_in
+        self.assertTrue(page.where.isVisibleTo(page))
+        self.assertFalse(page.start_button.isEnabled())
+        page.location.setText(str(self.stand.results_git))
+        page.use()
+        self.assertTrue(page.start_button.isEnabled())
+        self.assertIn(f'url = "{self.stand.results_git}"', fresh.read_text())
+
+    def test_find_games_however_the_folder_is_given(self):
+        from unittest import mock
+        from title_runs.ui.walkthrough import Walkthrough
+        wizard = Walkthrough(self.engine, "")
+        page = wizard.dumps
+        for given in (f" {self.dumps} ", f"file://{self.dumps}", str(self.dumps / "PPSA04263-app")):
+            page.folder.setText(given)
+            page.scan()
+            self.assertEqual([d["title_id"] for d in page.found], ["PPSA04263"], given)
+            self.assertIn("Found 1 game in", page.result.text())
+        page.folder.setText("")
+        with mock.patch("pathlib.Path.home", return_value=self.root):
+            page.scan()  # nothing given: the home folder
+        self.assertEqual([d["title_id"] for d in page.found], ["PPSA04263"])
+        page.folder.setText(str(self.root / "nothing-here"))
+        page.scan()
+        self.assertIn("There is no folder", page.result.text())
+        self.assertFalse(page.isComplete())
+
+    def test_the_clients_own_copies_are_not_games_again(self):
+        import shutil
+        from title_runs import platform_info
+        copy = Path(self.engine.config.state_dir) / "games" / "PPSA04263" / "main"
+        shutil.copytree(self.dumps / "PPSA04263-app", copy)
+        shutil.copytree(self.dumps / "PPSA04263-app", self.root / "dumps-too" / "PPSA04263-app")
+        found = platform_info.find_dumps(self.root, depth=5, skip=[self.engine.config.state_dir])
+        self.assertEqual(len(found), 1)  # the same title and version once, and never from the state folder
+        self.assertNotIn(str(Path(self.engine.config.state_dir)), found[0]["path"])
+
+    def test_owner_name_in_the_config_is_github(self):
+        from title_runs import config as configs
+        path = self.root / "owner-name.toml"
+        path.write_text('[results]\nurl = "CPritch/anyps5-title-runs-results"\n')
+        self.assertEqual(configs.load(path).results_url, "https://github.com/CPritch/anyps5-title-runs-results.git")
 
     def test_the_listing_is_of_the_results_repositorys_repository(self):
         from unittest import mock

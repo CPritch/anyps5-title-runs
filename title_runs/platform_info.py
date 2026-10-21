@@ -79,15 +79,30 @@ def machine_info():
     return {"gpu": name, "driver": driver, "os": system}
 
 
-def find_dumps(folder, depth=3):
-    """Extracted packages under folder (eboot.bin and sce_sys/param.json): [{"title_id", "name", "version", "path"}]."""
+def search_folder(text):
+    """The folder a tester gave: typed, pasted with spaces around it, or pasted from a file manager as a file:// link.
+    Nothing given means the home folder."""
+    import urllib.parse
+    text = (text or "").strip().strip('"').strip("'")
+    if text.startswith("file://"):
+        text = urllib.parse.unquote(urllib.parse.urlparse(text).path)
+    return Path(text).expanduser() if text else Path.home()
+
+
+def find_dumps(folder, depth=3, skip=()):
+    """Extracted packages under folder (eboot.bin and sce_sys/param.json): [{"title_id", "name", "version", "path"}].
+    skip: folders not to look in (the client's own state, whose game folders are copies). One entry per title and
+    version: the first found."""
     found = []
-    folder = Path(folder).expanduser()
+    folder = search_folder(folder) if not isinstance(folder, Path) else folder
+    skip = {Path(s).expanduser().resolve() for s in skip}
     if not folder.is_dir():
         return found
     stack = [(folder, 0)]
     while stack:
         path, level = stack.pop()
+        if path.resolve() in skip:
+            continue
         param = path / "sce_sys" / "param.json"
         if (path / "eboot.bin").is_file() and param.is_file():
             try:
@@ -97,7 +112,9 @@ def find_dumps(folder, depth=3):
             names = data.get("localizedParameters", {})
             language = names.get("defaultLanguage", "en-US")
             name = names.get(language, {}).get("titleName") or data.get("titleId", "?")
-            found.append({"title_id": data.get("titleId", "?"), "name": name, "version": data.get("contentVersion", "?"), "path": str(path)})
+            entry = {"title_id": data.get("titleId", "?"), "name": name, "version": data.get("contentVersion", "?"), "path": str(path)}
+            if not any(f["title_id"] == entry["title_id"] and f["version"] == entry["version"] for f in found):
+                found.append(entry)
             continue
         if level < depth:
             try:

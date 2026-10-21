@@ -147,7 +147,7 @@ class DumpsPage(QWizardPage):
         browse = QPushButton("Browse…")
         browse.clicked.connect(self.browse)
         row.addWidget(browse)
-        scan = QPushButton("Find titles")
+        scan = QPushButton("Find games")
         scan.clicked.connect(self.scan)
         row.addWidget(scan)
         layout.addLayout(row)
@@ -155,6 +155,8 @@ class DumpsPage(QWizardPage):
         self.table.setHorizontalHeaderLabels(["Title ID", "Name", "Version", "Check", "Folder"])
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
+        self.result = text("Press Find games to look through your home folder, or choose a folder first.")
+        layout.addWidget(self.result)
         layout.addWidget(self.table)
         layout.addWidget(text("<i>Full timing</i>: a route drives the game to a scene and times main against the change. "
                               "<i>Boot check</i>: the game is started and its outcome classed (rendering, crashed, …)."))
@@ -178,7 +180,18 @@ class DumpsPage(QWizardPage):
             self.scan()
 
     def scan(self):
-        self.found = platform_info.find_dumps(self.folder.text())
+        where = platform_info.search_folder(self.folder.text())
+        skip = [self.wizard().engine.config.state_dir] if self.wizard() else []
+        self.found = platform_info.find_dumps(where, depth=3 if self.folder.text().strip() else 4, skip=skip)
+        shown = str(where).replace(str(Path.home()), "~", 1)
+        if self.found:
+            names = ", ".join(sorted({d["name"] for d in self.found}))
+            self.result.setText(f"Found {len(self.found)} game{'s' if len(self.found) != 1 else ''} in {shown}: {names}.")
+        elif not where.is_dir():
+            self.result.setText(f"There is no folder {shown}. Choose the folder your games are in with Browse.")
+        else:
+            self.result.setText(f"No games found in {shown}. A game's folder has eboot.bin and a sce_sys folder in it: "
+                                f"choose the folder that holds your game folders, or a game's own folder.")
         self.table.setRowCount(len(self.found))
         for i, dump in enumerate(self.found):
             route = (ROOT / "routes" / f"{dump['title_id']}.json").exists()
@@ -207,6 +220,16 @@ class SignInPage(QWizardPage):
         self.setSubTitle("The client reports as you, through the maintainers' App. It can comment and open issues in the results repository; "
                          "nothing else of your account.")
         layout = QVBoxLayout(self)
+        self.where = QGroupBox("Join the testing")
+        row = QHBoxLayout(self.where)
+        self.location = QLineEdit(engine.config.results_url)
+        self.location.setPlaceholderText("Paste the testing link the AnyPS5 team gave you (https://github.com/…)")
+        row.addWidget(self.location, 1)
+        use = QPushButton("Join")
+        use.clicked.connect(self.use)
+        row.addWidget(use)
+        layout.addWidget(self.where)
+        self.where.setVisible(not engine.config.results_url)
         self.state = text("")
         layout.addWidget(self.state)
         self.code = QLabel("")
@@ -237,8 +260,23 @@ class SignInPage(QWizardPage):
         self.timer.timeout.connect(self.poll)
         self.show_state()
 
+    def use(self):
+        try:
+            self.engine.client.use(self.location.text())
+            self.engine.save_config()
+        except Exception as error:  # noqa: BLE001 (shown on the page)
+            self.state.setText(f"That link didn't work. Check it's the testing link the AnyPS5 team gave you. ({str(error)[:120]})")
+            return
+        self.show_state()
+
     def show_state(self):
         login = self.engine.client.tester()
+        has_repo = bool(self.engine.config.results_url) and bool((self.engine.client.repo.read("config.json", {}).get("app") or {}).get("client_id"))
+        self.start_button.setEnabled(has_repo)
+        if not has_repo:
+            self.state.setText("First paste the testing link the AnyPS5 team gave you, and press Join.")
+            self.completeChanged.emit()
+            return
         if login:
             self.state.setText(f"Signed in as <b>{login}</b>. The sign-in lasts 8 hours and renews itself for 6 months; Settings signs out.")
             self.code.setText("✓")
