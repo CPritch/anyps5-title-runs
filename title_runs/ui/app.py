@@ -98,7 +98,8 @@ class Engine(QObject):
         if hours is None:
             return ""
         return (f"<b>The results repository's workflow last ran {hours:.0f} h ago.</b> GitHub may have delayed or dropped its scheduled runs, "
-                f"or disabled the schedule after 60 days without activity; a maintainer turns it back on in the repository's Actions tab.")
+                f"or disabled the schedule after 60 days without activity. A maintainer turns it back on: the repository's Actions tab, "
+                f"relay, Enable workflow, then Run workflow (its README has the steps).")
 
     def ignored_mine(self):
         """The workflow answers nothing it does not use; the tester's own ignored comments are in its public cursors."""

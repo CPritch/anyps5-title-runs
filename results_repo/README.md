@@ -21,6 +21,21 @@ Setting it up (one App, this repository, one secret):
    repository and the commit to run.
 5. Run the workflow once from the Actions tab (Run workflow), then pin the Overview issue it opens.
 
-GitHub runs scheduled workflows of public repositories for free, but may delay or drop runs, and disables the schedule
-after 60 days without activity in the repository: the Overview shows when the workflow last ran, and a disabled
-schedule is turned back on from the Actions tab.
+## When the workflow stops running
+
+GitHub runs scheduled workflows of public repositories for free, but may delay or drop runs, and **disables the
+schedule after 60 days without activity in the repository**. The Overview issue says when the workflow last ran,
+and testers' clients warn when that is more than an hour ago.
+
+To turn a disabled schedule back on (a maintainer with write access):
+
+1. Open the repository's **Actions** tab and pick **relay** in the list of workflows on the left.
+2. GitHub shows "This scheduled workflow is disabled because there hasn't been activity in this repository for at
+   least 60 days". Press **Enable workflow**.
+3. Press **Run workflow** (the button on the right of the run list) once, so it catches up now instead of at the
+   next scheduled time. Nothing is lost while it was off: the workflow keeps cursors and reads everything since.
+
+Or from a terminal: `gh workflow enable relay -R OWNER/NAME && gh workflow run relay -R OWNER/NAME`.
+
+Check it worked: a new run appears in the Actions tab within a few minutes, and the Overview issue's "Updated by the
+relay workflow at …" line shows the new time.
