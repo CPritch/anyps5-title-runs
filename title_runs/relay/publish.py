@@ -1,7 +1,7 @@
 """The publish workflow: a push to the results repository -> checked results -> the App's comment.
 
-A push by a tester (config.json's testers) to the main branch may only add or change claims/<job>/<machine>.json and
-results/<job>/<machine>.json for that tester's machines; a push that touches anything else is refused whole, and none
+A push by a tester (config.json's testers) to the main branch may only add, change or remove
+claims/<job>/<machine>.json and add or change results/<job>/<machine>.json for that tester's machines; a push that touches anything else is refused whole, and none
 of its results is posted. The queue, the configuration and the comment state are read from the state branch, which
 testers cannot push to (the repository's rules protect it), never from what the push brought. Each result is checked (formats.check_result) and against
 - its claim: the same tester, machine and head, and pushed before the claim expired;
@@ -80,7 +80,8 @@ def publish(state, data, forge, actor, before, after, at=None, log=print):
     machines = config["testers"][actor].get("machines", [])
     for status, path in paths:
         found = CLAIM.fullmatch(path) or RESULT.fullmatch(path)
-        if found is None or found.group(2) not in machines or status not in ("A", "M"):
+        allowed = ("A", "M", "D") if CLAIM.fullmatch(path) else ("A", "M")
+        if found is None or found.group(2) not in machines or status not in allowed:
             report["refused"] = [(path, f"a push by {actor} may only add or change claims and results of {', '.join(machines)}; "
                                         f"it {'deleted' if status == 'D' else 'changed'} {path}")]
             log(f"refused the whole push: {report['refused'][0][1]}")

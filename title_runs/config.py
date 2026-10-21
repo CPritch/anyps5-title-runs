@@ -11,6 +11,12 @@ from . import ROOT
 TITLE_ID = re.compile(r"[A-Z]{4}[0-9]{5}")
 
 
+# When work may run (the Schedule tab): only when the machine has been idle idle_minutes, only on mains power, within
+# hours [first, last), not while one of pause_for (process names) runs; and limits.
+SCHEDULE = {"idle_only": True, "idle_minutes": 10, "mains_only": True, "hours": [0, 24], "pause_for": ["gtav.elf", "gtav-play"],
+            "max_disk_gb": 60, "max_job_hours": 3}
+
+
 class ConfigError(ValueError):
     pass
 
@@ -57,6 +63,12 @@ class Config:
     poster_enabled: bool
     poster_token_env: str
     allocator: str = ""
+    results_url: str = ""
+    results_token_env: str = "TITLE_RUNS_RESULTS_TOKEN"
+    state_branch: str = "state"
+    schedule: dict = field(default_factory=lambda: dict(SCHEDULE))
+    screenshots: bool = False
+    machine_info: dict = field(default_factory=dict)
 
     @property
     def owner(self):
@@ -128,4 +140,10 @@ def load(path):
         poster_enabled=bool(poster.get("enabled", False)),
         poster_token_env=poster.get("token_env", "TITLE_RUNS_BOT_TOKEN"),
         allocator=data.get("run", {}).get("allocator", ""),
+        results_url=os.path.expanduser(data.get("results", {}).get("url", "")),
+        results_token_env=data.get("results", {}).get("token_env", "TITLE_RUNS_RESULTS_TOKEN"),
+        state_branch=data.get("results", {}).get("state_branch", "state"),
+        schedule={**SCHEDULE, **data.get("schedule", {})},
+        screenshots=bool(data.get("client", {}).get("screenshots", False)),
+        machine_info=dict(data.get("machine", {})),
     )
