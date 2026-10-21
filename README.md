@@ -7,61 +7,85 @@ runs on hardware and games they do not have, without asking each time.
 Python 3.11 or later; the engine and the workflows use the standard library only, the tray and the window PySide6.
 Linux (bubblewrap for the sandbox); the client's platform code has Windows paths written but not yet run.
 
-DESIGN.md describes the tool we are aiming for, FORMATS.md the results repository's files. There are two ways to
-drive the engine:
+DESIGN.md describes the tool we are aiming for, FORMATS.md the results repository's files and the testers' comments.
+There are two ways to drive the engine:
 
-- **The client and the results repository** (round 2, below): maintainers queue a PR's approved commit with a label or
-  a `/title-test` command; volunteer machines pick jobs from `queue.json`, build and run them in the sandbox and push
-  result files; the results repository's workflows post the App's comment. Until the App and the repository exist,
-  `title-runs standin` plays GitHub and the results repository on one machine.
+- **The client and the results repository** (round 3, below): maintainers install one GitHub App and keep one public
+  results repository with one scheduled workflow. They queue a PR's head with a label or a `/title-test` command.
+  Testers sign in through the App, register their machine, and report as comments on per-job issues. Until the App
+  and the repository exist, `title-runs standin` plays GitHub, the results repository and its workflow on one machine.
 - **The tester's own poller** (round 1, "What it does" and after): one tester follows PRs from a GraphQL listing and
   posts with a bot token. Kept for reference; DESIGN.md replaces its trust and posting.
 
 ## The client and the results repository
 
-One job is one approved commit of one PR (DESIGN.md, "Approval is per commit"):
+What a maintainer sets up (`results_repo/README.md`): one GitHub App (no webhook, device flow on; Issues and Pull
+requests read and write, Metadata read) installed on AnyPS5 and on one public results repository, whose only secret
+is the App's private key. Nothing to host, no paid feature, no token per tester.
 
-1. **Queue** (`results_repo/.github/workflows/queue.yml`, code in `title_runs/relay/queue.py`). A maintainer's label
-   pins the PR's head SHA from the label event itself; `/title-test [high|normal|low] [titles=..] [hw=..] [machines=N]
-   [sha=..] | stop` from a maintainer (the config's list and OWNER, MEMBER or COLLABORATOR) sets options and can pin
-   any commit of the PR. The App reacts (+1, or confused for anyone else or a command it does not understand) and
-   writes "Queued <sha> for title runs" in its one comment on the PR. A push after approval stays "not checked",
-   and testers keep to the approved SHA, unless its own commits have the approved head's patch-ids (a rebase) or the
-   pusher is OWNER, MEMBER or COLLABORATOR and not the PR's author; then the approval is carried over.
-2. **Choose** (`title_runs/schedule.py`): each client scores the queue (priority × hardware × titles × coverage gap ×
-   age) and takes the best job it may run now (the Schedule tab: idle, mains power, hours, games running).
-3. **Claim and build** (`title_runs/client.py`, `sources.py`, `build.py`): a claim file with a 3-hour expiry; the
-   approved SHA and main are fetched, merged locally (the same merge SHA on every machine), the queue is asked again
-   just before building, and both sides build in the build sandbox, without network.
-4. **Run** (`protocol.py`, unchanged from round 1): the A/B in the title sandbox, checked against the queue between
-   runs (a superseded head stops after its current run).
-5. **Publish** (`results_repo/.github/workflows/publish.yml`, `title_runs/relay/publish.py`): the result file goes to
-   the results repository's main branch; the workflow checks it against its claim, the pusher and the approved heads,
-   and edits the App's comment (a new comment when an outcome or a verdict changes).
+The results repository's one workflow, `relay` (`results_repo/.github/workflows/relay.yml`, code in
+`title_runs/relay/`), runs every 5 minutes and on demand, at the tool's commit that `config.json` pins:
 
-The workflows run this tool at a commit pinned in a repository variable, never code from the results repository, and
-read the queue, the configuration and the comment state from its `state` branch, which testers cannot push to. See
-`results_repo/README.md` for the repository's settings.
+1. **Queue.** It reads AnyPS5's label events and comments as the App. A maintainer's `title-test` label pins the PR's
+   head, if that head was pushed before the label; the push time and pusher come from the PR's earliest workflow run
+   for that head, since a label event carries no SHA. `/title-test [high|normal|low] [titles=..] [hw=..] [machines=N]
+   [sha=..] | stop` sets options and can pin any commit. Each queued head gets a job issue in the results repository.
+2. **A push after approval** carries the approval over if the new head has the approved head's patch-ids (a rebase),
+   or if a collaborator who isn't the author pushed it. Otherwise the approval expires: the App removes the label,
+   and its comment on the PR says which commit expired it. A maintainer adds the label again to queue the new head.
+3. **Registrations.** A tester's client opens a `Machine: <login>/<machine>` issue. A maintainer approves it by adding
+   the label `approved` (`declined` turns it down), on GitHub or with Approve in the client's Overview tab.
+4. **Results.** A claim and a result are comments on the job issue from the tester's own account. The workflow takes
+   a result only from a registered machine with an earlier, unexpired claim on the same job and head, writes it to
+   `results/`, and edits the App's comment on the PR. It posts a new comment instead when an outcome or a verdict
+   changes.
+5. **Overview.** It keeps an "Overview" issue up to date: the queue with coverage per class and title and what is
+   still wanted, approvals a push expired, machines and when each last reported, and pending registrations.
+
+Verdicts (`title_runs/verdict.py`, DESIGN.md "Verdicts"): on one machine a difference counts when it exceeds both
+spreads and 1 % of main's p50. Machines of one class (GPU model, driver branch, OS) are combined by their main-vs-PR
+differences, never their raw frame times: "faster on 3 of 3 <class> machines, median -0.30 ms". A borderline class
+asks the scheduler for one more machine of it.
+
+The client (`title_runs/client.py`) reads the results repository's public checkout and never pushes to it. It picks
+the best-scoring job (`schedule.py`), claims it with a comment, fetches the approved SHA and main, merges them
+locally, checks the queue again, builds and runs in the sandbox, and reports with a comment.
 
 ### The window
 
-`title-runs ui --config FILE` starts the tray and the window: Queue (running, up next with the score's reasons, waiting
-for you, recently posted), Pull requests (queued by maintainers, mentions your titles, labelled perf/agc/shader,
-everything else), Schedule, Titles, Settings (connection check, sandbox self-test, trusted authors, logs). `Run…` on a
-PR no maintainer queued opens the trust dialog. `title-runs ui --setup --config FILE` is the first-run setup.
-Screenshots: `docs/screens/`. Without the window: `title-runs client --config FILE queue|next|run-once|daemon`.
+`title-runs ui --config FILE` starts the tray and the window. On first open (`--config NEW --results URL` makes a new
+config) it shows the walkthrough. The walkthrough covers what the tool does and what leaves the machine, the sandbox
+and what it doesn't protect against, and when work may run: idle where the machine can tell, otherwise set hours,
+plus mains power and a fullscreen pause. Then come the dumps and the AnyPS5 clone, signing in with GitHub by device
+code, and registering the machine. Nothing runs until the walkthrough is done, the tester is signed in and a
+maintainer has approved the machine.
+
+The window has six tabs:
+- **Queue:** a banner says what keeps the machine from taking jobs, then running, up next with the score's reasons,
+  waiting for you and recently posted.
+- **Overview:** the maintainers' view, as above, with Approve and Decline for maintainers.
+- **Pull requests**, **Schedule** and **Titles**.
+- **Settings:** account, registration, the results repository, the sandbox self-test, trusted authors and logs.
+
+`Run…` on a PR no maintainer queued opens the trust dialog. Screenshots are in `docs/screens/`. Without the window:
+`title-runs client --config FILE status|sign-in|register|queue|next|run-once|daemon`.
 
 ### The stand-in
 
 ```
-python3 -I title-runs standin label 8104 --by CPritch --root ~/games/title-runs-standin          # a maintainer's label
-python3 -I title-runs client --config ~/games/title-runs-standin/laptop.toml run-once            # claim, build, run, push
-python3 -I title-runs standin push 8104 <sha> --by Celegans12 --root ...                         # a push after approval
-python3 -I title-runs standin command 8104 "/title-test sha=<sha>" --by CPritch --root ...       # a maintainer approves it
+python3 -I title-runs standin label 8104 --by CPritch --root DIR          # a maintainer's label on AnyPS5
+python3 -I title-runs standin tick --root DIR                             # one run of the relay workflow
+python3 -I title-runs standin codes --root DIR                            # device codes waiting to be entered
+python3 -I title-runs standin authorize CODE --as LOGIN --root DIR        # a tester enters the code on GitHub
+python3 -I title-runs standin approve ISSUE --by CPritch --root DIR       # a maintainer's approved label
+python3 -I title-runs standin push 8104 SHA --by Celegans12 --root DIR    # a push to the PR, with its workflow run
+python3 -I title-runs client --config FILE run-once --ignore-schedule      # claim, build, run, report
 ```
 
-`title_runs/standin.py` keeps a bare results repository (with a post-receive hook that runs the publish workflow), a
-fake AnyPS5 (`forge.json`) and the App's outbox, where every call it would make is written with the comment body.
+`title_runs/standin.py` keeps a fake GitHub (`github.json`: both repositories, accounts, permissions, the device
+flow), the results repository (`results.git`), a stand-in AnyPS5 remote, and the outbox, where every write anyone
+makes is recorded with who made it. `title_runs/gh.py` is the one interface to GitHub. It has a REST implementation,
+written but not run against GitHub, and the fake.
 
 ## What it does (round 1: the tester's own poller)
 
@@ -170,9 +194,9 @@ What this does not protect against:
 
 - a driver or kernel exploit: the GPU's device nodes and the display server are reachable from inside, so a bug in
   the GPU driver, the kernel or the compositor can be used to leave the sandbox;
-- a tester's token: it can write anywhere in the results repository's main branch, so the queue and configuration
-  live on the protected `state` branch and the publish workflow refuses any push that touches more than the pusher's
-  claims and results;
+- a tester's sign-in: it can open issues and comment in the results repository as the tester, nothing more. The
+  workflow uses only what comes from registered machines with a live claim, and nobody but the workflow and the
+  maintainers writes the repository's files;
 - the display: a title can draw on the tester's screen and read what the compositor lets any client read;
 - resource exhaustion: no CPU, memory or disk limits are set beyond the core-dump limit;
 - `sandbox.mode = "none"`, which the tester can set explicitly; every report then says the sandbox was off.
