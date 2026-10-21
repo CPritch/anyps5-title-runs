@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QGroupBox, Q
 
 from .. import ROOT, auth, configfile, platform_info, verdict
 from ..config import Title
+from . import words
 
 
 def text(html):
@@ -27,12 +28,13 @@ class WhatPage(QWizardPage):
     def __init__(self):
         super().__init__()
         self.setTitle("What this does")
-        self.setSubTitle("A few steps before anything runs. Nothing runs until you finish and the AnyPS5 team approves this machine.")
+        self.setSubTitle(f"A few steps before anything runs. Nothing runs until you finish and {words.team()} approves this machine.")
         layout = QVBoxLayout(self)
         layout.addWidget(text(
-            "The AnyPS5 team picks changes to AnyPS5 they want tried on real games. When your computer is free, this app takes one, builds "
+            f"{words.Team()} picks changes to AnyPS5 to try on real games. When your computer is free, this app takes one, builds "
             "AnyPS5 with and without the change, plays a short part of <b>your own copy</b> of a game with each, and posts how fast each ran "
-            "on the change's page on GitHub. The team gets results from computers and games they don't have, and you choose when yours helps."))
+            "on the change's page on GitHub. The people working on AnyPS5 get results from computers and games they don't have, and you "
+            "choose when yours helps."))
         leaves = QGroupBox("What leaves this computer")
         box = QVBoxLayout(leaves)
         box.addWidget(text(
@@ -53,7 +55,7 @@ class SandboxPage(QWizardPage):
         layout = QVBoxLayout(self)
         layout.addWidget(text(
             "Building and playing happen in a sandbox. Once the change is downloaded it has no internet, it can't see your files, and your "
-            "games are read-only to it. It can only write to the test's own folders. Someone on the AnyPS5 team looks at every change before "
+            f"games are read-only to it. It can only write to the test's own folders. {words.Team()} looks at every change before "
             "it's queued, and anything pushed to a change after that isn't run."))
         limits = QGroupBox("What the sandbox can't protect against")
         box = QVBoxLayout(limits)
@@ -221,12 +223,12 @@ class SignInPage(QWizardPage):
         super().__init__()
         self.engine = engine
         self.setTitle("Sign in with GitHub")
-        self.setSubTitle("The app posts results as you. It can only post on the AnyPS5 team's testing pages, nothing else on your account.")
+        self.setSubTitle("The app posts results as you. It can only post on the testing pages you joined, nothing else on your account.")
         layout = QVBoxLayout(self)
         self.where = QGroupBox("Join the testing")
         row = QHBoxLayout(self.where)
         self.location = QLineEdit(engine.config.results_url)
-        self.location.setPlaceholderText("Paste the testing link the AnyPS5 team gave you (https://github.com/…)")
+        self.location.setPlaceholderText("Paste the testing link you were given (https://github.com/…)")
         row.addWidget(self.location, 1)
         use = QPushButton("Join")
         use.clicked.connect(self.use)
@@ -268,7 +270,7 @@ class SignInPage(QWizardPage):
             self.engine.client.use(self.location.text())
             self.engine.save_config()
         except Exception as error:  # noqa: BLE001 (shown on the page)
-            self.state.setText(f"That link didn't work. Check it's the testing link the AnyPS5 team gave you. ({str(error)[:120]})")
+            self.state.setText(f"That link didn't work. Check it's the testing link you were given. ({str(error)[:120]})")
             return
         self.show_state()
 
@@ -277,7 +279,7 @@ class SignInPage(QWizardPage):
         has_repo = bool(self.engine.config.results_url) and bool((self.engine.client.repo.read("config.json", {}).get("app") or {}).get("client_id"))
         self.start_button.setEnabled(has_repo)
         if not has_repo:
-            self.state.setText("First paste the testing link the AnyPS5 team gave you, and press Join.")
+            self.state.setText("First paste the testing link you were given, and press Join.")
             self.completeChanged.emit()
             return
         if login:
@@ -322,7 +324,7 @@ class RegisterPage(QWizardPage):
         super().__init__()
         self.engine = engine
         self.setTitle("Register this machine")
-        self.setSubTitle("The AnyPS5 team approves each new machine. Until then it doesn't run tests.")
+        self.setSubTitle(f"{words.Team()} approves each new machine. Until then it doesn't run tests.")
         info = engine.client.info
         form = QFormLayout(self)
         self.machine = QLineEdit(engine.config.machine or socket.gethostname().split(".")[0].lower()[:32])
@@ -346,11 +348,11 @@ class RegisterPage(QWizardPage):
         if state == "approved":
             self.state.setText(f"<b>Approved</b> by {record.get('approved_by', '?')}: this machine runs tests.")
         elif state == "pending":
-            self.state.setText("<b>Waiting for the AnyPS5 team</b> to approve it. You can finish now: it starts testing once approved.")
+            self.state.setText(f"<b>Waiting for {words.team()}</b> to approve it. You can finish now: it starts testing once approved.")
         elif state == "declined":
-            self.state.setText("The AnyPS5 team turned this machine down.")
+            self.state.setText(f"{words.Team()} turned this machine down.")
         else:
-            self.state.setText("Registering shares this machine's name, graphics card, driver and system with the AnyPS5 team, in public.")
+            self.state.setText(f"Registering shares this machine's name, graphics card, driver and system with {words.team()}, in public.")
         self.completeChanged.emit()
 
     def register(self):
@@ -386,9 +388,9 @@ class DonePage(QWizardPage):
         state, record = self.engine.client.registration()
         titles = ", ".join(f"{d['name']} ({d['title_id']})" for d in wizard.dumps.found)
         machine = {"approved": ("✓", "approved, so it runs tests"),
-                   "pending": ("…", "waiting for the AnyPS5 team to approve it. It starts testing once they have"),
-                   "declined": ("✗", "turned down by the AnyPS5 team, so it doesn't run tests"),
-                   "not registered": ("…", "not registered yet. It doesn't run tests until you register it (Settings) and the team approves it")}[state]
+                   "pending": ("…", f"waiting for {words.team()} to approve it. It starts testing once approved"),
+                   "declined": ("✗", f"turned down by {words.team()}, so it doesn't run tests"),
+                   "not registered": ("…", f"not registered yet. It doesn't run tests until you register it (Settings) and {words.team()} approves it")}[state]
         rows = [("✓", "You've read what leaves this computer and what the sandbox can't protect against."), ("✓", f"It tests {how}."),
                 ("✓", f"Games: {titles}."), ("✓", f"Signed in as <b>{self.engine.client.tester()}</b>."),
                 (machine[0], f"This machine, <b>{wizard.register_page.machine.text().strip()}</b>: {machine[1]}.")]

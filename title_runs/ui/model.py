@@ -4,6 +4,7 @@ tray's state and lines. The Qt code only lays this out."""
 import re
 
 from .. import formats, rules
+from . import words
 
 PERF_LABELS = ("perf", "agc", "shader")
 SECTIONS = ("Queued by maintainers", "Mentions your titles", "Labelled perf, agc or shader", "Everything else")
@@ -116,12 +117,14 @@ def first_line(text, limit=90):
 
 # -- the main screen (ui/home.py), in the words a tester reads ----------------------------------------------------------
 
-SETUP = {"the first-run walkthrough is not done": "Go through the first-run steps.",
-         "no titles are set up": "Add a game you own.",
-         "not signed in": "Sign in with GitHub.",
-         "this machine is not registered": "Register this machine.",
-         "waiting for a maintainer to approve this machine": "The AnyPS5 team still has to approve this machine. Nothing to do but wait.",
-         "a maintainer declined this machine": "The AnyPS5 team turned this machine down."}
+def setup_text(why):
+    """What a tester still has to do (or wait for), for a reason client.ready gave."""
+    return {"the first-run walkthrough is not done": "Go through the first-run steps.",
+            "no titles are set up": "Add a game you own.",
+            "not signed in": "Sign in with GitHub.",
+            "this machine is not registered": "Register this machine.",
+            "waiting for a maintainer to approve this machine": f"{words.Team()} still has to approve this machine. Nothing to do but wait.",
+            "a maintainer declined this machine": f"{words.Team()} turned this machine down."}.get(why, why)
 
 STEPS = ("Getting the change", "Building AnyPS5 as it is", "Building AnyPS5 with the change", "Warming up the game",
          "Run 1 of 4: as it is", "Run 2 of 4: with the change", "Run 3 of 4: as it is", "Run 4 of 4: with the change", "Sending the result")
@@ -169,11 +172,11 @@ def header(status, ready, why, automatic, allowed, allowed_why, best):
         return {"kind": "running", "headline": f"Testing #{job.get('pr')}" + (f": {job['title']}" if job.get("title") else ""),
                 "detail": STEPS[step(status.get("progress"))], "step": step(status.get("progress"))}
     if not ready:
-        return {"kind": "setup", "headline": "Almost ready", "detail": SETUP.get(why, why)}
+        return {"kind": "setup", "headline": "Almost ready", "detail": setup_text(why)}
     if status.get("state") == "error":
         return {"kind": "error", "headline": "The last test went wrong", "detail": first_line(status.get("line", ""), 160)}
     if best is None:
-        return {"kind": "idle", "headline": "No tests waiting", "detail": "New tests from the AnyPS5 team show up here by themselves."}
+        return {"kind": "idle", "headline": "No tests waiting", "detail": f"New tests from {words.team()} show up here by themselves."}
     if not automatic:
         return {"kind": "off", "headline": "Testing is off", "detail": "Press Start to run the next test now, or turn on automatic testing."}
     if not allowed:

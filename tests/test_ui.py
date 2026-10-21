@@ -358,6 +358,20 @@ class MainScreenModel(unittest.TestCase):
                                 ("main run 2, 3/4", 6), ("PR run 2, 4/4", 7)):
             self.assertEqual(model.step(progress), index, progress)
 
+    def test_the_team_is_named_by_the_config(self):
+        from title_runs.ui import words
+        try:
+            words.set_team("CPritch")
+            self.assertEqual(model.header({}, True, "", True, True, "", None)["detail"], "New tests from CPritch show up here by themselves.")
+            self.assertEqual(model.setup_text("waiting for a maintainer to approve this machine"),
+                             "CPritch still has to approve this machine. Nothing to do but wait.")
+            words.set_team("the AnyPS5 team")
+            self.assertEqual(words.Team(), "The AnyPS5 team")
+            words.set_team("")
+            self.assertEqual(words.team(), "whoever runs this testing")
+        finally:
+            words.set_team(None)
+
     def test_header_states(self):
         best = {"number": 1}
         running = {"state": "running", "job": {"pr": 1, "title": "perf: x"}, "progress": "PR run 1, 2/4"}

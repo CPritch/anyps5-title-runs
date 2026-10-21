@@ -13,7 +13,7 @@ from .. import platform_info, verdict
 from ..config import results_location as clients_location
 from ..relay import overview
 from ..relay.render import utc
-from . import model, theme
+from . import model, theme, words
 from .home import HomePage
 from .trust_dialog import TrustDialog
 
@@ -280,7 +280,7 @@ class SettingsTab(QWidget):
         results = QGroupBox("Testing")
         form = QFormLayout(results)
         self.url = QLineEdit(config.results_url)
-        self.url.setPlaceholderText("The testing link the AnyPS5 team gave you (https://github.com/…)")
+        self.url.setPlaceholderText("The testing link you were given (https://github.com/…)")
         self.url.setToolTip("Saving another link switches to that testing: its tests, a new registration for this machine, "
                             "and a new sign-in if it needs one.")
         form.addRow("Testing link", self.url)
@@ -348,7 +348,7 @@ class SettingsTab(QWidget):
         issue = record.get("issue")
         link = f" (<a href='{self.engine.issue_url(issue)}'>#{issue}</a>)" if issue else ""
         self.registration.setText({"approved": f"Approved by {record.get('approved_by', '?')}{link}",
-                                   "pending": f"Waiting for the AnyPS5 team to approve it{link}", "declined": f"Turned down by the AnyPS5 team{link}",
+                                   "pending": f"Waiting for {words.team()} to approve it{link}", "declined": f"Turned down by {words.team()}{link}",
                                    "not registered": "Not registered yet, so this machine doesn't run tests"}[state])
         self.register.setVisible(state == "not registered")
         self.register.setEnabled(bool(login))
@@ -497,7 +497,7 @@ class MainWindow(QMainWindow):
             self.buttons[key] = button
         nav.addStretch(1)
         self.maintain = QPushButton("Maintainer tools")
-        self.maintain.setToolTip("Queue tests, approve machines and see every machine's results (AnyPS5 team only)")
+        self.maintain.setToolTip("Queue tests, approve machines and see every machine's results (for the people running this testing)")
         self.maintain.clicked.connect(self.open_maintainer)
         nav.addWidget(self.maintain)
         self.view = QCheckBox("Advanced view")
@@ -574,7 +574,7 @@ class MainWindow(QMainWindow):
         """Run… on a PR no maintainer queued: the trust dialog, then the job on the tester's trust."""
         ready, why, _ = self.engine.readiness()
         if not ready:
-            QMessageBox.information(self, "AnyPS5 title runs", f"This machine can't test yet: {model.SETUP.get(why, why)}")
+            QMessageBox.information(self, "AnyPS5 title runs", f"This machine can't test yet: {model.setup_text(why)}")
             return
         dialog = TrustDialog(row["number"], row["title"], row["author"], self)
         if dialog.exec() == TrustDialog.Accepted and dialog.scope:

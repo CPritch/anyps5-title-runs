@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QCheckBox, QFrame, QHBoxLayout, QLabel, QListWidg
                                QSizePolicy, QVBoxLayout, QWidget)
 
 from ..relay.render import utc
-from . import model, theme
+from . import model, theme, words
 from .gameview import GameView
 
 
@@ -175,7 +175,7 @@ class HomePage(QWidget):
     def fill_upcoming(self):
         rows = self.engine.up_next_rows()
         if not rows:
-            self.upcoming.set_rows(["Nothing queued. When the AnyPS5 team asks for a test, it shows up here."])
+            self.upcoming.set_rows([f"Nothing queued. When {words.team()} asks for a test, it shows up here."])
             return
         muted = theme.COLOURS["muted"]
         out = []

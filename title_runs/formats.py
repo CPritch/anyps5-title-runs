@@ -308,6 +308,8 @@ def check_config(data):
         raise FormatError("config.json: maintainers is not a list of logins")
     data.setdefault("label", "title-test")
     data.setdefault("app", {})
+    if "team" in data and not (isinstance(data["team"], str) and 0 < len(data["team"]) <= 60 and TEXT.fullmatch(data["team"])):
+        raise FormatError("config.json: team is not a short name (1 to 60 characters)")
     rules = data.setdefault("verdicts", {})
     if not isinstance(rules, dict):
         raise FormatError("config.json: verdicts is not an object")

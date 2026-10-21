@@ -24,7 +24,7 @@ from PySide6.QtWidgets import QApplication
 from .. import ROOT, client as clients, config as configs, configfile, formats, platform_info, poller, sandbox, store, verdict
 from ..relay import overview
 from ..relay.render import utc as utc_text
-from . import model
+from . import model, words
 
 
 class Engine(QObject):
@@ -38,6 +38,7 @@ class Engine(QObject):
         self.dir = Path(config.state_dir) / "client"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.client = clients.Client(config, log=lambda text: None)
+        words.set_team(self.client.repo.read("config.json", {}).get("team"))  # the walkthrough reads it before the first load
         self.listing_file = Path(listing) if listing else None
         self.window = None
         self.ranked, self.queue, self.repository = [], {"entries": []}, ""  # the results repository names it (load)
@@ -79,6 +80,7 @@ class Engine(QObject):
             self.repository = self.client.repo.config()["repository"]
             self.comments = self.client.repo.comments()
             repo = self.client.repo
+            words.set_team(repo.read("config.json", {}).get("team"))
             self.overview_data = overview.view(repo.dir, self.queue, repo.registry(), repo.claims(), repo.jobs(), repo.cursors().get("last_run"),
                                                verdict.settings(repo.read("config.json", {})), repo.cursors().get("ignored"))
         except Exception as error:  # noqa: BLE001 (shown in the tray)
@@ -104,7 +106,7 @@ class Engine(QObject):
             return (f"<b>The relay workflow last ran {hours:.0f} h ago.</b> GitHub may have delayed or dropped its scheduled runs, or "
                     f"disabled the schedule after 60 days without activity: the results repository's Actions tab, relay, Enable workflow, "
                     f"Run workflow (its README has the steps).")
-        return (f"<b>The test list hasn't updated for {hours:.0f} hours</b>, so new tests may show up late. The AnyPS5 team can restart it.")
+        return (f"<b>The test list hasn't updated for {hours:.0f} hours</b>, so new tests may show up late. {words.Team()} can restart it.")
 
     def ignored_mine(self):
         """The workflow answers nothing it does not use; the tester's own ignored comments are in its public cursors."""
@@ -122,7 +124,7 @@ class Engine(QObject):
             return ""
         last = mine[-1]
         detail = f" ({last.get('detail') or last['reason']})" if self.config.view == "advanced" else ""
-        return (f"<b>Your last report wasn't accepted</b> ({utc_text(last['at'])}){detail}. If it happens again, tell the AnyPS5 team.")
+        return (f"<b>Your last report wasn't accepted</b> ({utc_text(last['at'])}){detail}. If it happens again, tell {words.team()}.")
 
     def results_repository(self):
         return self.client.repo.read("config.json", {}).get("results_repository", "?")
@@ -149,7 +151,7 @@ class Engine(QObject):
         """A maintainer queues a pull request: the label on it on GitHub, added with their own sign-in (the same as adding
         it there). The workflow picks it up on its next run."""
         if not self.client.maintainer():
-            return "Only the AnyPS5 team can queue tests."
+            return "Only the people running this testing can queue tests."
         try:
             from .. import auth
             auth.repo_as_tester(self.client.endpoint, self.repository, self.client.flow()).add_labels(number, [self.label()])
