@@ -1,0 +1,11 @@
+{
+  "action": "edit",
+  "request": {
+    "method": "PATCH",
+    "path": "/repos/CPritch/AnyPS5/issues/comments/900001",
+    "json": {
+      "body": "<003-20261021-132750-edit.md>"
+    }
+  },
+  "comment_id": 900001
+}

@@ -1,0 +1,11 @@
+{
+  "action": "new",
+  "request": {
+    "method": "POST",
+    "path": "/repos/CPritch/AnyPS5/issues/8104/comments",
+    "json": {
+      "body": "<001-20261021-131023-new.md>"
+    }
+  },
+  "comment_id": 900001
+}

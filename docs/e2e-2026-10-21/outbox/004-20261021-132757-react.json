@@ -1,0 +1,11 @@
+{
+  "action": "react",
+  "request": {
+    "method": "POST",
+    "path": "/repos/CPritch/AnyPS5/issues/comments/900002/reactions",
+    "json": {
+      "content": "+1"
+    }
+  },
+  "content": "+1"
+}
