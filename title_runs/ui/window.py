@@ -187,7 +187,7 @@ class OverviewTab(QWidget):
         self.machines = tree(["Tester / machine", "Class", "Titles", "Approved by", "Last report"])
         fit(self.machines, stretch=1)
         box.addWidget(self.machines)
-        row.addWidget(machines, 1)
+        row.addWidget(machines, 3)
         pending = QGroupBox("Pending registrations")
         box = QVBoxLayout(pending)
         self.pending = tree(["Issue", "Tester / machine", "Class", ""])
