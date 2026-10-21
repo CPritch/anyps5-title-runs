@@ -42,9 +42,20 @@ def direct_query(numbers):
 
 
 class Listing:
-    def __init__(self, path):
+    def __init__(self, path, repository=None):
         self.path = Path(path)
         self.data = json.loads(self.path.read_text()) if self.path.exists() else {"newest": None, "prs": {}}
+        if repository:
+            self.data.setdefault("repository", repository)
+
+    @classmethod
+    def of(cls, state_dir, repository):
+        """The listing of one repository (OWNER/NAME) in the state directory's cache."""
+        return cls(Path(state_dir) / "cache" / f"pull-requests-{repository.replace('/', '-')}.json", repository)
+
+    def refreshed(self):
+        """When the listing was last brought up to date (ISO), or None."""
+        return self.data.get("refreshed")
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -60,7 +71,9 @@ class Listing:
                     self.data["newest"] = node["updatedAt"]
 
     def refresh(self, client, owner, name, max_pages=None):
-        """Bring the listing up to date; returns the number of pages read."""
+        """Bring the listing up to date; returns the number of pages read. Records the repository and the time."""
+        self.data["repository"] = f"{owner}/{name}"
+        self.data["refreshed"] = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         first = not self.data["prs"]
         stop = None if first else parse(self.data["newest"]) - OVERLAP
         after, pages = None, 0

@@ -250,6 +250,25 @@ class WalkthroughAndOverview(unittest.TestCase):
         self.assertIn("1 comment from an account without a registered machine", window.overview.ignored.text())
         self.assertIn("The workflow did not use your comment", window.queue.not_ready.text())
 
+    def test_the_listing_is_of_the_results_repositorys_repository(self):
+        from unittest import mock
+        from title_runs import poller
+        self.engine.load(sync=True)
+        self.assertEqual(self.engine.repository, "CPritch/AnyPS5")
+        other = poller.Listing.of(self.engine.config.state_dir, "boykopovar/AnyPS5")
+        other.data["prs"]["6321"] = {"number": 6321}
+        other.save()
+        self.assertEqual(self.engine.listing(), [])  # another repository's listing is not shown
+        self.assertEqual(self.engine.listing_note(), "Pull requests of CPritch/AnyPS5: not listed yet")
+        pages = {"repository": {"pullRequests": {"nodes": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}
+        with mock.patch.object(self.engine.client, "tester", return_value="standin-tester"), \
+                mock.patch("title_runs.github.GraphQL.query", return_value=pages) as query:
+            self.engine.refresh_listing()
+            self.engine.refresh_listing()  # fresh: not listed again
+        self.assertEqual(query.call_count, 1)
+        self.assertEqual(query.call_args[0][1]["owner"], "CPritch")
+        self.assertIn("Pull requests of CPritch/AnyPS5, listed", self.engine.listing_note())
+
     def test_a_note_on_a_registration_taken_since_is_not_shown(self):
         from unittest import mock
         from title_runs import formats

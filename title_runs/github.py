@@ -18,8 +18,10 @@ class BudgetExhausted(RuntimeError):
 
 
 class GraphQL:
-    def __init__(self, client="gh", token_env="TITLE_RUNS_GITHUB_TOKEN", reserve=500):
-        self.client, self.token_env, self.reserve = client, token_env, reserve
+    def __init__(self, client="gh", token_env="TITLE_RUNS_GITHUB_TOKEN", reserve=500, token=None):
+        """client "gh" (the gh CLI's login) or "token": the token in $token_env, or token(), a callable (the tester's
+        sign-in)."""
+        self.client, self.token_env, self.reserve, self.token = client, token_env, reserve, token
         self.remaining = None
         self.reset_at = None
         self.spent = 0
@@ -30,9 +32,9 @@ class GraphQL:
             if result.returncode != 0:
                 raise RuntimeError(f"gh api graphql failed: {result.stderr.strip()[:500]}")
             return json.loads(result.stdout)
-        token = os.environ.get(self.token_env)
+        token = self.token() if self.token else os.environ.get(self.token_env)
         if not token:
-            raise RuntimeError(f"no token in ${self.token_env}")
+            raise RuntimeError("not signed in" if self.token else f"no token in ${self.token_env}")
         request = urllib.request.Request(f"{API}/graphql", data=json.dumps(payload).encode(), method="POST",
                                          headers={"Authorization": f"bearer {token}", "Content-Type": "application/json"})
         with urllib.request.urlopen(request, timeout=60) as response:

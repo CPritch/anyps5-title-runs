@@ -4,8 +4,8 @@
   title-runs ui --config NEW --results URL [--github standin:FILE] [--dumps DIR]   a new config, then the walkthrough
   title-runs ui --screenshots DIR [--config FILE] [--listing FILE] [--no-sync]   render the window's screens to DIR (offscreen)
 
---listing: the PR listing the Pull requests tab shows (default: the state directory's cache/pull-requests.json, which
-`title-runs poll` keeps). --auto: run the queue's jobs when the schedule allows (otherwise only on request).
+--listing: the PR listing the Pull requests tab shows (default: the listing of the repository the results repository
+names, kept in the state directory's cache and refreshed with the tester's sign-in every 15 minutes or on request). --auto: run the queue's jobs when the schedule allows (otherwise only on request).
 All git and build work happens on the engine's worker thread; the UI reads the status file and cached data.
 """
 
@@ -34,7 +34,7 @@ class Engine(QObject):
         self.dir = Path(config.state_dir) / "client"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.client = clients.Client(config, log=lambda text: None)
-        self.listing_path = Path(listing) if listing else Path(config.state_dir) / "cache" / "pull-requests.json"
+        self.listing_file = Path(listing) if listing else None
         self.auto = auto
         self.window = None
         self.ranked, self.queue, self.repository = [], {"entries": []}, config.repo
@@ -151,10 +151,41 @@ class Engine(QObject):
         self.log(f"added {label} to registration #{issue}")
         return ""
 
+    LISTING_MINUTES = 15
+
+    def listing_store(self):
+        """The listing of the repository the results repository names (not the config's own [github] repo)."""
+        if self.listing_file:
+            return poller.Listing(self.listing_file)
+        return poller.Listing.of(self.config.state_dir, self.repository)
+
     def listing(self):
-        if not self.listing_path.exists():
+        store = self.listing_store()
+        if store.data.get("repository", self.repository) != self.repository:
             return []
-        return poller.Listing(self.listing_path).open()
+        return store.open()
+
+    def listing_note(self):
+        store = self.listing_store()
+        when = store.refreshed()
+        return (f"Pull requests of {self.repository}, listed {formats.parse_time(when).astimezone():%H:%M}" if when
+                else f"Pull requests of {self.repository}: not listed yet")
+
+    def refresh_listing(self, force=False):
+        """Bring the listing up to date with the tester's sign-in (the worker thread only)."""
+        if self.listing_file or not self.client.tester() or "/" not in (self.repository or ""):
+            return
+        store = self.listing_store()
+        when = store.refreshed()
+        if not force and when and formats.now() - formats.parse_time(when) < datetime.timedelta(minutes=self.LISTING_MINUTES):
+            return
+        from ..github import GraphQL
+        owner, name = self.repository.split("/")
+        try:
+            store.refresh(GraphQL(client="token", token=self.client.flow().token, reserve=200), owner, name, max_pages=20)
+            store.save()
+        except Exception as error:  # noqa: BLE001 (the listing is a convenience; the queue does not depend on it)
+            self.log(f"could not list the pull requests of {self.repository}: {error}")
 
     def sections(self, query=""):
         return model.pr_sections(self.listing(), self.queue, self.names, query)
@@ -266,8 +297,12 @@ class Engine(QObject):
             try:
                 if kind == "tester":
                     self.client.run(row["number"], row["head"], "tester", row["title"], row["author"])
+                elif kind == "listing":
+                    self.refresh_listing(force=True)
                 elif self.auto:
                     self.log(self.client.run_next())
+                if kind != "listing":
+                    self.refresh_listing()
             except Exception as error:  # noqa: BLE001
                 self.client.status.update(state="error", line=f"Error: {clients.clean(error, 200)}")
                 self.log(f"error: {error}")

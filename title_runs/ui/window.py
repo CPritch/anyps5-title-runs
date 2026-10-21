@@ -310,7 +310,12 @@ class PullRequestsTab(QWidget):
         self.engine = engine
         layout = QVBoxLayout(self)
         top = QHBoxLayout()
-        top.addWidget(bold("Pull requests"))
+        self.note = bold("")
+        top.addWidget(self.note)
+        refresh = QPushButton("Refresh")
+        refresh.setToolTip("List the pull requests again now (otherwise every 15 minutes)")
+        refresh.clicked.connect(lambda: engine.work.put(("listing", None)))
+        top.addWidget(refresh)
         top.addStretch(1)
         self.search = QLineEdit()
         self.search.setPlaceholderText("search…")
@@ -327,6 +332,7 @@ class PullRequestsTab(QWidget):
         self.expanded = {model.SECTIONS[0]: True, model.SECTIONS[1]: True, model.SECTIONS[2]: False, model.SECTIONS[3]: False}
 
     def refresh(self, *_):
+        self.note.setText(self.engine.listing_note())
         sections = self.engine.sections(self.search.text())
         for i in range(self.tree.topLevelItemCount()):
             item = self.tree.topLevelItem(i)
