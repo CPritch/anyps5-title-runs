@@ -110,12 +110,25 @@ class GitHubRepo(Repo):
                         "created_at": e["created_at"], "issue": (e.get("issue") or {}).get("number")} for e in events), key=lambda e: e["id"])
 
     def comments(self, since=None, issue=None):
-        path = f"/repos/{self.repository}/issues/{issue}/comments" if issue else f"/repos/{self.repository}/issues/comments"
-        params = {"since": since} if since else {}
-        if not issue:
-            params.update(sort="created", direction="asc")
-        return [{"id": c["id"], "issue": int(c["issue_url"].rsplit("/", 1)[1]), "body": c["body"], "user": c["user"]["login"],
-                 "association": c.get("author_association", "NONE"), "created_at": c["created_at"]} for c in self.pages(path, params)]
+        """Comments created at or after since, oldest first. GitHub's own since= means updated since, which brings back
+        every old comment edited later (bots edit theirs all the time), so the repository's comments are listed newest
+        first by creation and read back only to since."""
+        def shape(c):
+            return {"id": c["id"], "issue": int(c["issue_url"].rsplit("/", 1)[1]), "body": c["body"], "user": c["user"]["login"],
+                    "association": c.get("author_association", "NONE"), "created_at": c["created_at"]}
+        if issue:
+            out = [shape(c) for c in self.pages(f"/repos/{self.repository}/issues/{issue}/comments")]
+        else:
+            out = []
+            for page in range(1, 11):
+                batch = self.call("GET", f"/repos/{self.repository}/issues/comments",
+                                  params={"sort": "created", "direction": "desc", "per_page": 100, "page": page})
+                fresh = [shape(c) for c in batch if since is None or c["created_at"] >= since]
+                out += fresh
+                if len(fresh) < len(batch) or len(batch) < 100:
+                    break
+        out = [c for c in out if since is None or c["created_at"] >= since]
+        return sorted(out, key=lambda c: (c["created_at"], c["id"]))
 
     def issues(self, label=None, state="open"):
         params = {"state": state, **({"labels": label} if label else {})}
