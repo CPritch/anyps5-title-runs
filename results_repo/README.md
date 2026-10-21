@@ -11,15 +11,24 @@ Issues here:
 - **Overview**: the queue, coverage, machines and pending registrations, kept up to date by the workflow. Pin it.
 - **Runs on testers' own trust**: results of heads no maintainer approved.
 
-Setting it up (one App, this repository, one secret):
+Setting it up (one App, this repository, one secret; the tool's docs/first-real-test.md has the same steps with
+checks):
 
-1. Create the GitHub App: no webhook (uncheck "Active"); enable Device Flow; repository permissions Issues read and
-   write, Pull requests read and write, Metadata read. Generate a private key.
-2. Install it on AnyPS5 and on this repository.
-3. In this repository's settings, add the secret `APP_PRIVATE_KEY` (the private key's contents).
-4. Fill `config.json`: the App's ID, client ID and bot name (`<app-slug>[bot]`), the maintainers, and the tool's
-   repository and the commit to run.
-5. Run the workflow once from the Actions tab (Run workflow), then pin the Overview issue it opens.
+1. Create the GitHub App from its manifest: `title-runs app create --results-repo <this repository's checkout>
+   --out <a folder outside every repository>`, then **Create GitHub App** on the page GitHub shows. It has no webhook
+   and these repository permissions: Actions read, Issues read and write, Pull requests read and write, Metadata
+   read. The private key stays in the folder given to `--out`; the App's ID, client ID and bot name are written into
+   `config.json` and committed.
+2. In the App's settings, under "Identifying and authorizing users", tick **Enable Device Flow** and save. Testers
+   sign in with it.
+3. Install the App: **Only select repositories**, AnyPS5 and this repository.
+4. Push this repository (public), and add the secret `APP_PRIVATE_KEY` with the private key's contents:
+   `gh secret set APP_PRIVATE_KEY -R OWNER/NAME < KEY.pem`.
+5. Run the workflow once from the Actions tab (**relay**, **Run workflow**), then pin the Overview issue it opens.
+
+Settings in `config.json` besides the names: `maintainers` (whose labels and commands count), `label`, and
+`verdicts`: `threshold_pct` (a difference must exceed this share of main's p50, default 1) and `class_max` (how many
+machines a borderline class asks for, default 3).
 
 ## When the workflow stops running
 

@@ -19,9 +19,11 @@ There are two ways to drive the engine:
 
 ## The client and the results repository
 
-What a maintainer sets up (`results_repo/README.md`): one GitHub App (no webhook, device flow on; Issues and Pull
+What a maintainer sets up (`results_repo/README.md`, and `docs/first-real-test.md` for the first one): one GitHub App
+made from its manifest with `title-runs app create` (no webhook, device flow on; Actions read, Issues and Pull
 requests read and write, Metadata read) installed on AnyPS5 and on one public results repository, whose only secret
-is the App's private key. Nothing to host, no paid feature, no token per tester.
+is the App's private key. Nothing to host, no paid feature, no token per tester. `title-runs relay poll --dry-run`
+reads the real repositories and records what the workflow would write, without writing.
 
 The results repository's one workflow, `relay` (`results_repo/.github/workflows/relay.yml`, code in
 `title_runs/relay/`), runs every 5 minutes and on demand, at the tool's commit that `config.json` pins:
@@ -32,11 +34,13 @@ The results repository's one workflow, `relay` (`results_repo/.github/workflows/
    refused label is removed, and the App says why in a new comment. `/title-test [high|normal|low] [titles=..] [hw=..] [machines=N]
    [sha=..] | stop` sets options and can pin any commit. Each queued head gets a job issue in the results repository.
 2. **A push after approval** carries the approval over if the new head has the approved head's patch-ids (a rebase),
-   or if a collaborator who isn't the author pushed it. Otherwise the approval expires: the App removes the label,
-   and its comment on the PR says which commit expired it. A maintainer adds the label again to queue the new head.
+   or if a collaborator who isn't the author pushed it. Otherwise the approval expires: the App removes the label
+   and says in a new comment which commit expired it. A maintainer adds the label again to queue the new head; the
+   notice then moves into the comment's earlier-heads history.
 3. **Registrations.** A tester's client opens a `Machine: <login>/<machine>` issue. A maintainer approves it by adding
    the label `approved` (`declined` turns it down), on GitHub or with Approve in the client's Overview tab.
-4. **Results.** A claim and a result are comments on the job issue from the tester's own account. The workflow takes
+4. **Results.** A claim and a result are comments on the job issue from the tester's own account. Nothing else gets a
+   reply: what the workflow doesn't use is counted in the Overview. The workflow takes
    a result only from a registered machine with an earlier, unexpired claim on the same job and head, writes it to
    `results/`, and edits the App's comment on the PR. It posts a new comment instead when an outcome or a verdict
    changes.
@@ -69,7 +73,8 @@ The window has six tabs:
 - **Settings:** account, registration, the results repository, the sandbox self-test, trusted authors and logs.
 
 `Run…` on a PR no maintainer queued opens the trust dialog. Screenshots are in `docs/screens/`. Without the window:
-`title-runs client --config FILE status|sign-in|register|queue|next|run-once|daemon`.
+`title-runs client --config FILE status|sign-in|register|use OWNER/NAME|queue|next|run-once|daemon`. The client has
+no built-in results repository; `use` (or the Settings field) switches to another one.
 
 ### The stand-in
 
