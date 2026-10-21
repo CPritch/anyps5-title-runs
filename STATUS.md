@@ -1,32 +1,36 @@
-# Status: paused 2026-10-21 (morning), for Charlie's review
+# Status: round 2 (2026-10-21), for Charlie's review
 
-Paused at a safe point: no job, poll or game is running, and every change is committed. Nothing has been posted to
-GitHub; the poster has only written to the outbox. There is no remote yet.
+Built toward DESIGN.md (f1b2b3c, with e2c25ff's per-commit approval) against a local stand-in for GitHub and the results
+repository. Nothing has been posted to GitHub and nothing has run on GitHub Actions.
 
-## Where it stopped
+## Works on the laptop
 
-The last finished step is the end-to-end proof on the laptop, written up in the morning report of 2026-10-21:
+- The queue and scheduling (formats.py, schedule.py; FORMATS.md): queue.json pins the approved SHA, claims with expiry,
+  results, the score per DESIGN.md.
+- The workflows' logic (relay/), tested against webhook-shaped fixture events and a fake GitHub: labels and
+  /title-test commands from maintainers only, per-commit approval with patch-id and collaborator carry-over, pushes
+  after approval kept "not checked", publish checks against claim, pusher and approved heads, one comment per PR with
+  the new-or-edit rule. The workflow files (results_repo/) parse and run the tool from a pinned commit.
+- Builds in the build sandbox (no network, GPU or display); a build that reaches for the network fails.
+- The client: claim, fetch the approved SHA and main, merge locally, check again, build, run, push, withdraw the claim
+  when the queue moved on.
+- The tray, the window, the trust dialog and the first-run setup (PySide6); screenshots in docs/screens/.
+- End to end with the stand-in (docs/e2e-2026-10-21/): label -> claim -> sandboxed build and A/B on GTA V -> result ->
+  comment; a push after approval shown as not checked; a maintainer's sha= approval; the second head's run edits the
+  comment with the first head under Earlier heads.
+- 117 tests.
 
-- #8104 (head 69ac2e155, merge 7b3f12e95, base d97361bd0): polled, paused on the allowlist, confirmed, built, run as
-  a sandboxed A/B on GTA V (four counted runs, no difference beyond the spread), and rendered as a dry-run new
-  comment: `~/games/title-runs-state/outbox/8104/20261021-013055-new.md` (written before the UTC date and verdict
-  wording fixes; `./title-runs render 8104` gives the current text).
-- The simulated second head, on a copy of the state in `~/games/title-runs-demo`: the edited comment with the
-  history table is `outbox/8104/20261021-013318-edit.md` there.
-- Boot-and-classify: `run_title()` called directly on the #8104 job's main build (stalled at 60 s, rendering at
-  240 s), not through a PR job.
-- 31 tests pass. SUGGESTIONS.md lists what could go back to #7264.
+## Not done or stubbed
 
-## State on disk
-
-`~/games/title-runs-state` (about 16 GB: trees, builds, the hard-linked game directory, warm caches for both sides of
-the #8104 job, runs). `state.json` has #8104's head as done and #6321 (auto-followed through its Unblocks: line) as
-paused. The worktrees `trees/main` and `trees/pr` and the refs `refs/title-runs/pr-8104/*` are in `~/src/AnyPS5`.
-
-## Not done
-
-- The real poster has never called GitHub; it needs the repository, the bot account and its token (README, "The bot
-  account").
-- No screenshot upload, no scheduler, no cancelling of a running job when a newer head arrives, no sandbox for the
-  build, no lookup of the bot's comment by its marker.
-- Label follows, maintainer-label trust and a PR without a merge ref are covered by unit tests only.
+- Nothing has talked to GitHub: GitHubForge (the App's REST calls), the https results repository with a tester token,
+  and the workflows on Actions are written, not run.
+- The App's webhook has nowhere to go: the queue workflow takes events as repository_dispatch, which needs a small
+  forwarder (or GitHub's webhook redelivery into Actions some other way). Without it only the 10-minute refresh runs,
+  which follows pushes to queued PRs but does not see new labels or commands.
+- Idle detection on Linux reads logind's IdleHint; on this laptop nothing sets it (no idle daemon), so "only when
+  idle" never lets a job start. The end-to-end runs used `client run-once --ignore-schedule`.
+- The Titles tab's on/off and seed saves, and the Schedule tab's disk and longest-job limits, are shown and saved but
+  not acted on. "Also a screenshot" is saved; no screenshot is uploaded.
+- The trust dialog path is tested with a fake job (tests/test_client.py), not run end to end with a real build.
+- Windows: platform_info's Windows paths are written, not run; no Windows sandbox (DESIGN.md, "Open").
+- The Stop button and a superseded head take effect between runs, not inside one. Claim renewal is written, not tested.

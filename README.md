@@ -4,9 +4,66 @@ Volunteers who own game dumps follow AnyPS5 pull requests. Every new head of a f
 titles automatically, and a bot keeps one comment per PR and machine up to date with the results. Developers get title
 runs on hardware and games they do not have, without asking each time.
 
-Python 3.11 or later, standard library only. Linux (bubblewrap for the sandbox).
+Python 3.11 or later; the engine and the workflows use the standard library only, the tray and the window PySide6.
+Linux (bubblewrap for the sandbox); the client's platform code has Windows paths written but not yet run.
 
-## What it does
+DESIGN.md describes the tool we are aiming for, FORMATS.md the results repository's files. There are two ways to
+drive the engine:
+
+- **The client and the results repository** (round 2, below): maintainers queue a PR's approved commit with a label or
+  a `/title-test` command; volunteer machines pick jobs from `queue.json`, build and run them in the sandbox and push
+  result files; the results repository's workflows post the App's comment. Until the App and the repository exist,
+  `title-runs standin` plays GitHub and the results repository on one machine.
+- **The tester's own poller** (round 1, "What it does" and after): one tester follows PRs from a GraphQL listing and
+  posts with a bot token. Kept for reference; DESIGN.md replaces its trust and posting.
+
+## The client and the results repository
+
+One job is one approved commit of one PR (DESIGN.md, "Approval is per commit"):
+
+1. **Queue** (`results_repo/.github/workflows/queue.yml`, code in `title_runs/relay/queue.py`). A maintainer's label
+   pins the PR's head SHA from the label event itself; `/title-test [high|normal|low] [titles=..] [hw=..] [machines=N]
+   [sha=..] | stop` from a maintainer (the config's list and OWNER, MEMBER or COLLABORATOR) sets options and can pin
+   any commit of the PR. The App reacts (+1, or confused for anyone else or a command it does not understand) and
+   writes "Queued <sha> for title runs" in its one comment on the PR. A push after approval stays "not checked",
+   and testers keep to the approved SHA, unless its own commits have the approved head's patch-ids (a rebase) or the
+   pusher is OWNER, MEMBER or COLLABORATOR and not the PR's author; then the approval is carried over.
+2. **Choose** (`title_runs/schedule.py`): each client scores the queue (priority × hardware × titles × coverage gap ×
+   age) and takes the best job it may run now (the Schedule tab: idle, mains power, hours, games running).
+3. **Claim and build** (`title_runs/client.py`, `sources.py`, `build.py`): a claim file with a 3-hour expiry; the
+   approved SHA and main are fetched, merged locally (the same merge SHA on every machine), the queue is asked again
+   just before building, and both sides build in the build sandbox, without network.
+4. **Run** (`protocol.py`, unchanged from round 1): the A/B in the title sandbox, checked against the queue between
+   runs (a superseded head stops after its current run).
+5. **Publish** (`results_repo/.github/workflows/publish.yml`, `title_runs/relay/publish.py`): the result file goes to
+   the results repository's main branch; the workflow checks it against its claim, the pusher and the approved heads,
+   and edits the App's comment (a new comment when an outcome or a verdict changes).
+
+The workflows run this tool at a commit pinned in a repository variable, never code from the results repository, and
+read the queue, the configuration and the comment state from its `state` branch, which testers cannot push to. See
+`results_repo/README.md` for the repository's settings.
+
+### The window
+
+`title-runs ui --config FILE` starts the tray and the window: Queue (running, up next with the score's reasons, waiting
+for you, recently posted), Pull requests (queued by maintainers, mentions your titles, labelled perf/agc/shader,
+everything else), Schedule, Titles, Settings (connection check, sandbox self-test, trusted authors, logs). `Run…` on a
+PR no maintainer queued opens the trust dialog. `title-runs ui --setup --config FILE` is the first-run setup.
+Screenshots: `docs/screens/`. Without the window: `title-runs client --config FILE queue|next|run-once|daemon`.
+
+### The stand-in
+
+```
+python3 -I title-runs standin label 8104 --by CPritch --root ~/games/title-runs-standin          # a maintainer's label
+python3 -I title-runs client --config ~/games/title-runs-standin/laptop.toml run-once            # claim, build, run, push
+python3 -I title-runs standin push 8104 <sha> --by Celegans12 --root ...                         # a push after approval
+python3 -I title-runs standin command 8104 "/title-test sha=<sha>" --by CPritch --root ...       # a maintainer approves it
+```
+
+`title_runs/standin.py` keeps a bare results repository (with a post-receive hook that runs the publish workflow), a
+fake AnyPS5 (`forge.json`) and the App's outbox, where every call it would make is written with the comment body.
+
+## What it does (round 1: the tester's own poller)
 
 1. **Poll** (`title-runs poll`). A GraphQL listing of the repository's pull requests, kept on disk
    (`state/cache/pull-requests.json`). The first poll lists the open PRs (about 17 pages and 18 points for 800 PRs);
@@ -99,8 +156,10 @@ A followed PR's code runs on the tester's machine. What stands between that code
   GitHub links a commit to an account by its e-mail address, which a pusher can set to anyone's, so the head commit's
   author is a hint, not proof; the PR's author is the account that controls the head branch, but anyone with push
   access to that branch can push to it. Keep the list short.
-- **The build runs unsandboxed.** CMake and the compiler run as the tester's user, with the network (submodule pins
-  may be fetched). A malicious PR can run code at build time. Building is the step the allowlist protects.
+- **The build runs in the build sandbox** (round 2): the same bubblewrap setup without GPU, display or network; the
+  source tree, its git directory and prebuilt dependencies read-only, only the build directory writable. Fetching
+  the commit, main and submodule pins happens before, outside it. A malicious PR still runs its code at build time,
+  inside the sandbox.
 - **The title runs in bubblewrap:** `/usr`, `/etc`, `/sys` read-only; an empty `/home`, `/tmp` and `/run`; its own PID
   namespace (the host's processes are not visible in its `/proc`); a minimal `/dev` with only the GPU's device nodes (`/dev/dri`, `/dev/nvidia*`); the display sockets
   (Wayland, X11) and nothing else of the session (no D-Bus, no audio server, no SSH agent); no network (its own
@@ -111,7 +170,9 @@ What this does not protect against:
 
 - a driver or kernel exploit: the GPU's device nodes and the display server are reachable from inside, so a bug in
   the GPU driver, the kernel or the compositor can be used to leave the sandbox;
-- anything at build time (above);
+- a tester's token: it can write anywhere in the results repository's main branch, so the queue and configuration
+  live on the protected `state` branch and the publish workflow refuses any push that touches more than the pusher's
+  claims and results;
 - the display: a title can draw on the tester's screen and read what the compositor lets any client read;
 - resource exhaustion: no CPU, memory or disk limits are set beyond the core-dump limit;
 - `sandbox.mode = "none"`, which the tester can set explicitly; every report then says the sandbox was off.
