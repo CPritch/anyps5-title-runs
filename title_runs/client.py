@@ -78,8 +78,17 @@ def to_result(results, head, machine, tester, info, trust_mark):
 
 class Client:
     def __init__(self, config, log=print, info=None):
-        self.config, self.log = config, log
+        self.config = config
         self.dir = Path(config.state_dir) / "client"
+
+        def both(text):
+            # The window's Logs box reads client.log, whether the client runs in the window or on the command line.
+            self.dir.mkdir(parents=True, exist_ok=True)
+            with open(self.dir / "client.log", "a") as stream:
+                stream.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} {text}\n")
+            log(text)
+
+        self.log = both
         token_file = self.dir / "results-token"
         if config.results_token_env and not os.environ.get(config.results_token_env) and token_file.exists():
             # The token the setup window saved (mode 0600); git gets it through the credential helper (store.py).

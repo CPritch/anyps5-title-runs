@@ -26,7 +26,12 @@ class Tray(QObject):
     def __init__(self, engine, open_window, quit_app):
         super().__init__()
         self.engine = engine
-        self.icons = {state: QIcon(dot(state)) for state in COLOURS}
+        self.icons = {}
+        for state in COLOURS:
+            icon = QIcon()
+            for mode in (QIcon.Normal, QIcon.Disabled):  # the menu's status lines are disabled entries; keep their colour
+                icon.addPixmap(dot(state), mode)
+            self.icons[state] = icon
         self.icon = QSystemTrayIcon(self.icons["idle"])
         self.icon.setToolTip("AnyPS5 title runs")
         self.menu = QMenu()

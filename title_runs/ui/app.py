@@ -31,7 +31,7 @@ class Engine(QObject):
         self.config = config
         self.dir = Path(config.state_dir) / "client"
         self.dir.mkdir(parents=True, exist_ok=True)
-        self.client = clients.Client(config, log=self.log)
+        self.client = clients.Client(config, log=lambda text: None)
         self.listing_path = Path(listing) if listing else Path(config.state_dir) / "cache" / "pull-requests.json"
         self.auto = auto
         self.window = None
@@ -55,8 +55,13 @@ class Engine(QObject):
         return self.dir
 
     def log_tail(self, lines=12):
+        """The client log's last lines, and the latest job's own log."""
         path = self.dir / "client.log"
-        return "\n".join(path.read_text().splitlines()[-lines:]) if path.exists() else ""
+        out = path.read_text().splitlines()[-lines:] if path.exists() else []
+        jobs = sorted(Path(self.config.state_dir).glob("jobs/*/job.log"), key=lambda p: p.stat().st_mtime)
+        if jobs:
+            out += [f"--- {jobs[-1].parent.name}/job.log"] + jobs[-1].read_text().splitlines()[-lines:]
+        return "\n".join(out)
 
     def status(self):
         return self.client.status.read()
@@ -103,10 +108,13 @@ class Engine(QObject):
         return self.client.allowed_now()
 
     def comment_link(self, pr):
+        """The App's comment on pr: a GitHub link, or the stand-in's outbox when the results repository is local."""
         comment_id = self.comments.get("prs", {}).get(str(pr), {}).get("comment_id")
-        if isinstance(comment_id, int) or (isinstance(comment_id, str) and comment_id.isdigit()):
-            return f"https://github.com/{self.repository}/pull/{pr}#issuecomment-{comment_id}"
-        return ""
+        if comment_id is None:
+            return ""
+        if not self.config.results_url.startswith(("https://", "git@", "ssh://")):
+            return f"stand-in comment {comment_id} (outbox)"
+        return f"https://github.com/{self.repository}/pull/{pr}#issuecomment-{comment_id}"
 
     # -- requests from the UI ------------------------------------------------------------------------------------------
 
@@ -191,6 +199,8 @@ def screenshots(engine, out, setup_folder="", setup_url=""):
     window.show()
     saved = []
     for index, name in enumerate(("queue", "pull-requests", "schedule", "titles", "settings")):
+        if name == "settings":
+            window.settings.self_test()
         window.tabs.setCurrentIndex(index)
         QApplication.processEvents()
         path = out / f"{index + 1}-{name}.png"

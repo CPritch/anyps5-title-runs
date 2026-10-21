@@ -56,7 +56,8 @@ class QueueTab(QWidget):
         recent = QGroupBox("Recently posted")
         box = QVBoxLayout(recent)
         self.recent = tree(["PR", "Head", "Status", "When", "Comment"], (70, 100, 90, 170))
-        self.recent.itemDoubleClicked.connect(lambda item, _: item.data(4, Qt.UserRole) and QDesktopServices.openUrl(QUrl(item.data(4, Qt.UserRole))))
+        self.recent.itemDoubleClicked.connect(lambda item, _: (item.data(4, Qt.UserRole) or "").startswith("https://")
+                                              and QDesktopServices.openUrl(QUrl(item.data(4, Qt.UserRole))))
         box.addWidget(self.recent)
         layout.addWidget(recent, 1)
 
@@ -68,7 +69,8 @@ class QueueTab(QWidget):
             titles = ", ".join(self.engine.names.values())
             self.running.setText(f"#{running['number']} {running['head'][:9]}{trust} · {titles} · {running['progress'] or 'starting'}")
         else:
-            self.running.setText(self.engine.status().get("line", "Nothing is running."))
+            last = self.engine.status().get("line", "")
+            self.running.setText("Nothing is running." + (f" Last: {last}." if last and last != "Idle" else ""))
         self.stop.setEnabled(bool(running))
         self.up_next.clear()
         for row in view["up_next"]:
@@ -92,7 +94,7 @@ class QueueTab(QWidget):
         self.recent.clear()
         for row in view["recent"]:
             link = self.engine.comment_link(row["pr"])
-            item = QTreeWidgetItem([f"#{row['pr']}", row["head"][:9], row["status"], row["at"].replace("T", " ").replace("Z", " UTC"), link or "outbox (stand-in)"])
+            item = QTreeWidgetItem([f"#{row['pr']}", row["head"][:9], row["status"], row["at"].replace("T", " ").replace("Z", " UTC"), link])
             item.setData(4, Qt.UserRole, link)
             self.recent.addTopLevelItem(item)
 
