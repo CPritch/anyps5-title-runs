@@ -26,21 +26,21 @@ def text(html):
 class WhatPage(QWizardPage):
     def __init__(self):
         super().__init__()
-        self.setTitle("What AnyPS5 title runs does")
-        self.setSubTitle("A few pages before anything runs. Nothing is built or run until you finish and a maintainer approves this machine.")
+        self.setTitle("What this does")
+        self.setSubTitle("A few steps before anything runs. Nothing runs until you finish and the AnyPS5 team approves this machine.")
         layout = QVBoxLayout(self)
         layout.addWidget(text(
-            "AnyPS5's maintainers queue pull requests they want tested on real games. When this computer is free, the client takes one, builds "
-            "the change and the AnyPS5 it changes, runs both on <b>your own dumps</b>, and reports the timings on the pull request. Developers get "
-            "results from hardware and games they do not have; you decide when your machine works."))
+            "The AnyPS5 team picks changes to AnyPS5 they want tried on real games. When your computer is free, this app takes one, builds "
+            "AnyPS5 with and without the change, plays a short part of <b>your own copy</b> of a game with each, and posts how fast each ran "
+            "on the change's page on GitHub. The team gets results from computers and games they don't have, and you choose when yours helps."))
         leaves = QGroupBox("What leaves this computer")
         box = QVBoxLayout(leaves)
         box.addWidget(text(
-            "<ul><li>Your GitHub account name and this machine's name, GPU, driver and OS: public, in the registration issue.</li>"
-            "<li>Timings, the summary lines AnyPS5 prints (build, GPU, driver, OS, CPU core count, memory, switches) and outcome classes "
-            "(rendering, crashed, …): public, on the pull request.</li>"
-            "<li>A screenshot of the test scene, only if you turn it on in Settings.</li></ul>"
-            "<b>Never game files, save data or anything of your dumps.</b>"))
+            "<ul><li>Your GitHub name, and your machine's name, graphics card, driver and system. They're public, so the team can tell "
+            "machines apart.</li>"
+            "<li>How fast each run was, and whether the game started and showed a picture. That's public too, on the change.</li>"
+            "<li>A screenshot of the test scene, only if you turn that on in Settings.</li></ul>"
+            "<b>Never your game files, your saves, or anything else on this computer.</b>"))
         layout.addWidget(leaves)
         layout.addStretch(1)
 
@@ -48,22 +48,23 @@ class WhatPage(QWizardPage):
 class SandboxPage(QWizardPage):
     def __init__(self):
         super().__init__()
-        self.setTitle("The sandbox")
-        self.setSubTitle("The code being tested is a stranger's change to an emulator. It runs in a sandbox, which has limits.")
+        self.setTitle("Keeping your computer safe")
+        self.setSubTitle("The changes come from people you don't know, so they run in a sandbox. A sandbox has limits.")
         layout = QVBoxLayout(self)
         layout.addWidget(text(
-            "Builds and runs happen in <b>bubblewrap</b>: no network once the source is fetched, your home directory hidden, the dumps "
-            "read-only, the system read-only. Only the build and game folders of the job are writable. A maintainer has looked at every "
-            "change the queue runs, and approval names one commit: a push after it is not run."))
-        limits = QGroupBox("What the sandbox does NOT protect against")
+            "Building and playing happen in a sandbox. Once the change is downloaded it has no internet, it can't see your files, and your "
+            "games are read-only to it. It can only write to the test's own folders. Someone on the AnyPS5 team looks at every change before "
+            "it's queued, and anything pushed to a change after that isn't run."))
+        limits = QGroupBox("What the sandbox can't protect against")
         box = QVBoxLayout(limits)
         box.addWidget(text(
-            "<ul><li>A malicious driver or kernel exploit through the GPU: the game needs the GPU's device files.</li>"
-            "<li>The display server: the game draws on your screen and can read what your desktop lets any window read.</li>"
-            "<li>Running out of disk, memory or CPU: limits are set in the Schedule tab, not by the sandbox.</li>"
-            "<li>Anything you run with the sandbox turned off, or a pull request you choose to run outside the queue.</li></ul>"))
+            "<ul><li>A change that attacks your graphics driver or the system itself. The game needs the graphics card, so the sandbox lets it "
+            "reach it.</li>"
+            "<li>Your screen. The game shows on it, like any program.</li>"
+            "<li>Filling your disk or keeping the computer busy. Settings has limits for that.</li>"
+            "<li>Anything you run with the sandbox turned off, or a change you choose to run that the team hasn't checked.</li></ul>"))
         layout.addWidget(limits)
-        self.read = QCheckBox("I have read what the sandbox does not protect against")
+        self.read = QCheckBox("I've read what the sandbox can't protect against")
         self.read.toggled.connect(self.completeChanged)
         layout.addWidget(self.read)
         layout.addStretch(1)
@@ -75,24 +76,25 @@ class SandboxPage(QWizardPage):
 class WhenPage(QWizardPage):
     def __init__(self, schedule):
         super().__init__()
-        self.setTitle("When it may run")
-        self.setSubTitle("It should get out of the way when you use the computer.")
+        self.setTitle("When to test")
+        self.setSubTitle("It should keep out of your way.")
         layout = QVBoxLayout(self)
         self.idle_ok, idle_how = platform_info.idle_detection()
         self.full_ok, full_how = platform_info.fullscreen_detection()
-        idle = QGroupBox("Idle")
+        idle = QGroupBox("When you're away")
         form = QFormLayout(idle)
-        self.idle = QCheckBox("Only when the computer has been idle for")
+        self.idle = QCheckBox("Only when the computer has been left alone for")
         self.minutes = QSpinBox()
         self.minutes.setRange(1, 240)
         self.minutes.setValue(schedule["idle_minutes"])
         self.minutes.setSuffix(" min")
         if self.idle_ok:
-            form.addRow(text(f"This computer can tell when it is idle: {idle_how}."))
+            form.addRow(text("This computer can tell when you're away from it."))
             self.idle.setChecked(True)
         else:
-            form.addRow(text(f"<b>This computer cannot tell when it is idle</b>: {idle_how}. Set the hours it may work instead "
-                             f"(on Hyprland, running hypridle or swayidle with an idle hint makes idle work)."))
+            away = text("<b>This computer can't tell when you're away from it</b>, so choose the hours it may test instead.")
+            away.setToolTip(f"{idle_how}. On Hyprland, an idle daemon such as hypridle or swayidle makes this work.")
+            form.addRow(away)
             self.idle.setChecked(False)
             self.idle.setEnabled(False)
             self.minutes.setEnabled(False)
@@ -115,19 +117,21 @@ class WhenPage(QWizardPage):
         row.addWidget(QLabel("to"))
         row.addWidget(self.last)
         row.addStretch(1)
-        form.addRow("Work only", row)
+        form.addRow("Test only", row)
         layout.addWidget(hours)
         other = QGroupBox("Power and other programs")
         form = QFormLayout(other)
-        self.mains = QCheckBox("Only on mains power")
+        self.mains = QCheckBox("Only when plugged in")
         self.mains.setChecked(schedule["mains_only"])
         form.addRow(self.mains)
-        self.fullscreen = QCheckBox("Pause while a fullscreen program runs")
+        self.fullscreen = QCheckBox("Pause while a game or video is fullscreen")
         self.fullscreen.setChecked(schedule.get("pause_fullscreen", True) and self.full_ok)
         self.fullscreen.setEnabled(self.full_ok)
-        form.addRow(self.fullscreen, text(full_how + "." if self.full_ok else f"Not available here: {full_how}."))
+        self.fullscreen.setToolTip(full_how)
+        form.addRow(self.fullscreen, text("" if self.full_ok else "This computer can't tell when something is fullscreen."))
         self.games = QLineEdit(", ".join(schedule["pause_for"]))
-        form.addRow("Pause while these run", self.games)
+        self.games.setPlaceholderText("program names, separated by commas")
+        form.addRow("Also pause while these run", self.games)
         layout.addWidget(other)
         layout.addStretch(1)
 
@@ -138,8 +142,8 @@ class WhenPage(QWizardPage):
 class DumpsPage(QWizardPage):
     def __init__(self, folder="", repo_dir=""):
         super().__init__()
-        self.setTitle("Your dumps")
-        self.setSubTitle("Pick the folder with your extracted packages (eboot.bin and sce_sys/param.json). They stay where they are, read-only.")
+        self.setTitle("Your games")
+        self.setSubTitle("Choose the folder your games are in. They stay where they are and aren't changed.")
         layout = QVBoxLayout(self)
         row = QHBoxLayout()
         self.folder = QLineEdit(folder)
@@ -152,19 +156,19 @@ class DumpsPage(QWizardPage):
         row.addWidget(scan)
         layout.addLayout(row)
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["Title ID", "Name", "Version", "Check", "Folder"])
+        self.table.setHorizontalHeaderLabels(["Game ID", "Name", "Version", "Test", "Folder"])
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.result = text("Press Find games to look through your home folder, or choose a folder first.")
         layout.addWidget(self.result)
         layout.addWidget(self.table)
-        layout.addWidget(text("<i>Full timing</i>: a route drives the game to a scene and times main against the change. "
-                              "<i>Boot check</i>: the game is started and its outcome classed (rendering, crashed, …)."))
-        source = QGroupBox("AnyPS5's source")
+        layout.addWidget(text("<i>Full test</i>: the app plays a set part of the game and times it. "
+                              "<i>Start-up check</i>: the app only checks the game starts and shows a picture."))
+        source = QGroupBox("AnyPS5's source code")
         form = QFormLayout(source)
         self.repo_dir = QLineEdit(str(repo_dir))
         self.repo_dir.textChanged.connect(self.check_clone)
-        form.addRow("Your AnyPS5 clone, with its submodules", self.repo_dir)
+        form.addRow("Its folder", self.repo_dir)
         self.clone_state = QLabel("")
         form.addRow(self.clone_state)
         layout.addWidget(source)
@@ -196,7 +200,7 @@ class DumpsPage(QWizardPage):
         for i, dump in enumerate(self.found):
             route = (ROOT / "routes" / f"{dump['title_id']}.json").exists()
             dump["route"] = str(ROOT / "routes" / f"{dump['title_id']}.json") if route else ""
-            for column, value in enumerate((dump["title_id"], dump["name"], dump["version"], "full timing (route)" if route else "boot check", dump["path"])):
+            for column, value in enumerate((dump["title_id"], dump["name"], dump["version"], "Full test" if route else "Start-up check", dump["path"])):
                 self.table.setItem(i, column, QTableWidgetItem(value))
         self.table.resizeColumnsToContents()
         self.completeChanged.emit()
@@ -204,8 +208,8 @@ class DumpsPage(QWizardPage):
     def check_clone(self):
         path = Path(self.repo_dir.text()).expanduser()
         self.clone_ok = (path / ".git").exists() and (path / "CMakeLists.txt").exists()
-        self.clone_state.setText("Builds take main and the change from here, in worktrees of their own; your checkout is not touched."
-                                 if self.clone_ok else "Not an AnyPS5 clone. Clone it with git clone --recursive first.")
+        self.clone_state.setText("Found. Each test works on its own copies, so this folder isn't changed." if self.clone_ok else
+                                 "That folder isn't AnyPS5's source code. (Developers: git clone --recursive the AnyPS5 repository.)")
         self.completeChanged.emit()
 
     def isComplete(self):  # noqa: N802
@@ -217,8 +221,7 @@ class SignInPage(QWizardPage):
         super().__init__()
         self.engine = engine
         self.setTitle("Sign in with GitHub")
-        self.setSubTitle("The client reports as you, through the maintainers' App. It can comment and open issues in the results repository; "
-                         "nothing else of your account.")
+        self.setSubTitle("The app posts results as you. It can only post on the AnyPS5 team's testing pages, nothing else on your account.")
         layout = QVBoxLayout(self)
         self.where = QGroupBox("Join the testing")
         row = QHBoxLayout(self.where)
@@ -278,15 +281,15 @@ class SignInPage(QWizardPage):
             self.completeChanged.emit()
             return
         if login:
-            self.state.setText(f"Signed in as <b>{login}</b>. The sign-in lasts 8 hours and renews itself for 6 months; Settings signs out.")
+            self.state.setText(f"Signed in as <b>{login}</b>. You stay signed in; Settings can sign you out.")
             self.code.setText("✓")
             for button in (self.start_button, self.copy, self.open):
                 button.hide()
         elif self.device:
-            self.state.setText(f"Open <a href='{self.device['verification_uri']}'>{self.device['verification_uri']}</a> and enter this code. "
-                               f"The page waits until you have.")
+            self.state.setText(f"Open <a href='{self.device['verification_uri']}'>{self.device['verification_uri']}</a> and type this code. "
+                               f"This page carries on by itself once you have.")
         else:
-            self.state.setText("Press Sign in: the client shows a code to enter on GitHub's device page, in any browser.")
+            self.state.setText("Press Sign in with GitHub to get a code to type on GitHub, in any browser.")
         self.completeChanged.emit()
 
     def start(self):
@@ -307,7 +310,7 @@ class SignInPage(QWizardPage):
                 self.timer.setInterval(auth.DeviceFlow.interval(self.device) * 1000)  # GitHub's slow_down lengthens it
         except Exception as error:  # noqa: BLE001
             self.timer.stop()
-            self.state.setText(f"Sign-in failed: {error}")
+            self.state.setText(f"Sign-in didn't work: {error}")
         self.show_state()
 
     def isComplete(self):  # noqa: N802
@@ -319,17 +322,15 @@ class RegisterPage(QWizardPage):
         super().__init__()
         self.engine = engine
         self.setTitle("Register this machine")
-        self.setSubTitle("A maintainer approves new machines. Until then this machine takes no jobs.")
+        self.setSubTitle("The AnyPS5 team approves each new machine. Until then it doesn't run tests.")
         info = engine.client.info
         form = QFormLayout(self)
         self.machine = QLineEdit(engine.config.machine or socket.gethostname().split(".")[0].lower()[:32])
         form.addRow("Machine name", self.machine)
-        form.addRow("GPU", QLabel(info["gpu"]))
+        form.addRow("Graphics card", QLabel(info["gpu"]))
         form.addRow("Driver", QLabel(info.get("driver") or "unknown"))
-        form.addRow("OS", QLabel(info["os"]))
-        form.addRow("Class", QLabel(verdict.class_of(engine.client.machine_class)))
-        form.addRow(text("Machines of one class (GPU model, driver branch, OS) are compared with each other; the results of different "
-                         "classes are kept apart."))
+        form.addRow("System", QLabel(info["os"]))
+        form.addRow(text("Results are compared with machines like this one: the same graphics card, driver and system."))
         row = QHBoxLayout()
         self.state = text("")
         row.addWidget(self.state, 1)
@@ -343,14 +344,13 @@ class RegisterPage(QWizardPage):
         state, record = self.engine.client.registration()
         self.button.setEnabled(state == "not registered" and bool(self.engine.client.tester()))
         if state == "approved":
-            self.state.setText(f"<b>Approved</b> by @{record.get('approved_by', '?')}: this machine takes jobs.")
+            self.state.setText(f"<b>Approved</b> by {record.get('approved_by', '?')}: this machine runs tests.")
         elif state == "pending":
-            self.state.setText(f"Registration issue #{record.get('issue', '?')} is open: <b>waiting for a maintainer</b>. You can finish now; "
-                               f"the client takes jobs once it is approved.")
+            self.state.setText("<b>Waiting for the AnyPS5 team</b> to approve it. You can finish now: it starts testing once approved.")
         elif state == "declined":
-            self.state.setText("A maintainer declined this machine.")
+            self.state.setText("The AnyPS5 team turned this machine down.")
         else:
-            self.state.setText("Opens an issue in the results repository with this machine's name, GPU, driver, OS and titles.")
+            self.state.setText("Registering shares this machine's name, graphics card, driver and system with the AnyPS5 team, in public.")
         self.completeChanged.emit()
 
     def register(self):
@@ -358,7 +358,7 @@ class RegisterPage(QWizardPage):
         try:
             self.engine.client.register()
         except Exception as error:  # noqa: BLE001
-            self.state.setText(f"Could not register: {error}")
+            self.state.setText(f"Couldn't register: {error}")
             return
         self.refresh()
 
@@ -380,20 +380,20 @@ class DonePage(QWizardPage):
     def initializePage(self):  # noqa: N802
         wizard = self.wizard()
         when = wizard.when
-        how = (f"when idle for {when.minutes.value()} min" if when.idle.isChecked() else f"from {when.first.value():02d}:00 to {when.last.value():02d}:00")
-        how += (", on mains power" if when.mains.isChecked() else "") + (", pausing for fullscreen programs" if when.fullscreen.isChecked() else "")
+        how = (f"when the computer has been left alone for {when.minutes.value()} minutes" if when.idle.isChecked()
+               else f"from {when.first.value():02d}:00 to {when.last.value():02d}:00")
+        how += (", only when plugged in" if when.mains.isChecked() else "") + (", pausing while something is fullscreen" if when.fullscreen.isChecked() else "")
         state, record = self.engine.client.registration()
         titles = ", ".join(f"{d['name']} ({d['title_id']})" for d in wizard.dumps.found)
-        machine = {"approved": ("✓", "approved: it takes jobs now"),
-                   "pending": ("…", f"registration #{(record or {}).get('issue', '?')} is waiting for a maintainer: it takes jobs once approved"),
-                   "declined": ("✗", "declined by a maintainer: it takes no jobs"),
-                   "not registered": ("…", "not registered: it takes no jobs until you register it (Settings) and a maintainer approves it")}[state]
-        rows = [("✓", "You have read what leaves this computer and what the sandbox does not protect against."), ("✓", f"It works {how}."),
-                ("✓", f"Titles: {titles}."), ("✓", f"Signed in as <b>{self.engine.client.tester()}</b>."),
+        machine = {"approved": ("✓", "approved, so it runs tests"),
+                   "pending": ("…", "waiting for the AnyPS5 team to approve it. It starts testing once they have"),
+                   "declined": ("✗", "turned down by the AnyPS5 team, so it doesn't run tests"),
+                   "not registered": ("…", "not registered yet. It doesn't run tests until you register it (Settings) and the team approves it")}[state]
+        rows = [("✓", "You've read what leaves this computer and what the sandbox can't protect against."), ("✓", f"It tests {how}."),
+                ("✓", f"Games: {titles}."), ("✓", f"Signed in as <b>{self.engine.client.tester()}</b>."),
                 (machine[0], f"This machine, <b>{wizard.register_page.machine.text().strip()}</b>: {machine[1]}.")]
         self.summary.setText("<table cellspacing='6'>" + "".join(f"<tr><td><b>{mark}</b></td><td>{line}</td></tr>" for mark, line in rows) + "</table>"
-                             "<p>Finish puts the client in the tray. Everything here can be changed later in Schedule, Titles and Settings, "
-                             "and the walkthrough runs again from Settings.</p>")
+                             "<p>Finish opens the app. You can change all of this later in Settings, and go through these steps again from there.</p>")
 
 
 class Walkthrough(QWizard):
@@ -402,7 +402,7 @@ class Walkthrough(QWizard):
     def __init__(self, engine, folder="", parent=None, start="what"):
         super().__init__(parent)
         self.engine = engine
-        self.setWindowTitle("AnyPS5 title runs: first run")
+        self.setWindowTitle("AnyPS5 title runs: getting started")
         self.setWizardStyle(QWizard.ModernStyle)
         self.what, self.sandbox, self.when = WhatPage(), SandboxPage(), WhenPage(engine.config.schedule)
         self.dumps = DumpsPage(folder, engine.config.repo_dir)
