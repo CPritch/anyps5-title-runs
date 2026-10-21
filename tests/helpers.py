@@ -1,9 +1,17 @@
+import atexit
 import datetime
+import shutil
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# Every test's temporary folders (stand-ins, git histories, state) go in one folder per run, removed when the run ends:
+# left in /tmp they filled it (10,000 folders, 2.4 GB) and the suite failed with no space left.
+_RUN_DIR = tempfile.mkdtemp(prefix="title-runs-tests-")
+tempfile.tempdir = _RUN_DIR
+atexit.register(shutil.rmtree, _RUN_DIR, True)
 
 from title_runs import config as configs  # noqa: E402
 
