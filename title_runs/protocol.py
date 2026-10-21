@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import VENDOR, platform_info, route as routes, verdict as verdicts
+from . import VENDOR, platform_info, route as routes, sandbox, verdict as verdicts
 from .game import Game
 
 sys.path.insert(0, str(VENDOR / "gtav_harness"))
@@ -78,7 +78,7 @@ class Protocol:
     def new_run(self, side, label):
         run = self.runs_dir / f"{datetime.datetime.now():%Y%m%d-%H%M%S}-{label}"
         run.mkdir(parents=True)
-        lines = [f"started={datetime.datetime.now().isoformat(timespec='seconds')}", f"machine={self.machine_id}",
+        lines = [f"started={datetime.datetime.now().isoformat(timespec='seconds')}", f"machine={self.machine_id}", f"display={sandbox.game_display()}",
                  f"built_from={side.commit}", f"run_env={side.run_env_text}", f"title={self.title.title_id}",
                  f"graphics={self.title.graphics_mode or '?'}", f"sandbox={self.config.sandbox}",
                  f"allocator={self.config.allocator or 'glibc'}", f"base={self.base_line}", f"side={side.key} {side.label}"]
@@ -101,6 +101,11 @@ class Protocol:
         for key in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY", "XDG_SESSION_TYPE"):
             if os.environ.get(key):
                 env[key] = os.environ[key]
+        if sandbox.game_display() == "x11":
+            # The app shows the game inside its window: an X11 window (XWayland on Wayland), which a Wayland window can't be.
+            env.pop("WAYLAND_DISPLAY", None)
+            env["SDL_VIDEODRIVER"] = "x11"
+            env["XDG_SESSION_TYPE"] = "x11"
         env.update(self.title.env)
         env.update(side.run_env)
         env.update(extra)

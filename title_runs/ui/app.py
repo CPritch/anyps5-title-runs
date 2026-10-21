@@ -579,8 +579,9 @@ def main(argv=None):
     parser.add_argument("--no-sync", action="store_true", help="--screenshots: read the results checkout as it is (a client may be using it)")
     args = parser.parse_args(argv)
     if sys.platform.startswith("linux") and os.environ.get("DISPLAY") and not os.environ.get("QT_QPA_PLATFORM") and not args.screenshots:
-        # An X11 program on Wayland desktops too (XWayland): the game's window, an X11 window, can then be shown inside the app.
+        # An X11 program on Wayland desktops too (XWayland), and the game an X11 window: then the game shows inside the app.
         os.environ["QT_QPA_PLATFORM"] = "xcb"
+        os.environ["TITLE_RUNS_GAME_DISPLAY"] = "x11"
     if not args.config.exists():
         new_config(args.config, args.results, args.github, args.state)
     config = configs.load(args.config)

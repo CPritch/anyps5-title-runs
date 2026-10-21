@@ -29,11 +29,17 @@ class SandboxError(RuntimeError):
     pass
 
 
+def game_display():
+    """"x11" when the app shows the game inside its own window (ui/gameview.py needs an X11 window: the app sets
+    TITLE_RUNS_GAME_DISPLAY), else "native" (Wayland where there is one)."""
+    return "x11" if os.environ.get("TITLE_RUNS_GAME_DISPLAY") == "x11" else "native"
+
+
 def display_binds():
     binds = []
     runtime = os.environ.get("XDG_RUNTIME_DIR")
     wayland = os.environ.get("WAYLAND_DISPLAY")
-    if runtime and wayland and os.path.exists(os.path.join(runtime, wayland)):
+    if runtime and wayland and os.path.exists(os.path.join(runtime, wayland)) and game_display() != "x11":
         binds.append(os.path.join(runtime, wayland))
     display = os.environ.get("DISPLAY", "")
     if display.startswith(":"):
