@@ -125,3 +125,39 @@ class Scheduler(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Settings(unittest.TestCase):
+    """config.json's verdicts: threshold_pct and class_max (DESIGN.md, round 4 decision 7)."""
+
+    def test_defaults_are_1_pct_and_3(self):
+        self.assertEqual(verdict.settings({}), verdict.Settings(1.0, 3))
+        self.assertEqual(formats.check_config({"format": 1, "repository": "a/b", "maintainers": []})["verdicts"], {"threshold_pct": 1, "class_max": 3})
+
+    def test_a_lower_threshold_counts_round_2s_difference(self):
+        rules = verdict.settings({"verdicts": {"threshold_pct": 0.3}})
+        v = verdict.machine(sides((78.0, 78.0), (77.6, 77.7)), rules)
+        self.assertEqual((v["verdict"], v["borderline"]), ("faster", False))
+        self.assertAlmostEqual(v["size"], 0.234)
+
+    def test_class_max_bounds_the_borderline_ask(self):
+        results = {"laptop": result("laptop", LAPTOP, (78.0, 78.0), (77.9, 78.1)), "laptop-2": result("laptop-2", LAPTOP_TOO, (78.0, 78.0), (76.0, 76.1))}
+        (two,) = verdict.by_class(results, "PPSA04263").values()
+        self.assertTrue(two["borderline"])  # they disagree and fewer than 3 have reported
+        (capped,) = verdict.by_class(results, "PPSA04263", verdict.Settings(1.0, 2)).values()
+        self.assertFalse(capped["borderline"])
+        self.assertNotIn("one more machine", capped["text"])
+
+    def test_the_scheduler_uses_class_max(self):
+        entry = {"job": formats.job_id(8104, HEAD), "pr": 8104, "head": HEAD, "machines": 2, "hw": [], "titles": [], "priority": "normal",
+                 "queued_at": "2026-10-21T12:00:00Z"}
+        results = {entry["job"]: {"laptop": result("laptop", LAPTOP, (78.0, 78.0), (77.9, 78.1)),
+                                  "laptop-2": result("laptop-2", LAPTOP_TOO, (78.0, 78.0), (76.0, 76.1))}}
+        third = schedule.Machine("laptop-3", "tester", LAPTOP, {"PPSA04263"})
+        self.assertEqual(schedule.coverage_gap(entry, third, {}, results, at("2026-10-21T13:00:00"))[0], 1.0)
+        self.assertEqual(schedule.coverage_gap(entry, third, {}, results, at("2026-10-21T13:00:00"), verdict.Settings(1.0, 2))[0], 0.0)
+
+    def test_bad_settings_are_refused(self):
+        for bad in ({"threshold_pct": 0}, {"threshold_pct": "1"}, {"threshold_pct": 50}, {"class_max": 0}, {"class_max": 2.5}, {"class_max": True}):
+            with self.assertRaises(formats.FormatError):
+                formats.check_config({"format": 1, "repository": "a/b", "maintainers": [], "verdicts": bad})

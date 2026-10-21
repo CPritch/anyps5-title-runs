@@ -33,12 +33,12 @@ def title_name(title_id, entry):
     return f"{entry.get('name') or title_id} ({title_id})"
 
 
-def machine_verdict(entry):
-    return verdict.machine(entry.get("sides") or {})
+def machine_verdict(entry, rules=verdict.DEFAULT):
+    return verdict.machine(entry.get("sides") or {}, rules)
 
 
-def p50_change(entry):
-    v = machine_verdict(entry)
+def p50_change(entry, rules=verdict.DEFAULT):
+    v = machine_verdict(entry, rules)
     sides = entry.get("sides") or {}
     a, b = sides.get("A", {}).get("p50", []), sides.get("B", {}).get("p50", [])
     if v.get("diff") is None or not a or not b:
@@ -46,8 +46,8 @@ def p50_change(entry):
     return f"{sum(a) / len(a):.1f} → {sum(b) / len(b):.1f} ms"
 
 
-def verdict_word(entry):
-    v = machine_verdict(entry)
+def verdict_word(entry, rules=verdict.DEFAULT):
+    v = machine_verdict(entry, rules)
     word = {"faster": "**faster**", "slower": "**slower**"}.get(v["verdict"], v["verdict"])
     return word + (" (borderline)" if v.get("borderline") else "")
 
@@ -55,7 +55,7 @@ def verdict_word(entry):
 HEADER = ["| machine | GPU, driver, OS | title | outcome main / PR | p50 main → PR | verdict |", "|---|---|---|---|---|---|"]
 
 
-def rows(results, prefix=""):
+def rows(results, prefix="", rules=verdict.DEFAULT):
     out = []
     for name, result in sorted(results.items()):
         if result["status"] != "done":
@@ -64,15 +64,15 @@ def rows(results, prefix=""):
         for title_id, entry in sorted(result["titles"].items()):
             outcome = entry["outcome"]
             out.append(f"| {prefix}{name} | {result['machine_line']} | {title_name(title_id, entry)} | {outcome['A']} / {outcome['B']} | "
-                       f"{p50_change(entry)} | {verdict_word(entry)} |")
+                       f"{p50_change(entry, rules)} | {verdict_word(entry, rules)} |")
     return out
 
 
-def combined_lines(results):
+def combined_lines(results, rules=verdict.DEFAULT):
     lines = []
     titles = sorted({t for r in results.values() if r["status"] == "done" for t in r["titles"]})
     for title_id in titles:
-        for combined in verdict.by_class(results, title_id).values():
+        for combined in verdict.by_class(results, title_id, rules).values():
             text = combined["text"]
             for word in ("Faster", "Slower", "Mixed"):
                 if text.startswith(word):
@@ -91,7 +91,7 @@ def still_wanted(entry, results):
     return f"| still wanted | {missing} more machine{'s' if missing > 1 else ''}: {hw} | {titles} | | | |"
 
 
-def details(results):
+def details(results, rules=verdict.DEFAULT):
     lines = []
     for name, result in sorted(results.items()):
         if result["status"] != "done":
@@ -105,10 +105,10 @@ def details(results):
                 a = ", ".join(f"{v:.1f}" for v in sides.get("A", {}).get(key, [])) or "-"
                 b = ", ".join(f"{v:.1f}" for v in sides.get("B", {}).get(key, [])) or "-"
                 lines.append(f"| {label} | {a} ms | {b} ms |")
-            v = machine_verdict(entry)
+            v = machine_verdict(entry, rules)
             if v.get("diff") is not None:
                 gpu = f", GPU {v['gpu_diff']:+.2f} ms per present" if v.get("gpu_diff") is not None else ""
-                lines += ["", f"p50 {v['diff']:+.2f} ms ({v['diff_pct']:+.1f} %); spread {v['spread']:.2f} ms; 1 % of main {v['size']:.2f} ms{gpu}. "
+                lines += ["", f"p50 {v['diff']:+.2f} ms ({v['diff_pct']:+.1f} %); spread {v['spread']:.2f} ms; {rules.threshold_pct:g} % of main {v['size']:.2f} ms{gpu}. "
                               f"A difference counts when it is larger than both."]
             summary = entry.get("summary_lines") or {}
             if summary:
@@ -129,7 +129,7 @@ def notices(pr, expired, refused, label):
     return lines
 
 
-def render(pr, entry, by_head, tester_results=None, stopped=None, expired=(), refused=(), label="title-test"):
+def render(pr, entry, by_head, tester_results=None, stopped=None, expired=(), refused=(), label="title-test", rules=verdict.DEFAULT):
     """by_head: {head: {machine: result}} for heads a maintainer approved; tester_results: {head: {machine: result}} run
     on a tester's own trust; entry: the queue entry, or None when the PR is off the queue (stopped: who took it off;
     expired, refused: what happened to its approvals, newest last)."""
@@ -154,24 +154,24 @@ def render(pr, entry, by_head, tester_results=None, stopped=None, expired=(), re
         lines += recent + [""]
     shown = current or (expired[-1]["head"] if expired else None)
     results = by_head.get(shown, {}) if shown else {}
-    combined = combined_lines(results)
+    combined = combined_lines(results, rules)
     if combined:
         lines += combined + [""]
-    table = rows(results)
+    table = rows(results, rules=rules)
     wanted = still_wanted(entry, results) if entry else None
     if table or wanted:
         lines += HEADER + table + ([wanted] if wanted else []) + [""]
-    detail = details(results)
+    detail = details(results, rules)
     if detail:
         lines += ["<details><summary>Per machine: the timed runs and summary lines</summary>", ""] + detail + ["</details>", ""]
     for head, trusted in sorted((tester_results or {}).items()):
         if trusted:
-            lines += [f"**Run on the tester's trust** (`{short(head)}`, not approved by a maintainer):", ""] + HEADER + rows(trusted) + [""]
+            lines += [f"**Run on the tester's trust** (`{short(head)}`, not approved by a maintainer):", ""] + HEADER + rows(trusted, rules=rules) + [""]
     earlier = [h for h in by_head if h != shown and by_head.get(h)]
     if earlier:
         lines += ["<details><summary>Earlier heads</summary>", ""] + HEADER
         for head in earlier:
-            lines += rows(by_head[head], prefix=f"`{short(head)}` ")
+            lines += rows(by_head[head], prefix=f"`{short(head)}` ", rules=rules)
         lines += ["", "</details>", ""]
     lines.append("<sub>anyps5-title-runs: this comment is edited as machines report; a new comment is posted when an outcome "
                  "or a verdict changes. What leaves a tester's machine: timings, summary lines and outcome classes; never game "
@@ -179,7 +179,7 @@ def render(pr, entry, by_head, tester_results=None, stopped=None, expired=(), re
     return "\n".join(lines) + "\n"
 
 
-def snapshot(by_head, tester_results=None):
+def snapshot(by_head, tester_results=None, rules=verdict.DEFAULT):
     """What a post showed: {head: {machine: {title: [outcome A class, outcome B class, verdict]}}}."""
     out = {}
     for group in (by_head, tester_results or {}):
@@ -189,7 +189,7 @@ def snapshot(by_head, tester_results=None):
                     continue
                 for title_id, entry in result["titles"].items():
                     out.setdefault(head, {}).setdefault(name, {})[title_id] = [
-                        outcome_class(entry["outcome"]["A"]), outcome_class(entry["outcome"]["B"]), machine_verdict(entry)["verdict"]]
+                        outcome_class(entry["outcome"]["A"]), outcome_class(entry["outcome"]["B"]), machine_verdict(entry, rules)["verdict"]]
     return out
 
 

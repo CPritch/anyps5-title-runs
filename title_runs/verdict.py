@@ -1,26 +1,40 @@
 """Verdicts (DESIGN.md, "Verdicts"): per machine, and combined over the machines of one class.
 
 Per machine, the difference of the mean p50s (PR - main) counts only when it is larger than both sides' spreads and
-larger than SIZE (1 %) of main's mean p50. A difference that passes one of the two tests and not the other is
+larger than threshold_pct (1 %) of main's mean p50. A difference that passes one of the two tests and not the other is
 borderline. Machines of one class (GPU model, driver branch, OS) are combined by their per-machine differences, never
 by raw frame times. Standard library only: the workflow uses it too.
 """
 
 import re
 import statistics
+from dataclasses import dataclass
 
-SIZE = 0.01  # a difference must also be larger than 1 % of main's p50
-CLASS_MAX = 3  # a borderline class asks for more machines until this many have reported
+
+@dataclass(frozen=True)
+class Settings:
+    """The results repository's config.json "verdicts": threshold_pct, the share of main's p50 a difference must
+    exceed; class_max, how many machines a borderline class asks for at most."""
+    threshold_pct: float = 1.0
+    class_max: int = 3
+
+
+DEFAULT = Settings()
+
+
+def settings(config):
+    data = (config or {}).get("verdicts") or {}
+    return Settings(float(data.get("threshold_pct", DEFAULT.threshold_pct)), int(data.get("class_max", DEFAULT.class_max)))
 
 
 def spread(values):
     return max(values) - min(values) if values else 0.0
 
 
-def machine(sides):
+def machine(sides, rules=DEFAULT):
     """The verdict of one machine's A/B from its sides ({"A": {"p50": [...], "gpu": [...]}, "B": ...}): verdict
-    (faster, slower, no difference, not enough counted runs), diff and diff_pct (PR - main), spread, size (1 % of main),
-    gpu_diff, borderline."""
+    (faster, slower, no difference, not enough counted runs), diff and diff_pct (PR - main), spread, size
+    (threshold_pct of main), gpu_diff, borderline."""
     a, b = (sides.get(k) or {} for k in ("A", "B"))
     pa, pb = a.get("p50") or [], b.get("p50") or []
     if len(pa) < 2 or len(pb) < 2:
@@ -28,7 +42,7 @@ def machine(sides):
     main_p50 = statistics.mean(pa)
     diff = statistics.mean(pb) - main_p50
     noise = max(spread(pa), spread(pb))
-    size = SIZE * main_p50
+    size = rules.threshold_pct / 100 * main_p50
     beyond_spread, beyond_size = abs(diff) > noise, abs(diff) > size
     if beyond_spread and beyond_size:
         word = "faster" if diff < 0 else "slower"
@@ -73,7 +87,7 @@ def class_of(info):
     return f"{short_gpu(info.get('gpu'))} · {driver_branch(info.get('driver'))} · {os_family(info.get('os_name') or info.get('os'))}"
 
 
-def combine(name, verdicts):
+def combine(name, verdicts, rules=DEFAULT):
     """One class's machines ({machine: machine() verdict}) combined: verdict (faster, slower, mixed, no difference),
     count (machines with that verdict), n, median_diff, median_pct, borderline, text."""
     counted = {m: v for m, v in verdicts.items() if v.get("diff") is not None}
@@ -94,19 +108,19 @@ def combine(name, verdicts):
     median = statistics.median(v["diff"] for v in counted.values())
     median_pct = statistics.median(v["diff_pct"] for v in counted.values())
     disagree = len(set(words)) > 1
-    borderline = (n == 1 and next(iter(counted.values()))["borderline"]) or (disagree and n < CLASS_MAX)
+    borderline = (n == 1 and next(iter(counted.values()))["borderline"]) or (disagree and n < rules.class_max)
     lead = {"mixed": "Mixed", "faster": "Faster", "slower": "Slower", "no difference": "No difference"}[word]
     if word == "mixed":
         text = f"Mixed on {n} {name} machine{'s' if n > 1 else ''} ({faster} faster, {slower} slower), median {median:+.2f} ms ({median_pct:+.1f} %)"
     else:
         text = f"{lead} on {count} of {n} {name} machine{'s' if n > 1 else ''}, median {median:+.2f} ms ({median_pct:+.1f} %)"
-    if borderline and n < CLASS_MAX:
+    if borderline and n < rules.class_max:
         text += "; borderline, one more machine of this class wanted"
     return {"class": name, "n": n, "verdict": word, "count": count, "median_diff": median, "median_pct": median_pct,
             "borderline": borderline, "text": text}
 
 
-def by_class(results, title_id):
+def by_class(results, title_id, rules=DEFAULT):
     """{class: combine()} for one title over results ({machine: result file}), done results only. Each verdict is
     recomputed from the result's sides."""
     groups = {}
@@ -114,5 +128,5 @@ def by_class(results, title_id):
         if result.get("status") != "done" or title_id not in result.get("titles", {}):
             continue
         info = result.get("class") or {}
-        groups.setdefault(class_of(info), {})[name] = machine(result["titles"][title_id].get("sides") or {})
-    return {key: combine(key, verdicts) for key, verdicts in sorted(groups.items())}
+        groups.setdefault(class_of(info), {})[name] = machine(result["titles"][title_id].get("sides") or {}, rules)
+    return {key: combine(key, verdicts, rules) for key, verdicts in sorted(groups.items())}

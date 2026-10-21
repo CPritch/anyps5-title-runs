@@ -203,6 +203,16 @@ class Reports(unittest.TestCase):
         self.assertIn("borderline, one more machine of this class wanted", body)
         self.assertEqual(self.stand.registry()["machines"]["CPritch/laptop"]["last_report"], "2026-10-21T12:50:00Z")
 
+    def test_the_comment_uses_config_jsons_threshold(self):
+        config = json.loads((self.stand.state / "config.json").read_text())
+        config["verdicts"] = {"threshold_pct": 0.3, "class_max": 3}
+        (self.stand.state / "config.json").write_text(json.dumps(config))
+        self.report()
+        body = self.stand.bodies()[-1]
+        self.assertIn("| 78.0 → 77.7 ms | **faster** |", body)
+        self.assertIn("0.3 % of main 0.23 ms", body)
+        self.assertIn("**Faster** on 1 of 1 RTX 5060 Laptop GPU · NVIDIA 615 · Linux machine", body)
+
     def test_a_second_machine_of_the_class_settles_the_combined_verdict(self):
         self.report()
         second = self.stand.register(machine="laptop-2", info=NVIDIA_TOO)

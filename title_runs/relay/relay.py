@@ -23,7 +23,7 @@ from pathlib import Path
 
 from . import comment, overview, patchids
 from .commands import CommandError, parse_command
-from .. import formats, gh
+from .. import formats, gh, verdict
 
 APPROVED, DECLINED, REGISTRATION, JOB, OVERVIEW, TESTER_TRUST = "approved", "declined", "registration", "job", "overview", "tester-trust"
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
@@ -41,6 +41,7 @@ class Relay:
         self.at, self.log = now or formats.now(), log
         self.config = formats.check_config(json.loads((self.state / "config.json").read_text()))
         self.label = self.config.get("label", "title-test")
+        self.rules = verdict.settings(self.config)
         self.queue = formats.check_queue(load(self.state / "queue.json", formats.empty_queue(self.config["repository"])))
         self.queue.setdefault("expired", [])
         self.queue.setdefault("refused", [])
@@ -402,14 +403,14 @@ class Relay:
 
     def update_comments(self):
         for pr in sorted(self.changed):
-            posted = comment.refresh(self.state, self.anyps5, self.queue, self.comments, pr, self.at, self.label)
+            posted = comment.refresh(self.state, self.anyps5, self.queue, self.comments, pr, self.at, self.label, self.rules)
             if posted:
                 self.log(f"#{pr}: {posted[0]} comment ({posted[1]})")
 
     def update_overview(self):
         """Edit the overview issue when what it shows changed (compared without its time, so an unchanged overview costs
         no write: edits count against GitHub's content-creation limit)."""
-        data = overview.view(self.state, self.queue, self.registry, self.claims, self.jobs, self.stamp())
+        data = overview.view(self.state, self.queue, self.registry, self.claims, self.jobs, self.stamp(), self.rules)
         steady = comment.digest(overview.render({**data, "last_run": None}, self.config["repository"], self.label))
         number = self.cursors.get("overview_issue")
         if number is not None and steady == self.cursors.get("overview_sha256"):

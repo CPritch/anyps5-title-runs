@@ -30,7 +30,8 @@ are ISO 8601 in UTC (`2026-10-21T12:00:00Z`).
   "maintainers": ["oneandonlydean", "adriadam10"],
   "label": "title-test",
   "app": {"id": 123456, "client_id": "Iv23li...", "bot": "anyps5-title-runs[bot]"},
-  "tool": {"repository": "CPritch/anyps5-title-runs", "commit": "<the commit the workflow runs>"}
+  "tool": {"repository": "CPritch/anyps5-title-runs", "commit": "<the commit the workflow runs>"},
+  "verdicts": {"threshold_pct": 1, "class_max": 3}
 }
 ```
 
@@ -39,6 +40,9 @@ are ISO 8601 in UTC (`2026-10-21T12:00:00Z`).
 - `app`: the App's ID (for the workflow's token), its client ID (the clients' device flow) and its bot account (whose
   own label removals the workflow skips). Public; the private key is the repository's one secret, `APP_PRIVATE_KEY`.
 - `tool`: the code the workflow runs, at a pinned commit.
+- `verdicts` (optional): `threshold_pct`, the share of main's p50 a difference must exceed on one machine (above 0,
+  at most 20, default 1); `class_max`, how many machines a borderline class asks for at most (1 to 20, default 3).
+  The workflow, the overview and the clients' scheduling all read them from here.
 
 ## queue.json
 

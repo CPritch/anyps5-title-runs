@@ -18,21 +18,21 @@ def results_by_job(state):
     return out
 
 
-def coverage(entry, results):
+def coverage(entry, results, rules=verdict.DEFAULT):
     """What a queue entry has and still wants: {"classes": {class: combined}, "titles": [...], "reported": n,
     "wanted": text}."""
     done = {m: r for m, r in results.items() if r["status"] == "done"}
     titles = sorted({t for r in done.values() for t in r["titles"]})
     classes = {}
     for title_id in titles:
-        for key, combined in verdict.by_class(done, title_id).items():
+        for key, combined in verdict.by_class(done, title_id, rules).items():
             classes[f"{key}, {title_id}"] = combined
     wanted = []
     missing = entry["machines"] - len(done)
     if missing > 0:
         wanted.append(f"{missing} more machine{'s' if missing > 1 else ''} ({', '.join(entry['hw']) or 'any hardware'})")
     for name, combined in classes.items():
-        if combined["borderline"] and combined["n"] < verdict.CLASS_MAX:
+        if combined["borderline"] and combined["n"] < rules.class_max:
             wanted.append(f"one more {name.split(',')[0]} (borderline)")
     missing_titles = [t for t in entry["titles"] if t not in titles]
     if missing_titles:
@@ -40,7 +40,7 @@ def coverage(entry, results):
     return {"classes": classes, "titles": titles, "reported": len(done), "wanted": "; ".join(wanted) or "nothing"}
 
 
-def view(state, queue, registry, claims, jobs, last_run):
+def view(state, queue, registry, claims, jobs, last_run, rules=verdict.DEFAULT, ignored=None):
     """The overview as data (for the client's tab and for the issue)."""
     by_job = results_by_job(state)
     at = formats.parse_time(last_run) if last_run else None  # the workflow run's time, not the reader's clock
@@ -48,7 +48,7 @@ def view(state, queue, registry, claims, jobs, last_run):
     for entry in queue["entries"]:
         results = by_job.get(entry["job"], {})
         live = {m: c for m, c in (claims.get(entry["job"]) or {}).items() if not formats.claim_expired(c, at) and m not in results}
-        entries.append({"entry": entry, "coverage": coverage(entry, results), "claims": sorted(live), "issue": entry.get("issue")})
+        entries.append({"entry": entry, "coverage": coverage(entry, results, rules), "claims": sorted(live), "issue": entry.get("issue")})
     last = {}
     for job, results in by_job.items():
         for name, result in results.items():

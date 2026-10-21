@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from . import render
-from .. import formats
+from .. import formats, verdict
 
 
 def digest(text):
@@ -25,7 +25,7 @@ def accepted_results(state, pr):
     return queued, tester
 
 
-def refresh(state, anyps5, queue, comments, pr, at, label="title-test"):
+def refresh(state, anyps5, queue, comments, pr, at, label="title-test", rules=verdict.DEFAULT):
     """Post or edit the App's comment on pr (anyps5: the App on AnyPS5). Returns (action, reason) or None when the text
     did not change."""
     entry = next((e for e in queue["entries"] if e["pr"] == pr), None)
@@ -36,8 +36,8 @@ def refresh(state, anyps5, queue, comments, pr, at, label="title-test"):
     order = (entry["earlier"] + [entry["head"]]) if entry else sorted(queued)
     ordered = {head: queued[head] for head in order if head in queued}
     ordered.update({head: results for head, results in queued.items() if head not in ordered})
-    body = render.render(pr, entry, ordered, tester, stopped, expired, refused, label)
-    shot = render.snapshot(queued, tester)
+    body = render.render(pr, entry, ordered, tester, stopped, expired, refused, label, rules)
+    shot = render.snapshot(queued, tester, rules)
     record = comments["prs"].setdefault(str(pr), {"comment_id": None, "posts": []})
     if record["posts"] and record["posts"][-1].get("body_sha256") == digest(body):
         return None

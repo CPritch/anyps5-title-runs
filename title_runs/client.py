@@ -187,7 +187,8 @@ class Client:
     def ranked(self, sync=True):
         if sync:
             self.repo.sync()
-        return schedule.rank(self.repo.queue(), self.machine(), self.repo.claims(), self.repo.results())
+        return schedule.rank(self.repo.queue(), self.machine(), self.repo.claims(), self.repo.results(),
+                             rules=verdict.settings(self.repo.read("config.json", {})))
 
     def next_job(self, sync=True):
         best = next(iter(self.ranked(sync)), None)

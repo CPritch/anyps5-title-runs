@@ -8,7 +8,7 @@
 - coverage gap: 0 if this machine has already reported this head, if machines= is met by machines that reported or hold
   a live claim, or if another machine of this class holds a live claim (two testers of one class do not run the same
   head at once); 0.2 if a machine of this class has reported this head; 1 otherwise. Expired claims count for nothing.
-  A class whose combined verdict is borderline (verdict.combine) wants another machine of it until CLASS_MAX have
+  A class whose combined verdict is borderline (verdict.combine) wants another machine of it until class_max (the results repository's config.json) have
   reported: 1 for a machine of that class, even when machines= is met;
 - age: 1 + hours waited / AGE_HOURS, at most AGE_CAP (a low-priority entry waiting two days weighs as a fresh normal
   one).
@@ -67,7 +67,7 @@ def title_match(entry, machine):
     return 0.0, f"titles wanted are {','.join(wanted)}, none here ×0"
 
 
-def coverage_gap(entry, machine, claims, results, at):
+def coverage_gap(entry, machine, claims, results, at, rules=verdict.DEFAULT):
     """claims and results: {job: {machine: data}} as read from the results repository."""
     job = entry["job"]
     reported = {m: r for m, r in (results.get(job) or {}).items() if r.get("status") == "done"}
@@ -76,8 +76,8 @@ def coverage_gap(entry, machine, claims, results, at):
         return 0.0, "this machine has reported this head ×0"
     mine = verdict.class_of(machine.info)
     for title_id in sorted(machine.titles):
-        combined = verdict.by_class(reported, title_id).get(mine)
-        if combined and combined["borderline"] and combined["n"] < verdict.CLASS_MAX:
+        combined = verdict.by_class(reported, title_id, rules).get(mine)
+        if combined and combined["borderline"] and combined["n"] < rules.class_max:
             return 1.0, f"{mine}: borderline on {combined['n']} machine(s), another wanted ×1"
     others = {m: c for m, c in live.items() if m != machine.name}
     if len(reported) + len(others) >= entry["machines"]:
@@ -96,26 +96,26 @@ def age(entry, at):
     return factor, f"waited {hours:.0f} h ×{factor:.2f}"
 
 
-def score(entry, machine, claims, results, at):
+def score(entry, machine, claims, results, at, rules=verdict.DEFAULT):
     factors, reasons = {}, []
     total = 1.0
     for name, (value, reason) in (("priority", priority_weight(entry)), ("hardware", hardware_match(entry, machine)),
                                   ("titles", title_match(entry, machine)),
-                                  ("coverage", coverage_gap(entry, machine, claims, results, at)), ("age", age(entry, at))):
+                                  ("coverage", coverage_gap(entry, machine, claims, results, at, rules)), ("age", age(entry, at))):
         factors[name] = value
         reasons.append(reason)
         total *= value
     return Choice(entry, total, factors, reasons)
 
 
-def rank(queue, machine, claims, results, at=None):
+def rank(queue, machine, claims, results, at=None, rules=verdict.DEFAULT):
     """Every queue entry with its score, best first (ties: older entry first, then the lower PR number)."""
     at = at or formats.now()
-    choices = [score(entry, machine, claims, results, at) for entry in queue.get("entries", [])]
+    choices = [score(entry, machine, claims, results, at, rules) for entry in queue.get("entries", [])]
     return sorted(choices, key=lambda c: (-c.score, c.entry["queued_at"], c.entry["pr"]))
 
 
-def choose(queue, machine, claims, results, at=None):
+def choose(queue, machine, claims, results, at=None, rules=verdict.DEFAULT):
     """The job to run next, or None when every entry scores 0."""
-    best = next(iter(rank(queue, machine, claims, results, at)), None)
+    best = next(iter(rank(queue, machine, claims, results, at, rules)), None)
     return best if best is not None and best.score > 0 else None

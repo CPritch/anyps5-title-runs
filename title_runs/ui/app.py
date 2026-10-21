@@ -21,7 +21,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QApplication
 
-from .. import ROOT, client as clients, config as configs, configfile, formats, platform_info, poller, sandbox, store
+from .. import ROOT, client as clients, config as configs, configfile, formats, platform_info, poller, sandbox, store, verdict
 from ..relay import overview
 from . import model
 
@@ -75,7 +75,8 @@ class Engine(QObject):
             self.repository = self.client.repo.config()["repository"]
             self.comments = self.client.repo.comments()
             repo = self.client.repo
-            self.overview_data = overview.view(repo.dir, self.queue, repo.registry(), repo.claims(), repo.jobs(), repo.cursors().get("last_run"))
+            self.overview_data = overview.view(repo.dir, self.queue, repo.registry(), repo.claims(), repo.jobs(), repo.cursors().get("last_run"),
+                                               verdict.settings(repo.read("config.json", {})), repo.cursors().get("ignored"))
         except Exception as error:  # noqa: BLE001 (shown in the tray)
             self.log(f"could not read the results repository: {error}")
 

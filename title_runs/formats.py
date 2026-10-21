@@ -296,7 +296,7 @@ def check_result(data, path=None):
 
 def check_config(data):
     """The results repository's config.json (maintainers edit it): repository (AnyPS5), results_repository, maintainers,
-    label, app (id, client_id, bot), tool (repository, commit)."""
+    label, app (id, client_id, bot), tool (repository, commit), verdicts (threshold_pct, class_max)."""
     if not isinstance(data, dict) or data.get("format") != FORMAT:
         raise FormatError(f"config.json: format is not {FORMAT}")
     name = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+")
@@ -308,6 +308,15 @@ def check_config(data):
         raise FormatError("config.json: maintainers is not a list of logins")
     data.setdefault("label", "title-test")
     data.setdefault("app", {})
+    rules = data.setdefault("verdicts", {})
+    if not isinstance(rules, dict):
+        raise FormatError("config.json: verdicts is not an object")
+    threshold = rules.setdefault("threshold_pct", 1)
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not 0 < threshold <= 20:
+        raise FormatError("config.json: verdicts.threshold_pct is not a number above 0 and at most 20")
+    class_max = rules.setdefault("class_max", 3)
+    if isinstance(class_max, bool) or not isinstance(class_max, int) or not 1 <= class_max <= 20:
+        raise FormatError("config.json: verdicts.class_max is not a whole number from 1 to 20")
     return data
 
 
