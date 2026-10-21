@@ -1,9 +1,29 @@
-# Status: round 3 (2026-10-21), for Charlie's review
+# Status: round 4 (2026-10-21), for Charlie's review
 
-Round 3 builds Charlie's four decisions (DESIGN.md, "Round 3 decisions"): one App, one public repository and one secret;
-verdicts across machines of a class; a first-run walkthrough; self-service for testers and an overview for maintainers.
-It was built and proved against the local stand-in only. Nothing has been created on GitHub, nothing posted, and
-nothing has run on GitHub Actions.
+Round 4 builds Charlie's answers to round 3's questions (DESIGN.md, "Round 4 decisions") and prepares the first real
+test (docs/first-real-test.md). Nothing has been created on GitHub and nothing posted. The REST code's reads were
+run against the real fork and upstream (GET only), and the workflow's steps were rehearsed locally in dry-run mode.
+
+## Round 4
+
+- **The results repository from the config only**: OWNER/NAME accepted. `title-runs client use` or the Settings
+  field switches, all or nothing. Registration is per repository, and a sign-in is kept only for the same App.
+- **An expired approval and a refused label get a new App comment.** A head without a PR workflow run needs
+  `/title-test sha=`; the commit-date fallback is gone. The expired notice moves into "Earlier heads" once a new
+  head is queued.
+- **No replies to what the workflow doesn't use.** It is counted by reason in the Overview issue and tab, and a
+  tester's client shows that tester their own ignored comment.
+- **`verdicts.threshold_pct` and `verdicts.class_max`** in config.json, defaulting to 1 and 3.
+- **A disabled schedule:** the client warns, and the results repository's README says how to re-enable it.
+- **Checked against real GitHub (read-only):**
+  - comments are now read by creation time, since GitHub's `since=` returned every old comment edited later;
+  - `relay poll --dry-run` reads the real repositories and records what it would write;
+  - the patch-id comparison is capped at 100 own commits, because a stale main made it outlast the workflow's
+    timeout;
+  - a stored sign-in that names no App now needs a new one.
+- **The App from its manifest:** `title-runs app create`. The device flow and the installation are left as two
+  clicks the manifest cannot do. `export-results-repo --git` makes the ready-to-push results repository.
+- **Tests:** 160.
 
 ## Works on the laptop
 
@@ -39,12 +59,13 @@ nothing has run on GitHub Actions.
     3 … machines, median -0.34 ms".
   - The author's push of 8118a04e4 expired the approval. The App removed `title-test` and named the commit on the
     PR, and the label queued the new head again.
-- **Tests:** 138.
+- **Tests (round 3):** 138.
 
 ## Not done or stubbed
 
-- Nothing has talked to GitHub. `gh.GitHubRepo`, the device flow against github.com and `relay.yml` on Actions are
-  written, not run. The App and the results repository don't exist yet.
+- No write to GitHub has been made, and the App and the results repository don't exist yet. `gh.GitHubRepo`'s reads
+  were run against real repositories, and `relay.yml`'s steps rehearsed locally. Its writes, the device flow
+  against github.com, `create-github-app-token` and the workflow on Actions have not run.
 - Only the laptop's run in the end-to-end test was measured today. The other two machines are real clients, each
   with its own sign-in, registration, claim and result comment, but `job.run` was replaced:
   - `synthetic` carries today's laptop numbers with the PR's p50 lowered by 1.5 ms (made up, to make the class
@@ -54,7 +75,6 @@ nothing has run on GitHub Actions.
   replies one account can draw ("Open" below).
 - The walkthrough checks that an AnyPS5 clone exists but doesn't make one. A new tester needs a clone with its
   submodules, and on this laptop an unpacked ffmpeg package (`source.cmake_args`), set up by hand.
-- A new config needs `--results URL`: no default results repository is built in.
 - These are shown and saved but not acted on:
   - the Titles tab's on/off and seed saves;
   - the Schedule tab's disk and longest-job limits;
