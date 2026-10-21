@@ -28,7 +28,8 @@ def write(directory, name, text):
 
 class History:
     """main m1 -> m2; the PR's approved head A (one commit on m1); R: the same change rebased onto m2 (same patch-id);
-    B: A plus a commit that changes the code (a push after approval); C: A's change edited and rebased."""
+    B: A plus a commit that changes the code (a push after approval); C: A's change edited and rebased; D: a commit on
+    m1 that conflicts with m2."""
 
     def __init__(self, root):
         self.dir = Path(root) / "anyps5"
@@ -58,7 +59,13 @@ class History:
         git(self.dir, "add", ".")
         git(self.dir, "commit", "-qm", "perf: b")
         self.C = git(self.dir, "rev-parse", "HEAD")
+        git(self.dir, "checkout", "-qb", "conflicting", m1)
+        write(self.dir, "core/c.cpp", "int c() { return 9; }\n")
+        git(self.dir, "add", ".")
+        git(self.dir, "commit", "-qm", "perf: c")
+        self.D = git(self.dir, "rev-parse", "HEAD")
         git(self.dir, "checkout", "-q", "main")
+        self.m2 = git(self.dir, "rev-parse", "main")
         self.git_dir = self.dir / ".git"
         self.m1 = m1
 

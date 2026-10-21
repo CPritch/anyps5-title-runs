@@ -10,6 +10,8 @@
                                          for results made elsewhere, and for the simulated head of the README's demo
   title-runs relay queue|publish ...     the results repository's workflows (title_runs/relay/__main__.py)
   title-runs export-results-repo MAIN STATE [OWNER/NAME]   fill a results repository's two branches from results_repo/
+  title-runs standin hook|label|command|push|refresh --root DIR ...   the local stand-in for GitHub (standin.py)
+  title-runs client [--config FILE] queue|next|run-once|daemon       the tester's client without the window
 """
 
 import argparse
@@ -130,11 +132,84 @@ def cmd_publish(config, args):
     return 0
 
 
+def standin_command(argv):
+    """title-runs standin hook|label|command|push|refresh --root DIR ...: the local stand-in (title_runs/standin.py)."""
+    from . import standin
+    parser = argparse.ArgumentParser(prog="title-runs standin")
+    sub = parser.add_subparsers(dest="what", required=True)
+    for name in ("hook", "label", "command", "push", "refresh"):
+        p = sub.add_parser(name)
+        p.add_argument("--root", type=Path, required=True)
+        if name == "hook":
+            p.add_argument("--before", required=True)
+            p.add_argument("--after", required=True)
+            p.add_argument("--actor", required=True)
+        if name in ("label", "command", "push"):
+            p.add_argument("pr", type=int)
+            p.add_argument("--by", required=True)
+        if name == "command":
+            p.add_argument("body")
+            p.add_argument("--association", default="OWNER")
+        if name == "push":
+            p.add_argument("head")
+    args = parser.parse_args(argv)
+    stand = standin.Standin(args.root)
+    if args.what == "hook":
+        report = stand.run_publish(args.actor, args.before, args.after)
+        print(json.dumps(report))
+        return 1 if report["refused"] else 0
+    if args.what == "label":
+        changed = stand.label(args.pr, args.by)
+    elif args.what == "command":
+        changed = stand.command(args.pr, args.body, args.by, args.association)
+    elif args.what == "push":
+        changed = stand.push(args.pr, args.head, args.by)
+    else:
+        changed = stand.run_queue("schedule", refresh=True)
+    print(f"queue workflow: changed {', '.join(f'#{n}' for n in changed) or 'nothing'}")
+    return 0
+
+
+def client_command(argv):
+    """title-runs [--config FILE] client queue|next|run-once|daemon: the tester's client without the window."""
+    from . import client
+    parser = argparse.ArgumentParser(prog="title-runs client")
+    parser.add_argument("--config", type=Path, default=ROOT / "config.toml")
+    parser.add_argument("what", choices=("queue", "next", "run-once", "daemon"))
+    parser.add_argument("--ignore-schedule", action="store_true", help="run-once: start even if the schedule says not now")
+    args = parser.parse_args(argv)
+    engine = client.Client(configs.load(args.config), log=lambda text: print(text, flush=True))
+    if args.what == "queue":
+        for choice in engine.ranked():
+            print(f"{choice.score:6.2f}  #{choice.entry['pr']} {choice.entry['head'][:9]} {choice.entry['priority']:6s}  " + "; ".join(choice.reasons))
+        return 0
+    if args.what == "next":
+        best = engine.next_job()
+        print(f"#{best.entry['pr']} {best.entry['head'][:9]} ({best.score:.2f})" if best else "nothing to do")
+        return 0
+    if args.what == "daemon":
+        engine.daemon()
+        return 0
+    if not args.ignore_schedule:
+        print(engine.run_next())
+        return 0
+    best = engine.next_job()
+    if best is None:
+        print("nothing to do")
+        return 0
+    engine.run(best.entry["pr"], best.entry["head"], "queue", best.entry.get("title", ""), best.entry.get("author", ""))
+    return 0
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["relay"]:
         from .relay.__main__ import main as relay
         return relay(argv[1:])
+    if argv[:1] == ["standin"]:
+        return standin_command(argv[1:])
+    if argv[:1] == ["client"]:
+        return client_command(argv[1:])
     if argv[:1] == ["export-results-repo"]:
         from . import export
         if len(argv) not in (3, 4):
