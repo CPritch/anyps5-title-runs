@@ -8,10 +8,10 @@
   title-runs render PR [--results FILE]  print the comment the last results (or FILE) give
   title-runs publish PR --results FILE   mark the PR's current head done with FILE's results, render and post (dry-run);
                                          for results made elsewhere, and for the simulated head of the README's demo
-  title-runs relay queue|publish ...     the results repository's workflows (title_runs/relay/__main__.py)
-  title-runs export-results-repo MAIN STATE [OWNER/NAME]   fill a results repository's two branches from results_repo/
-  title-runs standin hook|label|command|push|refresh --root DIR ...   the local stand-in for GitHub (standin.py)
-  title-runs client [--config FILE] queue|next|run-once|daemon       the tester's client without the window
+  title-runs relay poll ...              the results repository's workflow (title_runs/relay/__main__.py)
+  title-runs export-results-repo DIR [OWNER/ANYPS5 OWNER/RESULTS]   fill a results repository from results_repo/
+  title-runs standin tick|label|unlabel|command|push|approve|decline|codes|authorize --root DIR ...   the local stand-in
+  title-runs client [--config FILE] status|sign-in|register|queue|next|run-once|daemon   the tester's client without the window
   title-runs ui [--config FILE] [--setup] [--screenshots DIR] ...     the tray and the window (title_runs/ui/app.py)
 """
 
@@ -134,58 +134,79 @@ def cmd_publish(config, args):
 
 
 def standin_command(argv):
-    """title-runs standin hook|label|command|push|refresh --root DIR ...: the local stand-in (title_runs/standin.py)."""
+    """title-runs standin tick|label|unlabel|command|push|approve|decline|codes|authorize --root DIR ...: the local
+    stand-in for GitHub and the results repository (title_runs/standin.py)."""
     from . import standin
     parser = argparse.ArgumentParser(prog="title-runs standin")
     sub = parser.add_subparsers(dest="what", required=True)
-    for name in ("hook", "label", "command", "push", "refresh"):
+    for name in ("tick", "label", "unlabel", "command", "push", "approve", "decline", "codes", "authorize"):
         p = sub.add_parser(name)
         p.add_argument("--root", type=Path, required=True)
-        if name == "hook":
-            p.add_argument("--before", required=True)
-            p.add_argument("--after", required=True)
-            p.add_argument("--actor", required=True)
-        if name in ("label", "command", "push"):
+        if name in ("label", "unlabel", "command", "push"):
             p.add_argument("pr", type=int)
+        if name in ("approve", "decline"):
+            p.add_argument("issue", type=int)
+        if name in ("label", "unlabel", "command", "push", "approve", "decline"):
             p.add_argument("--by", required=True)
         if name == "command":
             p.add_argument("body")
-            p.add_argument("--association", default="OWNER")
         if name == "push":
             p.add_argument("head")
+        if name == "authorize":
+            p.add_argument("code")
+            p.add_argument("--as", dest="login", required=True)
     args = parser.parse_args(argv)
     stand = standin.Standin(args.root)
-    if args.what == "hook":
-        report = stand.run_publish(args.actor, args.before, args.after)
-        print(json.dumps(report))
-        return 1 if report["refused"] else 0
-    if args.what == "label":
-        changed = stand.label(args.pr, args.by)
+    if args.what == "tick":
+        changed = stand.tick()
+        print(f"relay: changed {', '.join(f'#{n}' for n in changed) or 'nothing'}")
+    elif args.what == "codes":
+        for code in stand.codes():
+            print(code)
+    elif args.what == "authorize":
+        stand.authorize(args.code, args.login)
+    elif args.what in ("approve", "decline"):
+        getattr(stand, args.what)(args.issue, args.by)
     elif args.what == "command":
-        changed = stand.command(args.pr, args.body, args.by, args.association)
+        stand.command(args.pr, args.body, args.by)
     elif args.what == "push":
-        changed = stand.push(args.pr, args.head, args.by)
+        stand.push(args.pr, args.head, args.by)
     else:
-        changed = stand.run_queue("schedule", refresh=True)
-    print(f"queue workflow: changed {', '.join(f'#{n}' for n in changed) or 'nothing'}")
+        getattr(stand, args.what)(args.pr, args.by)
     return 0
 
 
 def client_command(argv):
-    """title-runs [--config FILE] client queue|next|run-once|daemon: the tester's client without the window."""
+    """title-runs client [--config FILE] queue|next|run-once|daemon|status|sign-in|register: the tester's client without
+    the window."""
     from . import client
     parser = argparse.ArgumentParser(prog="title-runs client")
     parser.add_argument("--config", type=Path, default=ROOT / "config.toml")
-    parser.add_argument("what", choices=("queue", "next", "run-once", "daemon"))
-    parser.add_argument("--ignore-schedule", action="store_true", help="run-once: start even if the schedule says not now")
+    parser.add_argument("what", choices=("queue", "next", "run-once", "daemon", "status", "sign-in", "register"))
+    parser.add_argument("--ignore-schedule", action="store_true", help="run-once: start even if the schedule says not now (still needs ready)")
     args = parser.parse_args(argv)
     engine = client.Client(configs.load(args.config), log=lambda text: print(text, flush=True))
+    engine.repo.sync()
+    if args.what == "status":
+        ready, why = engine.ready()
+        state, record = engine.registration()
+        print(f"signed in as {engine.tester() or '-'}; machine {engine.config.machine}: {state}; {'ready' if ready else 'not ready: ' + why}")
+        return 0
+    if args.what == "sign-in":
+        flow = engine.flow()
+        device = flow.start()
+        print(f"Open {device['verification_uri']} and enter {device['user_code']}", flush=True)
+        print(f"signed in as {flow.wait(device)['login']}")
+        return 0
+    if args.what == "register":
+        print(f"registration issue #{engine.register()}")
+        return 0
     if args.what == "queue":
-        for choice in engine.ranked():
+        for choice in engine.ranked(sync=False):
             print(f"{choice.score:6.2f}  #{choice.entry['pr']} {choice.entry['head'][:9]} {choice.entry['priority']:6s}  " + "; ".join(choice.reasons))
         return 0
     if args.what == "next":
-        best = engine.next_job()
+        best = engine.next_job(sync=False)
         print(f"#{best.entry['pr']} {best.entry['head'][:9]} ({best.score:.2f})" if best else "nothing to do")
         return 0
     if args.what == "daemon":
@@ -194,7 +215,11 @@ def client_command(argv):
     if not args.ignore_schedule:
         print(engine.run_next())
         return 0
-    best = engine.next_job()
+    ready, why = engine.ready()
+    if not ready:
+        print(f"not ready: {why}")
+        return 1
+    best = engine.next_job(sync=False)
     if best is None:
         print("nothing to do")
         return 0
@@ -216,10 +241,10 @@ def main(argv=None):
         return client_command(argv[1:])
     if argv[:1] == ["export-results-repo"]:
         from . import export
-        if len(argv) not in (3, 4):
-            raise SystemExit("usage: title-runs export-results-repo MAIN_DIR STATE_DIR [OWNER/NAME]")
-        main_dir, state_dir = export.export(argv[1], argv[2], argv[3] if len(argv) == 4 else None)
-        print(f"results repository: main in {main_dir}, state in {state_dir}")
+        if len(argv) not in (2, 4):
+            raise SystemExit("usage: title-runs export-results-repo DIR [OWNER/ANYPS5 OWNER/RESULTS]")
+        dest = export.export(argv[1], *(argv[2:4] if len(argv) == 4 else ()))
+        print(f"results repository in {dest}")
         return 0
     parser = argparse.ArgumentParser(prog="title-runs", description="Title runs of followed AnyPS5 pull requests.")
     parser.add_argument("--config", type=Path, default=ROOT / "config.toml")

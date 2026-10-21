@@ -32,16 +32,31 @@ class Setup(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         self.history = History(self.root)
-        self.stand = standin.create(self.root / "standin", "CPritch/AnyPS5", ["CPritch"], {"CPritch": {"machines": ["box"]}},
-                                    self.history.dir, self.history.m2,
-                                    [{"number": 8104, "title": "perf(agc): stage", "author": "Celegans12", "head": self.history.A}],
-                                    {"CPritch": "OWNER", "Celegans12": "CONTRIBUTOR"})
+        self.stand = standin.create(self.root / "standin", ["CPritch"], self.history.dir, self.history.m2,
+                                    [{"number": 8104, "title": "perf(agc): stage", "author": "Celegans12", "head": self.history.A, "head_ref": "perf/staging"}],
+                                    {"CPritch": "admin", "Celegans12": "read"})
         for name in ("B", "R"):
-            git(self.stand.anyps5, "update-ref", f"refs/heads/keep-{name}", getattr(self.history, name))
-        self.config = make_config(results_url=str(self.stand.results), tester="CPritch", machine="box",
-                                  repo_dir=self.history.dir, remote=str(self.stand.anyps5))
+            git(self.stand.anyps5_git, "update-ref", f"refs/heads/keep-{name}", getattr(self.history, name))
+        self.config = make_config(results_url=str(self.stand.results_git), results_github=self.stand.endpoint, machine="box",
+                                  repo_dir=self.history.dir, remote=str(self.stand.anyps5_git))
         self.client = client.Client(self.config, log=lambda *_: None, info=INFO)
         self.built = []
+
+    def onboard(self, approve=True):
+        self.client.repo.sync()
+        self.client.finish_onboarding({"idle": "hours"})
+        flow = self.client.flow()
+        device = flow.start()
+        self.assertIsNone(flow.poll(device))
+        self.stand.authorize(device["user_code"], "CPritch")
+        self.assertEqual(flow.poll(device)["login"], "CPritch")
+        issue = self.client.register()
+        self.stand.tick()
+        if approve:
+            self.stand.approve(issue, "CPritch")
+            self.stand.tick()
+        self.client.repo.sync()
+        return issue
 
     def fake_run(self, before_build=None):
         def run(config, state_dir, pr, head, log, recheck=None, progress=None, should_stop=None):
@@ -54,58 +69,98 @@ class Setup(unittest.TestCase):
             return fake_results(pr, head)
         return mock.patch("title_runs.job.run", side_effect=run)
 
-    def comments(self):
-        return [json.loads(p.read_text()) for p in sorted((self.stand.root / "outbox").glob("*.json"))]
+    def bodies(self):
+        return [p.read_text() for p in sorted((self.stand.root / "outbox").glob("*.md")) if "-title-runs-devbot-" in p.name]
+
+
+class Ready(Setup):
+    def test_nothing_runs_before_the_walkthrough_sign_in_and_approval(self):
+        self.client.repo.sync()
+        self.assertEqual(self.client.ready(), (False, "the first-run walkthrough is not done"))
+        self.client.finish_onboarding({})
+        self.assertEqual(self.client.ready(), (False, "not signed in"))
+        with self.assertRaises(client.NotReady):
+            self.client.run(8104, self.history.A)
+        self.onboard(approve=False)
+        self.assertEqual(self.client.ready(), (False, "waiting for a maintainer to approve this machine"))
+        self.assertEqual(self.client.registration()[0], "pending")
+        with mock.patch.object(client.Client, "allowed_now", wraps=self.client.allowed_now):
+            self.assertEqual(self.client.run_next(), "waiting for a maintainer to approve this machine")
+
+    def test_ready_once_approved(self):
+        self.onboard()
+        self.assertEqual(self.client.ready(), (True, ""))
+        self.assertEqual(self.client.registration()[0], "approved")
 
 
 class PushAfterLabel(Setup):
-    def test_the_push_after_the_label_is_not_built(self):
-        h = self.history
+    def test_a_labelled_pr_is_run_and_reported(self):
+        self.onboard()
         self.stand.label(8104, "CPritch")
-        self.stand.push(8104, h.B, "Celegans12")
+        self.stand.tick()
         with self.fake_run(), mock.patch.object(client.Client, "allowed_now", return_value=(True, "")):
-            self.assertEqual(self.client.run_next(), f"ran {formats.job_id(8104, h.A)}")
-        self.assertEqual(self.built, [h.A])
+            self.assertEqual(self.client.run_next(), f"ran {formats.job_id(8104, self.history.A)}")
+        self.stand.tick()
+        self.assertEqual(self.built, [self.history.A])
         self.client.repo.sync()
-        self.assertEqual(list(self.client.repo.results()), [formats.job_id(8104, h.A)])
-        self.assertEqual([c["action"] for c in self.comments()], ["new", "edit", "edit"])
-        body = sorted((self.stand.root / "outbox").glob("*.md"))[-1].read_text()
-        self.assertIn(f"`{h.B[:9]}` pushed after approval by @Celegans12: **not checked**", body)
-        self.assertIn("| box |", body)
+        self.assertEqual(list(self.client.repo.results()), [formats.job_id(8104, self.history.A)])
+        self.assertIn("| box |", self.bodies()[-1])
+
+    def test_the_push_after_the_label_is_not_built(self):
+        self.onboard()
+        self.stand.label(8104, "CPritch")
+        self.stand.tick()
+        self.stand.push(8104, self.history.B, "Celegans12")
+        self.stand.tick()
+        with self.fake_run(), mock.patch.object(client.Client, "allowed_now", return_value=(True, "")):
+            self.assertEqual(self.client.run_next(), "nothing to do")
+        self.assertEqual(self.built, [])
+        self.assertIn(f"**Approval of `{self.history.A[:9]}` expired**", self.bodies()[-1])
+        self.assertNotIn("title-test", self.stand.github().as_(standin.ANYPS5, identity="x").pull(8104)["labels"])
 
     def test_approval_moving_on_just_before_the_build_stops_the_job(self):
-        h = self.history
+        self.onboard()
         self.stand.label(8104, "CPritch")
-        self.stand.push(8104, h.B, "Celegans12")
-        approve = lambda: self.stand.command(8104, f"/title-test sha={h.B[:10]}", "CPritch", "OWNER")  # noqa: E731
-        with self.fake_run(before_build=approve):
-            self.assertIsNone(self.client.run(8104, h.A))
-        self.assertEqual(self.built, [])
-        self.client.repo.sync()
-        self.assertEqual(self.client.repo.claims(), {})
-        self.assertEqual(self.client.repo.results(), {})
+        self.stand.tick()
 
-    def test_a_head_the_queue_does_not_name_is_not_claimed(self):
-        h = self.history
+        def push_and_tick():
+            self.stand.push(8104, self.history.B, "Celegans12")
+            self.stand.tick()
+
+        with self.fake_run(before_build=push_and_tick):
+            self.assertIsNone(self.client.run(8104, self.history.A))
+        self.assertEqual(self.built, [])
+        issue = self.client.repo.jobs()[formats.job_id(8104, self.history.A)]["issue"]
+        kinds = [formats.payload(c["body"])[0] for c in self.stand.github().as_(standin.RESULTS, identity="x").comments(issue=issue)]
+        self.assertEqual(kinds[:2], ["claim", None] if kinds[1] is None else ["claim", "withdraw"])
+        self.assertIn("withdraw", kinds)
+
+    def test_a_claim_by_another_machine_of_the_class_comes_first(self):
+        self.onboard()
         self.stand.label(8104, "CPritch")
-        with self.fake_run(), self.assertRaises(RuntimeError):
-            self.client.run(8104, h.B)
+        self.stand.tick()
         self.client.repo.sync()
-        self.assertEqual(self.client.repo.claims(), {})
+        issue = self.client.repo.queue()["entries"][0]["issue"]
+        rival = formats.make_claim(formats.job_id(8104, self.history.A), "desk", "someone", self.client.machine_class, {"PPSA04263"}, head=self.history.A)
+        self.stand.github().as_(standin.RESULTS, "someone").create_comment(issue, formats.payload_body("claim", rival, "desk claims it."))
+        with self.fake_run(), self.assertRaises(RuntimeError) as raised:
+            self.client.run(8104, self.history.A)
+        self.assertIn("desk", str(raised.exception))
+        self.assertEqual(self.built, [])
 
 
 class TesterTrust(Setup):
     def test_unchecked_head_needs_the_tester_trust_and_is_marked(self):
-        h = self.history
+        self.onboard()
         with self.fake_run(), self.assertRaises(RuntimeError):
-            self.client.run(8104, h.A, "tester", author="Celegans12")
-        self.client.trust.grant("head", "Celegans12", 8104, h.A)
+            self.client.run(8104, self.history.A, "tester", author="Celegans12")
+        self.client.trust.grant("head", "Celegans12", 8104, self.history.A)
         self.client.status.update(job={"author": "Celegans12"})
         with self.fake_run():
-            data = self.client.run(8104, h.A, "tester", author="Celegans12")
+            data = self.client.run(8104, self.history.A, "tester", author="Celegans12")
         self.assertEqual(data["trust"], "tester")
-        body = sorted((self.stand.root / "outbox").glob("*.md"))[-1].read_text()
-        self.assertIn("**Run on the tester's trust**", body)
+        self.stand.tick()
+        self.assertIn("**Run on the tester's trust**", self.bodies()[-1])
 
 
 class Sources(unittest.TestCase):
