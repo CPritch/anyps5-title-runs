@@ -28,7 +28,7 @@ class Title:
     app0_skip: list = field(default_factory=list)
     env: dict = field(default_factory=dict)
     graphics_mode: str = ""
-    boot_seconds: int = 60
+    boot_seconds: int | None = None
 
 
 @dataclass
@@ -97,7 +97,7 @@ def load(path):
         route_path = (ROOT / route).resolve() if route and not os.path.isabs(os.path.expanduser(route)) else _path(route)
         titles[title_id] = Title(title_id, _path(entry["dump"]), route_path, [_path(p) for p in entry.get("seed", [])],
                                  list(entry.get("app0_skip", [])), dict(entry.get("env", {})), entry.get("graphics_mode", ""),
-                                 int(entry.get("boot_seconds", 60)))
+                                 int(entry["boot_seconds"]) if "boot_seconds" in entry else None)
     if not titles:
         raise ConfigError("no [titles.<ID>] section")
     for number in follow.get("prs", []):

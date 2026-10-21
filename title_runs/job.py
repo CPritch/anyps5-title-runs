@@ -47,6 +47,7 @@ def boot_and_classify(config, title, build_dir, work, out, log):
     Session starts an executable, so the executable it is given is a wrapper that starts the relinked title in the
     sandbox (bwrap passes the environment run_title builds on to the title)."""
     executable, found = game.prepare(title, build_dir, work)
+    seconds = title.boot_seconds or game.title_entry(title.title_id).get("seconds", 60)
     out.mkdir(parents=True, exist_ok=True)
     argv = sandbox.command(config.sandbox, [str(executable)], work, read_only=[title.dump, work / "app0", work / "libs", executable],
                            writable=[work, out])
@@ -56,13 +57,14 @@ def boot_and_classify(config, title, build_dir, work, out, log):
     machine, runs = {}, []
     with title_environment():
         for number in (1, 2):
-            result = title_run.run_title(wrapper, work, out / f"run{number}", title.boot_seconds, title.env)
+            result = title_run.run_title(wrapper, work, out / f"run{number}", seconds, title.env)
             for key in ("os", "gpu", "driver", "cpu"):
                 machine[key] = machine.get(key) or result.pop(key)
             runs.append({"run": number, "cache": "cold" if number == 1 else "warm", **result})
             log(f"title_run run{number}: {result['outcome']}{' (' + result['first_error'] + ')' if result.get('first_error') else ''}")
     (out / "runs.json").write_text(json.dumps(runs, indent=2, default=str))
-    return {"name": found["name"], "version": found["version"], "machine": machine, "runs": runs, "outcome": title_run.worst(runs)}
+    return {"name": found["name"], "version": found["version"], "seconds": seconds, "machine": machine, "runs": runs,
+            "outcome": title_run.worst(runs)}
 
 
 def run(config, state_dir, number, head, log):
@@ -116,13 +118,13 @@ def run(config, state_dir, number, head, log):
                 entry.update(ab=ab, verdict=protocol.verdict(ab.get("runs", [])), runs_dir=str(state_dir / "runs" / title_id))
                 entry["outcome"] = outcome_of(ab)
             else:
-                entry["scene"] = f"boot, {title.boot_seconds} s (no route)"
                 for key, label in (("A", "main"), ("B", "pr")):
                     boot = boot_and_classify(config, title, builds[key]["dir"], state_dir / "games" / title_id / label,
                                              job_dir / f"boot-{title_id}-{label}", note)
                     entry.setdefault("boot", {})[key] = boot
                     entry.setdefault("name", boot["name"])
                     entry.setdefault("version", boot["version"])
+                entry["scene"] = f"boot, {entry['boot']['A']['seconds']} s (no route)"
                 entry["outcome"] = {key: entry["boot"][key]["outcome"] for key in ("A", "B")}
         results["status"] = "done"
     except Exception as error:

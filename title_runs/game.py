@@ -25,14 +25,18 @@ import title_run  # noqa: E402
 PLATFORM = "linux"
 
 
+def title_entry(title_id):
+    """The title's entry in #7264's tools/titles.json (relink flags, run length), or {}."""
+    return title_run.load_titles(VENDOR / "title_run" / "tools" / "titles.json").get(title_id, {})
+
+
 def prepare(title, build_dir, work):
     """title_run.prepare plus our additions. Returns the relinked executable (work/<TITLE ID>)."""
     work = Path(work)
     found = title_run.discover([title.dump])
     if title.title_id not in found:
         raise FileNotFoundError(f"{title.dump}: no package with title ID {title.title_id}")
-    entries = title_run.load_titles(VENDOR / "title_run" / "tools" / "titles.json")
-    executable = title_run.prepare(title.title_id, found[title.title_id], entries.get(title.title_id, {}), PLATFORM, Path(build_dir), work)
+    executable = title_run.prepare(title.title_id, found[title.title_id], title_entry(title.title_id), PLATFORM, Path(build_dir), work)
     if executable is None:
         raise RuntimeError(f"relink failed: {(work / 'relink.log').read_text(errors='replace')[-500:]}")
     for skip in title.app0_skip:

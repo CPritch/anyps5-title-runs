@@ -61,6 +61,8 @@ seed = ["~/dumps/PPSA04263-save/_sd", "~/dumps/PPSA04263-save/_sd_mem", "~/dumps
 app0_skip = ["fakelib"]
 graphics_mode = "Performance"
 env = { ANYPS5_LANGUAGE = "18" }
+# Run length of the boot-and-classify run, for a title without a route (default: #7264's titles.json, else 60 s).
+# boot_seconds = 240
 
 [report]
 # Lines added to every comment.
