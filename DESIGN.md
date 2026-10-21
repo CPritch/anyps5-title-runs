@@ -1,7 +1,7 @@
 # Design: title runs for AnyPS5 pull requests
 
-Status: draft for Charlie's review, 2026-10-21. It describes the tool we are aiming for. The code in this repository
-today is the first engine (poll, build, sandboxed A/B, report); STATUS.md says where it stands.
+Status: draft for Charlie's review, 2026-10-21, revised after round 2 (Charlie's four decisions, "Round 3 decisions"
+below). It describes the tool we are aiming for; STATUS.md says where the code stands.
 
 ## Why
 
@@ -18,10 +18,13 @@ maintainer owning a game or a machine, and without the volunteer handing anyone 
 
 1. **Maintainers decide what is tested.** The trusted path is a maintainer's queue. A tester can step outside it, but
    only knowingly, and the report says so.
-2. **Testers never hold a key to the repository.** Results reach GitHub through a maintainer-owned relay; the bot is
-   a GitHub App the maintainers own.
-3. **Easy and quiet.** Install, point it at your dumps, leave it running. It works when the machine is idle, gets out
-   of the way when you use it, and asks you something only when it must.
+2. **Testers never hold a key to the repository.** They sign in with their own GitHub account through the maintainers'
+   App and report as comments; the maintainers' workflow checks every report before the App posts anything.
+3. **Easy and quiet.** Install, go through the first-run walkthrough once, leave it running. It works when the machine
+   is idle (or in the hours the tester set, where idle cannot be told), gets out of the way when they use it, and asks
+   something only when it must.
+6. **Light to adopt.** A maintainer installs one App and has one public repository: nothing to host, no webhook
+   receiver, no paid plan, no token to make per tester.
 4. **Honest results.** The upstream Performance report protocol (warm caches, A B A B, counted windows, summary
    lines). A run that does not count says why.
 5. **Nothing of the game leaves the machine.** Timings, summary lines, outcome classes, and a screenshot only if the
@@ -38,27 +41,36 @@ maintainer owning a game or a machine, and without the volunteer handing anyone 
 ## Pieces
 
 ```
- GitHub (boykopovar/AnyPS5)          maintainer-owned                      tester's machine
- ─────────────────────────          ────────────────                      ────────────────
- PR #8104                           results repository                    client (tray + window)
-  label  title-test   ─────────▶    queue.json  ◀── App workflow           │ reads queue.json (public read)
-  /title-test high hw=amd ──────▶   (from labels and commands)             │ claims a job (claim file)
-                                    claims/<job>/<machine>.json ◀──────────┤ builds + runs in the sandbox
-  bot comment (edited)  ◀────────   results/<job>/<machine>.json ◀─────────┘ pushes results (scoped token)
-                          App       workflow: validate, render, post as the App
+ GitHub: boykopovar/AnyPS5                 GitHub: the results repository (public)          tester's machine
+ ─────────────────────────                 ───────────────────────────────────────          ────────────────
+ PR #8104                                  workflow "relay", every 5 minutes, as the App     client (tray + window)
+  label title-test ──── polled ──────────▶   queue.json, registry.json, results/  ─ git ──▶  reads them (public)
+  /title-test ... ────── polled ─────────▶   issue "Job 8104-69ac2e155ad0"  ◀── comments ── claims, results
+  the App's comment ◀────────────────────    issue "Machine CPritch/laptop" ◀── issue ────── registers itself
+  label removed when a push expires it       issue "Overview" (maintainers)                  (signed in with the App)
 ```
 
-- **The App** (owned by a maintainer; built and tested first on Charlie's account against his fork, then transferred).
-  Permissions: Pull requests read and write (comments), Issues read and write (comments go through the issues API),
-  Metadata read. Nothing on contents. Installed only on boykopovar/AnyPS5 by its owners.
-- **The results repository** (maintainer-owned). Holds `queue.json`, claims and results. Its Actions workflows run on
-  GitHub's own hosted machines (no self-hosted runners) and hold the App's private key as a secret:
-  - *queue*: on a label or a comment command on AnyPS5 (from a maintainer only, by `author_association` and an
-    explicit maintainer list), update `queue.json`;
-  - *publish*: on a pushed result, check it against the queue and the claim, render the comment, post or edit it as
-    the App.
-- **Testers' tokens** write only to the results repository, and only under `claims/` and `results/` (a fine-grained
-  token per tester, or per-tester deploy keys; to be settled). The maintainer revokes a tester by deleting it.
+- **The App** (owned by a maintainer; first `title-runs-dev` on Charlie's account against his fork). Installed on
+  AnyPS5 and on the results repository. No webhook (it is left inactive), device flow enabled.
+  - On AnyPS5: Pull requests read and write, Issues read and write (comments, labels and reactions go through the
+    issues API), Metadata read (the collaborator check). Nothing on contents.
+  - On the results repository: Issues read and write, so testers' comments and issues, made with their own sign-in
+    through the App, can be written there.
+- **The results repository** (public, maintainer-owned). One workflow, `relay`, on a schedule (every 5 minutes) and on
+  demand. It reads AnyPS5's label events, comments and new heads with the App's installation token, reads the
+  repository's own issues, and writes `queue.json`, `registry.json`, `claims.json`, `results/` and the comment state
+  back with the workflow's own token. Its one secret is the App's private key; the App's ID and client ID are in
+  `config.json`, which is public. Public repositories run GitHub-hosted Actions for free.
+- **Issues in the results repository** carry everything from testers:
+  - one issue per queued job, opened by the workflow: testers claim it and report on it in comments;
+  - one issue per machine, opened by the tester's client: the registration; a maintainer approves it by adding the
+    label `approved`;
+  - one overview issue, kept up to date by the workflow, for the maintainers.
+  The workflow accepts a comment only from a registered machine's tester, and a result only with that tester's
+  earlier, unexpired claim for the same head. Anyone can comment on a public issue; nobody else's comments count.
+- **Testers** sign in through the App's device flow (a code they type at github.com/login/device). Their token can do
+  only what both they and the App can do: in practice, comment and open issues in the results repository and read
+  public data. They never get write access to the repository.
 - **The client** (each tester's machine): Python, PySide6 for the tray and the window, the engine underneath.
   Linux and Windows from the start.
 
@@ -82,6 +94,15 @@ From GitHub only; no new tool to learn.
   - `stop`: take the PR off the queue.
 - The App answers a command with a reaction (👍 accepted, 😕 not a maintainer or not understood) and keeps the PR's
   coverage table up to date.
+- **Approve a machine**: add the label `approved` to its registration issue in the results repository (only people
+  with triage access can add labels), or press Approve in the client's Overview tab, which does the same. `declined`
+  turns it down.
+- **The overview** (the pinned "Overview" issue, and the client's Overview tab): the queue with each entry's approved
+  SHA and who approved it; per PR, which hardware classes and titles have reported and which are still wanted, with
+  the combined verdicts; the registered machines and when each last reported; pending registrations; approvals that a
+  push expired.
+- Everything reaches the results repository within one scheduled run (5 minutes, sometimes longer under GitHub's
+  load), so a label shows up as "Queued <sha>" a few minutes after it is applied.
 
 ## How work is spread (scheduling)
 
@@ -98,11 +119,26 @@ score = priority weight                       (high 4, normal 2, low 1)
       × age                                    (grows slowly the longer the entry waits)
 ```
 
-- **Claims and leases.** Before building, the client writes a claim (`claims/<job>/<machine>.json`) with an expiry
-  (default 3 hours); the queue workflow ignores expired claims. Two testers of the same class do not run the same
-  head at once.
+- **Claims and leases.** Before building, the client comments a claim on the job's issue with an expiry (default 3
+  hours) and reads the issue again; if another machine of its class claimed first, it withdraws (deletes its comment).
+  The workflow ignores expired claims. Two testers of the same class do not run the same head at once.
+- **More machines when a result is borderline.** The coverage gap is 1 again for a machine of a class whose combined
+  verdict is borderline (below), until three machines of that class have reported.
 - **New heads.** A new head of a queued PR supersedes the old one; a running job for the old head finishes its
   current run and stops.
+
+## Verdicts
+
+- **Per machine**: the difference of the mean p50s (PR − main) counts only when it is larger than both sides' spreads
+  (max − min of each side's p50s) *and* larger than 1 % of main's mean p50. Otherwise "no difference". A difference
+  that passes one of the two tests but not the other is **borderline**.
+- **Per class**: machines with the same GPU model, driver branch (the driver's first version field: NVIDIA 615, Mesa
+  24.2) and OS are combined. The per-machine differences are combined, never raw frame times, since machines differ:
+  "faster on 3 of 3 RTX 5060 Laptop · NVIDIA 615 · Linux machines, median −0.3 ms (−0.4 %)". A class is faster or
+  slower when a majority of its machines are and none goes the other way; "mixed" when both happen; otherwise no
+  difference. A class is borderline when its only machine is, or when its machines disagree and fewer than three
+  have reported; the scheduler then asks for another machine of it.
+- The workflow recomputes every verdict from the p50 lists in the result; a tester's own verdict text is not used.
 
 ## Trust and safety
 
@@ -110,18 +146,24 @@ score = priority weight                       (high 4, normal 2, low 1)
 
 A maintainer approves code they have looked at, so the approval names a commit:
 
-- **The queue pins the head SHA** from the label or comment event itself. Testers fetch that commit by SHA and merge
-  it onto current main locally; they never build `refs/pull/N/merge` or the branch's current head.
+- **The queue pins a head SHA.** A polled label event carries no SHA, so the workflow takes the PR's head when it
+  sees the label and checks that it was pushed before the label: AnyPS5's own workflow runs for that head (the PR
+  checks every push starts) give its push time and pusher. If the head arrived after the label, nothing is queued and
+  the App says so; the maintainer labels again or names the SHA. Where a head has no run (a repository without PR
+  workflows), the commit's date is the fallback, and the App's echo is what the maintainer checks. Testers fetch the
+  pinned commit by SHA and merge it onto current main locally; they never build `refs/pull/N/merge` or the branch's
+  current head.
 - **The App echoes it**: "Queued 8d4f486 for title runs". `/title-test sha=8d4f486` pins it explicitly, which closes the
-  race of a push landing seconds before the maintainer labels.
-- **A push after approval is not approved.** The PR's comment shows "8f1c2aa pushed after approval: not checked".
-  Testers keep to the approved SHA (or stop once it is superseded) until a maintainer approves the new head; a
-  tester can still opt in through the trust dialog.
+  race of a push landing just before the maintainer labels.
+- **A push after approval expires the approval.** The App removes `title-test` from the PR (the PR's timeline shows
+  it) and its comment says which commit expired it: "Approval of 69ac2e1 expired: 8118a04 was pushed after it by
+  @someuser and is not checked. Label the PR again to queue it." Running jobs for the old SHA end after their
+  current run; nobody starts a new one. A tester can still opt in to the new head through the trust dialog.
 - **Carried over without a maintainer** only when nothing the maintainer looked at changed:
   - a rebase whose own diff is identical to the approved one (same patch-id per commit, or an empty `git range-diff`
     apart from the base);
-  - commits pushed by an account whose `author_association` is OWNER, MEMBER or COLLABORATOR (people the maintainers
-    already trust with the repository), not by the PR's author.
+  - commits pushed by an account that is a collaborator on AnyPS5 with write access (people the maintainers already
+    trust with the repository), not by the PR's author. The pusher is the actor of the workflow run the push started.
 - **The client checks again** just before it builds: the SHA it is about to build must equal the queue entry's, or
   the job stops.
 
@@ -163,15 +205,24 @@ The trust dialog (blocking, not dismissible by Enter):
 
 ## The tester's experience
 
-### First run
+### First run: the walkthrough
 
-1. Install (a package per platform; Python and PySide6 bundled).
-2. A setup window: pick the folder with your dumps; the client finds the titles (extracted packages:
-   `eboot.bin`, `sce_sys/param.json`), shows which have a route (full timing) and which get boot checks; detects the
-   GPU, driver and OS; asks for a machine name.
-3. Connect to the results repository (paste the token the maintainer gave you, or a sign-in flow if we can make one
-   work). The client checks it can read the queue and write a claim.
-4. Pick a schedule (default: when idle, on mains power). Done; it goes to the tray.
+Nothing runs until the tester has been through it once. One page each:
+
+1. **What this does**: maintainers queue PRs; this machine builds and runs them on the tester's own dumps when it is
+   free, and reports timings. What leaves the machine: the GitHub account, the machine's name, GPU, driver and OS
+   (public, in the registration), timings, summary lines and outcome classes, and a screenshot only if enabled. Never
+   game files.
+2. **The sandbox**: builds and runs happen in bubblewrap with no network, no home directory and the dumps read-only.
+   What it does not protect against: a driver or kernel exploit through the GPU, the display server, running out of
+   disk or memory, and anything run with the sandbox off. The tester ticks that they have read it.
+3. **When it may run**: on idle where the machine can tell (a desktop that reports idle to logind, or Windows); where
+   it cannot (Hyprland without an idle daemon never sets logind's IdleHint), the page says so and the tester sets
+   hours instead. Mains power only; pause while a fullscreen program or a game runs.
+4. **Your dumps**: the client finds the titles and shows which have a route (full timing) and which get boot checks.
+5. **Sign in with GitHub**: a code to type at github.com/login/device; the client shows who signed in.
+6. **Register this machine**: the client opens the registration issue; the page shows "waiting for a maintainer" and
+   the client goes to the tray. It takes jobs once a maintainer has approved the machine.
 
 ### The tray
 
@@ -216,8 +267,12 @@ Tabs:
 - **Schedule**: when work may run (idle only; hours per day; mains power only); pause while a fullscreen app or a game
   is running; limits (disk for builds and caches, longest job).
 - **Titles**: detected dumps; route or boot check; seed saves; per title on or off.
-- **Settings**: machine name, results repository connection, sandbox status (with a self-test), what is posted
-  (screenshots on or off), trusted authors (revoke), logs.
+- **Overview**: the maintainers' view (also useful to testers): the queue with approved SHAs, coverage per PR by
+  hardware class and title, combined verdicts, registered machines and their last report, pending registrations with
+  Approve and Decline (for maintainers), expired approvals.
+- **Settings**: account (signed in as, sign out), machine and its registration, the results repository, sandbox
+  status (with a self-test), what is posted (screenshots on or off), trusted authors (revoke), logs, the walkthrough
+  again.
 
 ## The report on the PR
 
@@ -226,9 +281,13 @@ One comment per PR from the App, edited as heads and machines report:
 ```
 Title runs for 8d4f48671 (queued by @oneandonlydean, high)
 
+Faster on 2 of 2 RTX 5060 Laptop · NVIDIA 615 · Linux machines, median −7.0 ms (−8.8 %)
+No difference on 1 of 1 RTX 4060 · NVIDIA 580 · Linux machines, median −0.2 ms
+
 | machine | GPU, driver, OS | title | outcome | p50 main → PR | verdict |
 |---|---|---|---|---|---|
 | laptop | RTX 5060 Laptop, 615.71, Linux | GTA V | renders | 79.7 → 72.4 ms | faster |
+| laptop-2 | RTX 5060 Laptop, 615.71, Linux | GTA V | renders | 80.1 → 73.2 ms | faster |
 | desktop | RTX 4060, 580.126, Linux | GTA V | renders | 95.0 → 94.8 ms | no difference |
 | still wanted | amd, windows | any | | | |
 
@@ -244,11 +303,12 @@ nobody. Runs on a tester's own trust are listed separately, marked as such.
 - Target: Charlie's fork `CPritch/AnyPS5`, with test PRs there (real upstream heads mirrored as fork branches).
 - Maintainer: Charlie, labelling and commenting on the fork's PRs.
 - App: `title-runs-dev` on Charlie's account, installed on the fork only.
-- Results repository: `CPritch/anyps5-title-runs-results` (private).
+- Results repository: `CPritch/anyps5-title-runs-results` (public).
 - Testers: the laptop and the desktop.
-- Done when: a label on a fork PR gets both machines to claim, build, run and report in one edited comment; a new
-  head edits it; a command with `hw=` sends the job to the matching machine only; the trust dialog path posts a
-  marked result.
+- Done when: a tester onboards through the walkthrough and Charlie approves the machine with one label; a label on a
+  fork PR gets both machines to claim, build, run and report in one edited comment; a push expires the label and
+  the PR shows it; a command with `hw=` sends the job to the matching machine only; the trust dialog path posts a
+  marked result; the overview shows all of it.
 
 ## What the current engine already does, and what changes
 
@@ -267,8 +327,60 @@ nobody. Runs on a tester's own trust are listed separately, marked as such.
 - **Windows sandbox.** Options: a restricted token / AppContainer for the run with GPU access, or a Windows Sandbox VM
   (vGPU support is limited). Until settled, Windows testers run maintainer-queued PRs only, and the dialog says the
   sandbox is weaker there.
-- **Tester credentials.** Fine-grained tokens on the results repository versus deploy keys versus a device sign-in.
+- **Spam on public issues.** Anyone can comment on the job and registration issues; the workflow ignores them, but
+  they add noise. GitHub's interaction limits (up to six months, prior contributors only) would also block new
+  testers' registrations, so they are left off.
 - **Routes beyond GTA V.** Routes are per title and per tester's save; a small route recorder (press, wait for a frame
   state, mark) would let testers add their own.
 - **Disk.** Two builds per job and warm caches per build; a cap with least-recently-used eviction.
 - **What counts as a hardware class** (`hw=`): vendor and OS for a start; GPU family later.
+
+## Round 3 decisions (Charlie, 2026-10-21)
+
+1. **Too heavy for a maintainer to adopt, and no paid features.** Round 2 needed a webhook forwarder, a results
+   repository with secrets and variables, a ruleset (a paid plan on a private repository) and a hand-made token per
+   tester. Now: one App, one public repository, one secret, nothing hosted; testers sign in themselves and report
+   as comments.
+2. **Verdicts**: the 1 % rule per machine, combining same-class machines' differences, asking for another machine
+   when borderline ("Verdicts").
+3. **A first-run walkthrough** before anything runs ("First run: the walkthrough").
+4. **Self-service for testers, an overview for maintainers**: registration by issue, approval by one label, the
+   overview issue and tab, the label as the easy way to queue, and the label removed when a push expires an approval.
+
+### Checked against GitHub's documentation
+
+What each piece relies on, as GitHub documents it (2026-10-21), and what changed where it did not hold.
+
+- **Device flow user tokens.** The device flow must be enabled in the App's settings and needs only the client ID
+  (no secret). A user access token has only the permissions both the user and the App have, reaches only resources
+  in accounts where the App is installed, and is attributed to the user (the App's badge beside them). It expires
+  after 8 hours; the refresh token lasts 6 months, and refreshing a token that came from the device flow does not
+  need the client secret. Holds: a desktop client can keep a tester signed in without shipping a secret. Rate limit:
+  the user's own 5,000 requests an hour, shared with their other tools.
+  Sources: "Generating a user access token for a GitHub App", "Refreshing user access tokens", "Authenticating with a
+  GitHub App on behalf of a user".
+- **Issues and comments.** Secondary limits: at most 80 content-creating requests a minute and 500 an hour, 900
+  points a minute (writes cost 5), 100 concurrent requests. `GITHUB_TOKEN` has 1,000 requests an hour per
+  repository; an App installation 5,000 (up to 12,500). A comment body is limited to 65,536 characters (GitHub's
+  error message; not in the documentation). Holds: a job costs a tester two or three comments (claim, result, a
+  withdrawal), and a result with four summary lines is under 10,000 characters; the workflow edits comments only when
+  their text changes.
+- **Scheduled workflows.** At most every 5 minutes; delayed under load, most at the start of every hour, and "some
+  queued jobs may be dropped"; run from the default branch only; disabled in a public repository after 60 days
+  without repository activity. Does not hold for anything that must react within minutes. Changed: nothing depends
+  on one run happening on time. Claims are read directly from the job issue's comments, so two testers see each
+  other at once; the workflow's state carries cursors, so a late or dropped run catches up; the cron minute avoids
+  the hour; the overview shows when the workflow last ran, and the client warns when it is more than an hour old
+  (a disabled schedule is re-enabled with one click in the Actions tab).
+- **Labels and reactions.** Adding and removing a label on a PR needs the App's Issues and Pull requests write
+  permissions; a reaction on a comment needs Issues write; the collaborator permission check needs Metadata read.
+  Holds: the App can remove `title-test` and react to commands with the permissions above.
+- **The head SHA of a label.** A polled `labeled` event carries the label, the actor and the time, but no PR head
+  (its `commit_id` is for commits that reference the issue), and no event records when a regular (not forced) push
+  happened. Does not hold for pinning by the event, which round 2 got from the webhook payload. Changed: the push
+  time and pusher of a head come from the PR's workflow runs (`GET /repos/{o}/{r}/actions/runs?head_sha=`, readable
+  by anyone on a public repository: `created_at`, `actor`, `event`); a head pushed after the label is not queued.
+- **Branch protection.** The documentation states the plans for push restrictions (Free organisations' public
+  repositories and up) but not clearly for personal accounts. No longer needed: testers have no write access, so
+  only the workflow and the maintainers write the repository.
+- **Pinning the overview issue.** Maintainers pin it once by hand; the workflow only edits its text.
