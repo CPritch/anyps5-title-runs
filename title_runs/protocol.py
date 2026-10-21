@@ -243,7 +243,11 @@ class Protocol:
         """Warm-ups as needed, one window, A B A B with one repeat per run that does not count."""
         warm = {}
         say = self.progress or (lambda text: None)
+        stopped = self.should_stop or (lambda: None)  # checked before every game start: a stopped job starts nothing more
         for side in self.sides:
+            stop = stopped()
+            if stop:
+                return {"warm": warm, "runs": [], "stopped": stop}
             by = self.warmed(side)
             if by:
                 warm[side.key] = {"run": by, "warm": "already"}
@@ -256,7 +260,7 @@ class Protocol:
         window = self.window()
         runs = []
         for number, side in enumerate([self.sides[0], self.sides[1], self.sides[0], self.sides[1]]):
-            stop = self.should_stop() if self.should_stop else None
+            stop = stopped()
             if stop:
                 return {"warm": warm, "window": {"spec": window[0], "dump_limit": window[1], "from": window[2]}, "runs": runs,
                         "pairs": self.pairs(runs), "stopped": stop}
@@ -264,6 +268,11 @@ class Protocol:
             say(f"{'main' if side.key == 'A' else 'PR'} run {number // 2 + 1}, {number + 1}/4")
             result = self.timed(side, label, window, warm[side.key]["run"])
             if not result["counts"]:
+                stop = stopped()
+                if stop:  # a run the tester's Stop ended does not count, but is not repeated
+                    runs.append(result)
+                    return {"warm": warm, "window": {"spec": window[0], "dump_limit": window[1], "from": window[2]}, "runs": runs,
+                            "pairs": self.pairs(runs), "stopped": stop}
                 retry = self.timed(side, label + "r", window, warm[side.key]["run"])
                 retry["repeat_of"] = result["run"]
                 runs.append(result)

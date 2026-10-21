@@ -229,3 +229,43 @@ def fullscreen_detection():
     if os.environ.get("DISPLAY") and shutil.which("xprop"):
         return True, "the X11 window manager reports fullscreen windows"
     return False, "this desktop does not report fullscreen windows to other programs"
+
+
+def stop_children(grace=3.0):
+    """End every process this one started, and theirs (a build, a game in its sandbox): SIGTERM, then SIGKILL after
+    grace seconds. Returns how many there were. Linux reads the process tree from /proc; on Windows, taskkill /T."""
+    import signal
+    import time
+    me = os.getpid()
+    if WINDOWS:
+        out = _run("wmic", "process", "where", f"ParentProcessId={me}", "get", "ProcessId")
+        pids = [int(x) for x in out.split() if x.isdigit()]
+        for pid in pids:
+            _run("taskkill", "/T", "/F", "/PID", str(pid))
+        return len(pids)
+    children = {}
+    for stat in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            fields = stat.read_text().rsplit(")", 1)[1].split()
+        except (OSError, IndexError):
+            continue
+        children.setdefault(int(fields[1]), []).append(int(stat.parent.name))
+    pids, todo = [], [me]
+    while todo:
+        for child in children.get(todo.pop(), []):
+            pids.append(child)
+            todo.append(child)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline and any(Path(f"/proc/{pid}").exists() for pid in pids):
+        time.sleep(0.1)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    return len(pids)

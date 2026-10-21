@@ -256,6 +256,24 @@ class PushAfterLabel(Setup):
         self.assertEqual(self.built, [self.history.A])
 
 
+class Stopping(Setup):
+    def test_a_stopped_job_takes_its_claim_back_and_sends_nothing(self):
+        self.onboard()
+        self.stand.label(8104, "CPritch")
+        self.stand.tick()
+        results_before = len(list((self.stand.root / "outbox").glob("*-CPritch-comment.md")))
+
+        def stop_mid_run():
+            self.client.status.update(stop_requested=True)  # the tester pressed Stop while it built
+        with self.fake_run(before_build=stop_mid_run):
+            self.assertIsNone(self.client.run(8104, self.history.A))
+        comments = sorted((self.stand.root / "outbox").glob("*-CPritch-comment.md"))
+        kinds = [formats.payload(p.read_text())[0] for p in comments[results_before:]]
+        self.assertEqual(kinds, ["claim", "withdraw"])  # no result
+        self.assertIn("stopped by the tester", comments[-1].read_text())
+        self.assertEqual(self.client.status.read()["state"], "idle")
+
+
 class TesterTrust(Setup):
     def test_unchecked_head_needs_the_tester_trust_and_is_marked(self):
         self.onboard()

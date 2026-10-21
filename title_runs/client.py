@@ -331,6 +331,12 @@ class Client:
 
         results = job.run(self.config, self.config.state_dir, pr, head, note,
                           recheck=lambda: self.recheck(pr, head, trust_mark), progress=progress, should_stop=lambda: self.recheck(pr, head, trust_mark))
+        if self.status.read().get("stop_requested"):
+            # The tester stopped it: whatever the killed run left is not a result. Nothing is posted.
+            if claim:
+                self.withdraw(issue, claim, "stopped by the tester")
+            self.status.update(state="idle", line=f"Stopped #{pr}", job={}, progress="")
+            return None
         if results["status"] == "superseded" and not results.get("titles"):
             if claim:
                 self.withdraw(issue, claim, results["detail"])
