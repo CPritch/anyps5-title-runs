@@ -144,6 +144,21 @@ class Switching(Setup):
         flow.store(data)
         self.assertIsNone(self.client.tester())
 
+    def test_slow_down_lengthens_the_wait(self):
+        from unittest import mock
+        from title_runs import auth
+        flow = auth.DeviceFlow("Iv1.x", self.root / "token.json")
+        device = {"device_code": "d", "interval": 5}
+        with mock.patch.object(flow, "_post", return_value={"error": "slow_down", "interval": 10}):
+            self.assertIsNone(flow.poll(device))
+        self.assertEqual(auth.DeviceFlow.interval(device), 11)
+        waits = []
+        replies = iter([{"error": "slow_down", "interval": 15}, {"error": "authorization_pending"}, {"access_token": "t", "expires_in": 28800}])
+        with mock.patch.object(flow, "_post", side_effect=lambda url, fields: next(replies)), \
+                mock.patch("title_runs.gh.GitHubRepo.login", return_value="CPritch"):
+            self.assertEqual(flow.wait(device, sleep=waits.append)["login"], "CPritch")
+        self.assertEqual(waits, [11, 16, 16])  # first wait before the first poll; then GitHub's new interval, plus a second
+
     def test_owner_name_is_the_github_url(self):
         from title_runs import config as configs
         for text in ("CPritch/anyps5-title-runs-results", "https://github.com/CPritch/anyps5-title-runs-results",

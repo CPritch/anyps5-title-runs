@@ -115,7 +115,9 @@ class DeviceFlow:
             error = reply.get("error")
             if error in ("authorization_pending", "slow_down"):
                 if error == "slow_down":
-                    device["interval"] = device.get("interval", 5) + 5
+                    # GitHub adds 5 s each time and counts from the last request: polling at the old pace gets slow_down
+                    # for ever. The caller waits interval() before the next poll.
+                    device["interval"] = int(reply.get("interval") or device.get("interval", 5) + 5)
                 return None
             if error:
                 raise AuthError(f"sign-in failed: {error} ({reply.get('error_description', '')})")
@@ -124,13 +126,19 @@ class DeviceFlow:
         self.store(data)
         return data
 
+    @staticmethod
+    def interval(device):
+        """Seconds to wait before the next poll: GitHub's interval and a second's margin, since a poll that comes even a
+        little early gets slow_down."""
+        return int(device.get("interval", 5)) + 1
+
     def wait(self, device, timeout=900, sleep=time.sleep):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            sleep(self.interval(device))
             data = self.poll(device)
             if data:
                 return data
-            sleep(device.get("interval", 5))
         raise AuthError("the device code expired before it was entered")
 
     def refresh(self, data):

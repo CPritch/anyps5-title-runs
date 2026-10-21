@@ -167,6 +167,22 @@ class WalkthroughAndOverview(unittest.TestCase):
         self.assertEqual(list(self.engine.config.titles), ["PPSA04263"])
         self.assertEqual(self.engine.readiness()[:2], (False, "waiting for a maintainer to approve this machine"))
 
+    def test_the_sign_in_page_slows_down_when_github_says_so(self):
+        from unittest import mock
+        from title_runs.ui.walkthrough import Walkthrough
+        wizard = Walkthrough(self.engine, str(self.dumps))
+        page = wizard.sign_in
+        page.start()
+        self.assertEqual(page.timer.interval(), (page.device["interval"] + 1) * 1000)
+
+        def slow_down(device):
+            device["interval"] = 10
+            return None
+        with mock.patch.object(self.engine.client.flow(), "poll", side_effect=slow_down):
+            page.poll()
+        self.assertEqual(page.timer.interval(), 11000)
+        self.assertTrue(page.timer.isActive())
+
     def test_overview_approve_is_for_maintainers(self):
         from title_runs.ui.window import MainWindow
         self.engine.client.finish_onboarding({})

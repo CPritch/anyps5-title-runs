@@ -11,7 +11,7 @@ from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QSpinBox,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWizard, QWizardPage)
 
-from .. import ROOT, configfile, platform_info, verdict
+from .. import ROOT, auth, configfile, platform_info, verdict
 from ..config import Title
 
 
@@ -256,7 +256,7 @@ class SignInPage(QWizardPage):
         self.code.setText(self.device["user_code"])
         self.copy.setEnabled(True)
         self.open.setEnabled(True)
-        self.timer.start(int(self.device.get("interval", 5)) * 1000)
+        self.timer.start(auth.DeviceFlow.interval(self.device) * 1000)
         self.start_button.setText("New code")
         self.show_state()
 
@@ -265,6 +265,8 @@ class SignInPage(QWizardPage):
             if self.engine.client.flow().poll(self.device):
                 self.timer.stop()
                 self.device = None
+            else:
+                self.timer.setInterval(auth.DeviceFlow.interval(self.device) * 1000)  # GitHub's slow_down lengthens it
         except Exception as error:  # noqa: BLE001
             self.timer.stop()
             self.state.setText(f"Sign-in failed: {error}")
