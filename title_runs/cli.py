@@ -182,7 +182,7 @@ def client_command(argv):
     client without the window."""
     from . import client
     parser = argparse.ArgumentParser(prog="title-runs client")
-    parser.add_argument("--config", type=Path, default=ROOT / "config.toml")
+    parser.add_argument("--config", type=Path, default=configs.DEFAULT_CONFIG)
     parser.add_argument("what", choices=("queue", "next", "run-once", "daemon", "status", "sign-in", "register", "use"))
     parser.add_argument("location", nargs="?", help="use: the results repository, OWNER/NAME or a URL (a path for the stand-in)")
     parser.add_argument("--ignore-schedule", action="store_true", help="run-once: start even if the schedule says not now (still needs ready)")

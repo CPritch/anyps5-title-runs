@@ -13,12 +13,27 @@ TITLE_ID = re.compile(r"[A-Z]{4}[0-9]{5}")
 
 # When work may run (the Schedule tab): only when the machine has been idle idle_minutes, only on mains power, within
 # hours [first, last), not while one of pause_for (process names) runs; and limits.
-SCHEDULE = {"idle_only": True, "idle_minutes": 10, "mains_only": True, "hours": [0, 24], "pause_for": ["gtav.elf", "gtav-play"],
+SCHEDULE = {"idle_only": True, "idle_minutes": 10, "mains_only": True, "hours": [0, 24], "pause_for": [],
             "pause_fullscreen": True, "max_disk_gb": 60, "max_job_hours": 3}
 
 
 class ConfigError(ValueError):
     pass
+
+
+def user_dirs():
+    """(config, data) folders for this user: XDG on Linux, %APPDATA% and %LOCALAPPDATA% on Windows. The state (builds,
+    caches, runs) goes in data, never in the tool's own folder, which a packaged release cannot write."""
+    if os.name == "nt":
+        config = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
+        data = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    else:
+        config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+        data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return config / "anyps5-title-runs", data / "anyps5-title-runs"
+
+
+DEFAULT_CONFIG = user_dirs()[0] / "config.toml"
 
 
 def results_location(text):
@@ -125,7 +140,7 @@ def load(path):
             raise ConfigError(f"follow.prs: {number!r} is not a PR number")
     return Config(
         path=path,
-        state_dir=_path(data.get("state_dir", ROOT / "state")),
+        state_dir=_path(data.get("state_dir", user_dirs()[1])),
         repo=repo,
         github_client=client,
         github_token_env=github.get("token_env", "TITLE_RUNS_GITHUB_TOKEN"),
@@ -140,7 +155,7 @@ def load(path):
         authors=list(trust.get("authors", [])),
         maintainer_labels=list(trust.get("maintainer_labels", [])),
         debounce_minutes=int(poll.get("debounce_minutes", 10)),
-        repo_dir=_path(source.get("repo_dir", "~/src/AnyPS5")),
+        repo_dir=_path(source.get("repo_dir", "")) or _path(data.get("state_dir", user_dirs()[1])) / "anyps5",
         cmake_args=list(source.get("cmake_args", ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"])),
         sandbox=mode,
         shutdown_wait=int(sandbox.get("shutdown_wait", 900)),
@@ -148,7 +163,7 @@ def load(path):
         poster_enabled=bool(poster.get("enabled", False)),
         poster_token_env=poster.get("token_env", "TITLE_RUNS_BOT_TOKEN"),
         allocator=data.get("run", {}).get("allocator", ""),
-        results_url=os.path.expanduser(data.get("results", {}).get("url", "")),
+        results_url=results_location(data.get("results", {}).get("url", "")),
         results_github=data.get("results", {}).get("github", "github"),
         schedule={**SCHEDULE, **data.get("schedule", {})},
         screenshots=bool(data.get("client", {}).get("screenshots", False)),

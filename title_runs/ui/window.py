@@ -510,13 +510,13 @@ class SettingsTab(QWidget):
         registration.addWidget(again)
         form.addRow("Registration", registration)
         layout.addWidget(machine)
-        results = QGroupBox("Results repository")
+        results = QGroupBox("Testing")
         form = QFormLayout(results)
         self.url = QLineEdit(config.results_url)
-        self.url.setPlaceholderText("OWNER/NAME, e.g. CPritch/anyps5-title-runs-results")
-        self.url.setToolTip("The results repository the maintainers named. Saving another one switches to it: its queue, "
-                            "a new registration, and a new sign-in if it uses another App.")
-        form.addRow("Repository", self.url)
+        self.url.setPlaceholderText("The testing link the AnyPS5 team gave you (https://github.com/…)")
+        self.url.setToolTip("Saving another link switches to that testing: its tests, a new registration for this machine, "
+                            "and a new sign-in if it needs one.")
+        form.addRow("Testing link", self.url)
         check = QHBoxLayout()
         self.check_label = QLabel("")
         self.check_label.setWordWrap(True)

@@ -1,75 +1,52 @@
-# anyps5-title-runs: copy to config.toml and edit.
+# anyps5-title-runs: the tester's client. The window's first-run walkthrough writes this file for you
+# (~/.config/anyps5-title-runs/config.toml on Linux); this example says what each setting is.
 
-# Where the listing cache, state, worktrees, builds, game directories, caches, runs and the outbox live. Game
-# directories hard-link the dump's files, so put this on the same file system as the dumps.
-state_dir = "~/games/title-runs-state"
+# Where builds, caches, game folders and runs live. Game folders hard-link the dump's files, so keep this on the
+# same file system as your dumps. Default: ~/.local/share/anyps5-title-runs (Linux), %LOCALAPPDATA% (Windows).
+# state_dir = "/path/to/a/big/disk/anyps5-title-runs"
 
-[github]
-repo = "boykopovar/AnyPS5"
-# "gh": read through the gh CLI's login. "token": read with the token in token_env (any read-only token).
-client = "gh"
-token_env = "TITLE_RUNS_GITHUB_TOKEN"
-# A poll stops when the GraphQL budget left is below this, so other tools on the account keep theirs.
-budget_reserve = 500
+[results]
+# The results repository your maintainers named, as OWNER/NAME. The Settings tab or `title-runs client use` switches.
+url = "OWNER/NAME"
+# "github". (The local stand-in, for development only, is "standin:/path/to/github.json".)
+github = "github"
 
 [tester]
-name = "Your name"
-machine = "laptop"
+# This machine's name in the results repository: 1 to 32 letters, digits and hyphens. Your GitHub account comes
+# from signing in.
+machine = "my-pc"
 
-[follow]
-# Followed explicitly.
-prs = [8104]
-# Also follow open PRs whose "Unblocks:" line names one of the title IDs below.
-auto_unblocks = true
-# Also follow open PRs carrying one of these labels.
-labels = []
-include_drafts = false
-
-[trust]
-# Heads by these GitHub users (the PR's author and the head commit's author) are built and run without asking. Any
-# other head waits until `python3 -m title_runs confirm <PR>`.
-authors = []
-# A PR carrying one of these labels (set by maintainers) runs without asking.
-maintainer_labels = []
-
-[poll]
-# Build a head only after it has been unchanged this long; a head replaced before then is skipped.
-debounce_minutes = 10
+[schedule]
+# When work may start: when idle (where the computer can tell), within these hours, on mains power, and not while a
+# fullscreen program or one of pause_for (process names) runs.
+idle_only = true
+idle_minutes = 10
+mains_only = true
+hours = [0, 24]
+pause_fullscreen = true
+pause_for = []
+max_disk_gb = 60
+max_job_hours = 3
 
 [source]
-# A clone of the repository with its submodules checked out; jobs make worktrees from it.
-repo_dir = "~/src/AnyPS5"
-remote = "origin"
+# Your clone of AnyPS5, with its submodules; each job makes worktrees from it and leaves your checkout alone.
+repo_dir = "/path/to/AnyPS5"
+remote = "https://github.com/OWNER/AnyPS5.git"
 cmake_args = ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"]
 
 [sandbox]
-# "bwrap" (bubblewrap). "none" runs titles without the sandbox; only set it if you mean it: every report says so.
+# "bwrap" (bubblewrap). "none" runs builds and titles without the sandbox; every report then says so.
 mode = "bwrap"
-# Seconds a title gets to exit after SIGINT before it is killed (the driver's teardown saves the pipeline cache).
+# Seconds a title gets to exit after it is asked to stop, before it is killed.
 shutdown_wait = 900
 
-[run]
-allocator = ""
-
-# One section per title you own. route: a route file (routes/<ID>.json) to a named scene, for the A/B with timings;
-# without one, the title is booted and classified by #7264's title_run.py (outcome only).
+# One section per title you own. A title with a route (routes/<ID>.json) gets the timed A/B; one without gets a
+# boot check (outcome only).
 [titles.PPSA04263]
-dump = "~/dumps/PPSA04263-app0"
+dump = "/path/to/PPSA04263-app0"
 route = "routes/PPSA04263.json"
-# Copied into the title's private game directory before its first run (save data, the Graphics Mode setting).
-seed = ["~/dumps/PPSA04263-save/_sd", "~/dumps/PPSA04263-save/_sd_mem", "~/dumps/PPSA04263-save/anyps5-entitlements.ini"]
-app0_skip = ["fakelib"]
-graphics_mode = "Performance"
-env = { ANYPS5_LANGUAGE = "18" }
-# Run length of the boot-and-classify run, for a title without a route (default: #7264's titles.json, else 60 s).
-# boot_seconds = 240
-
-[report]
-# Lines added to every comment.
-notes = []
-
-[poster]
-# false: comments go to the outbox (state_dir/outbox) as files with the API call they would make. true: also needs
-# --post on the command line and the bot's token in token_env.
-enabled = false
-token_env = "TITLE_RUNS_BOT_TOKEN"
+# GTA V's route resumes a Story save, so it needs your save data, copied into the title's game folder before its
+# first run.
+# seed = ["/path/to/save/_sd", "/path/to/save/_sd_mem"]
+# The Graphics Mode your save selects, for the report.
+# graphics_mode = "Performance"

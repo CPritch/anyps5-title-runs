@@ -37,7 +37,7 @@ class Engine(QObject):
         self.listing_file = Path(listing) if listing else None
         self.auto = auto
         self.window = None
-        self.ranked, self.queue, self.repository = [], {"entries": []}, config.repo
+        self.ranked, self.queue, self.repository = [], {"entries": []}, ""  # the results repository names it (load)
         self.comments = {"prs": {}}
         self.work = queues.Queue()
         self.dumps = {}
@@ -363,15 +363,18 @@ def screenshots(engine, out, prefix=""):
 
 
 def new_config(path, results, github, state_dir=None):
-    """A starting config for the walkthrough to fill: the results repository, the stand-in or GitHub, the state directory."""
-    data = {"state_dir": str(state_dir or ROOT / "state"), "results": {"url": configs.results_location(results), "github": github},
+    """A starting config for the walkthrough to fill: the results repository (or none yet: the walkthrough asks), the
+    stand-in or GitHub, the state directory (the user's data folder unless given)."""
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    data = {"state_dir": str(state_dir or configs.user_dirs()[1]),
+            "results": {"url": configs.results_location(results) if results else "", "github": github},
             "schedule": dict(configs.SCHEDULE), "sandbox": {"mode": "bwrap"}}
     Path(path).write_text("# anyps5-title-runs: written by the title-runs window. config.example.toml explains every key.\n\n" + configfile.dumps(data))
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="title-runs ui")
-    parser.add_argument("--config", type=Path, default=ROOT / "config.toml")
+    parser.add_argument("--config", type=Path, default=configs.DEFAULT_CONFIG)
     parser.add_argument("--listing", type=Path)
     parser.add_argument("--auto", action="store_true")
     parser.add_argument("--dumps", default="", help="the walkthrough's dumps folder to start from")
@@ -385,8 +388,6 @@ def main(argv=None):
     app.setApplicationName("AnyPS5 title runs")
     app.setQuitOnLastWindowClosed(False)
     if not args.config.exists():
-        if not args.results:
-            raise SystemExit(f"{args.config} does not exist: pass --results URL to start a new one")
         new_config(args.config, args.results, args.github, args.state)
     engine = Engine(configs.load(args.config), args.listing, args.auto)
     if args.screenshots:
@@ -396,7 +397,8 @@ def main(argv=None):
         return 0
     if not engine.client.onboarded():
         from .walkthrough import Walkthrough
-        engine.client.repo.sync()
+        if engine.config.results_url:
+            engine.client.repo.sync()
         if Walkthrough(engine, args.dumps).exec() != Walkthrough.Accepted:
             return 1  # nothing runs before the walkthrough
     from .tray import Tray
