@@ -219,10 +219,12 @@ Nothing runs until the tester has been through it once. One page each:
 3. **When it may run**: on idle where the machine can tell (a desktop that reports idle to logind, or Windows); where
    it cannot (Hyprland without an idle daemon never sets logind's IdleHint), the page says so and the tester sets
    hours instead. Mains power only; pause while a fullscreen program or a game runs.
-4. **Your dumps**: the client finds the titles and shows which have a route (full timing) and which get boot checks.
+4. **Your dumps**: the client finds the titles and shows which have a route (full timing) and which get boot checks;
+   the same page asks for the AnyPS5 clone (with submodules) that builds take main and the change from.
 5. **Sign in with GitHub**: a code to type at github.com/login/device; the client shows who signed in.
 6. **Register this machine**: the client opens the registration issue; the page shows "waiting for a maintainer" and
-   the client goes to the tray. It takes jobs once a maintainer has approved the machine.
+   the client goes to the tray. It takes jobs once a maintainer has approved the machine. Registering can wait (Settings
+   has the same button); the walkthrough's last page says the machine takes no jobs until then.
 
 ### The tray
 
