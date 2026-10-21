@@ -1,0 +1,5 @@
+{"action": "created",
+ "issue": {"number": 8104, "title": "perf(agc): stage the written elements of address-based compute builds in device memory",
+           "user": {"login": "Celegans12"}, "pull_request": {"url": "https://api.github.com/repos/CPritch/AnyPS5/pulls/8104"}},
+ "comment": {"id": "{COMMENT_ID}", "body": "{BODY}", "user": {"login": "{SENDER}"}, "author_association": "{ASSOCIATION}"},
+ "sender": {"login": "{SENDER}"}}

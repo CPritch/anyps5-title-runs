@@ -1,0 +1,3 @@
+{"action": "closed", "number": 8104,
+ "pull_request": {"number": 8104, "state": "closed", "merged": true, "user": {"login": "Celegans12"}, "head": {"sha": "{HEAD}"}},
+ "sender": {"login": "{SENDER}"}}

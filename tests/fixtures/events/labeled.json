@@ -1,0 +1,4 @@
+{"action": "labeled", "label": {"name": "title-test"}, "number": 8104,
+ "pull_request": {"number": 8104, "state": "open", "title": "perf(agc): stage the written elements of address-based compute builds in device memory",
+                  "user": {"login": "Celegans12"}, "head": {"sha": "{HEAD}", "ref": "perf/agc-address-build-staging"}, "base": {"ref": "main"}},
+ "sender": {"login": "{SENDER}"}}
