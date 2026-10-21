@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "repository": "CPritch/AnyPS5",
+  "maintainers": ["CPritch"],
+  "label": "title-test",
+  "testers": {"CPritch": {"machines": ["laptop", "desktop"]}}
+}

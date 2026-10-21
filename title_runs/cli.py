@@ -8,6 +8,8 @@
   title-runs render PR [--results FILE]  print the comment the last results (or FILE) give
   title-runs publish PR --results FILE   mark the PR's current head done with FILE's results, render and post (dry-run);
                                          for results made elsewhere, and for the simulated head of the README's demo
+  title-runs relay queue|publish ...     the results repository's workflows (title_runs/relay/__main__.py)
+  title-runs export-results-repo MAIN STATE [OWNER/NAME]   fill a results repository's two branches from results_repo/
 """
 
 import argparse
@@ -129,6 +131,17 @@ def cmd_publish(config, args):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["relay"]:
+        from .relay.__main__ import main as relay
+        return relay(argv[1:])
+    if argv[:1] == ["export-results-repo"]:
+        from . import export
+        if len(argv) not in (3, 4):
+            raise SystemExit("usage: title-runs export-results-repo MAIN_DIR STATE_DIR [OWNER/NAME]")
+        main_dir, state_dir = export.export(argv[1], argv[2], argv[3] if len(argv) == 4 else None)
+        print(f"results repository: main in {main_dir}, state in {state_dir}")
+        return 0
     parser = argparse.ArgumentParser(prog="title-runs", description="Title runs of followed AnyPS5 pull requests.")
     parser.add_argument("--config", type=Path, default=ROOT / "config.toml")
     sub = parser.add_subparsers(dest="command", required=True)
