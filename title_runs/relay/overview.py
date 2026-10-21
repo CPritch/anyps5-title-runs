@@ -68,7 +68,7 @@ def ignored_text(ignored):
     counts = (ignored or {}).get("counts") or {}
     if not counts:
         return ""
-    parts = [f"{n} {IGNORED.get(reason, reason)}" for reason, n in sorted(counts.items(), key=lambda x: -x[1])]
+    parts = [f"{n} {IGNORED.get(reason, (reason, reason))[0 if n == 1 else 1]}" for reason, n in sorted(counts.items(), key=lambda x: -x[1])]
     return "; ".join(parts) + (f" (the last {utc(ignored['last'])})" if ignored.get("last") else "")
 
 

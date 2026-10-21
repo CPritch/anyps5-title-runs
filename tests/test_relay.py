@@ -294,7 +294,7 @@ class Reports(unittest.TestCase):
         self.assertTrue(all(c["action"] == "edit-issue" for c in writes), writes)  # the overview's edit, nothing else
         body = self.stand.issue(self.stand.relay.cursors["overview_issue"])["body"]
         self.assertIn("### Ignored, without a reply", body)
-        self.assertIn("2 without a title-runs payload; 1 from accounts without a registered machine", body)
+        self.assertIn("2 comments without a title-runs payload; 1 comment from an account without a registered machine", body)
 
     def test_a_result_for_another_head_is_refused(self):
         self.report(data=result(self.h.B))

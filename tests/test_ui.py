@@ -247,7 +247,7 @@ class WalkthroughAndOverview(unittest.TestCase):
         self.engine.load(sync=True)
         window = MainWindow(self.engine)
         window.refresh()
-        self.assertIn("1 from accounts without a registered machine", window.overview.ignored.text())
+        self.assertIn("1 comment from an account without a registered machine", window.overview.ignored.text())
         self.assertIn("The workflow did not use your comment", window.queue.not_ready.text())
 
     def test_a_note_on_a_registration_taken_since_is_not_shown(self):

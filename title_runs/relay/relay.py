@@ -30,10 +30,14 @@ from .. import formats, gh, verdict
 APPROVED, DECLINED, REGISTRATION, JOB, OVERVIEW, TESTER_TRUST = "approved", "declined", "registration", "job", "overview", "tester-trust"
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 # Why the workflow did not use a comment, a registration or a label: the overview's words for each.
-IGNORED = {"unregistered": "from accounts without a registered machine", "chatter": "without a title-runs payload",
-           "unreadable": "with a payload the workflow cannot read", "elsewhere": "title-runs comments outside a job issue",
-           "claim": "claims that do not match their job", "result": "results without a matching live claim",
-           "registration": "registrations the workflow cannot use", "label": "approved or declined labels from someone not a maintainer"}
+IGNORED = {"unregistered": ("comment from an account without a registered machine", "comments from accounts without a registered machine"),
+           "chatter": ("comment without a title-runs payload", "comments without a title-runs payload"),
+           "unreadable": ("comment with a payload the workflow cannot read", "comments with a payload the workflow cannot read"),
+           "elsewhere": ("title-runs comment outside a job issue", "title-runs comments outside a job issue"),
+           "claim": ("claim that does not match its job", "claims that do not match their job"),
+           "result": ("result without a matching live claim", "results without a matching live claim"),
+           "registration": ("registration the workflow cannot use", "registrations the workflow cannot use"),
+           "label": ("approved or declined label from someone not a maintainer", "approved or declined labels from people not maintainers")}
 FILES = ("queue", "registry", "claims", "jobs", "comments", "cursors")
 
 
@@ -110,7 +114,7 @@ class Relay:
         record["counts"][reason] = record["counts"].get(reason, 0) + 1
         record["last"] = self.stamp()
         record["recent"] = (record["recent"] + [{"at": self.stamp(), "issue": issue, "user": user, "reason": reason, "detail": detail[:200]}])[-20:]
-        self.log(f"#{issue}: ignored ({IGNORED[reason]}) from {user}{': ' + detail if detail else ''}")
+        self.log(f"#{issue}: ignored ({IGNORED[reason][0]}) from {user}{': ' + detail if detail else ''}")
 
     def close_job(self, job, reason):
         record = self.jobs.get(job)
