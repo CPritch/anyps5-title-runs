@@ -48,7 +48,7 @@ def ago(minutes):
     return formats.iso(formats.now() - datetime.timedelta(minutes=minutes))
 
 
-def create(root, maintainers, clone, main, pulls, permissions, tool_commit=""):
+def create(root, maintainers, clone, main, pulls, permissions, tool_commit="", client_id="Iv1.standin", results=None):
     """pulls: [{"number", "title", "author", "head", "head_ref"}]; clone: a local AnyPS5 clone with main and the heads;
     permissions: {login: admin|write|read} on AnyPS5 (maintainers are also admins of the results repository)."""
     root = Path(root)
@@ -62,11 +62,11 @@ def create(root, maintainers, clone, main, pulls, permissions, tool_commit=""):
         anyps5["runs"].append({"head_sha": pull["head"], "created_at": ago(60), "actor": pull["author"], "event": "pull_request",
                                "branch": pull["head_ref"]})
     anyps5["permissions"].update(permissions)
-    fake.repo(RESULTS)["permissions"].update({m: "admin" for m in maintainers})
+    fake.repo(results or RESULTS)["permissions"].update({m: "admin" for m in maintainers})
     fake.save()
     with tempfile.TemporaryDirectory() as work:
         checkout = Path(work) / "results"
-        export.export(checkout, ANYPS5, RESULTS, list(maintainers), {"id": 0, "client_id": "Iv1.standin", "bot": APP_BOT},
+        export.export(checkout, ANYPS5, results or RESULTS, list(maintainers), {"id": 0, "client_id": client_id, "bot": APP_BOT},
                       {"repository": "CPritch/anyps5-title-runs", "commit": tool_commit})
         git(root, "init", "-q", "--bare", "-b", "main", "results.git")
         git(work, "init", "-q", "-b", "main", str(checkout))
@@ -87,6 +87,7 @@ class Standin:
         self.root = Path(root)
         self.results_git, self.anyps5_git = self.root / "results.git", self.root / "anyps5.git"
         self.endpoint = f"standin:{self.root / 'github.json'}"
+        self.results_name = json.loads(git(self.root, "--git-dir", str(self.results_git), "show", "main:config.json")).get("results_repository", RESULTS)
 
     def github(self):
         return gh.FakeGitHub(self.root / "github.json", self.root / "outbox")
@@ -104,7 +105,7 @@ class Standin:
             git(work, "clone", "-q", str(self.results_git), "state")
             state = work / "state"
             fake = self.github()
-            run = relay.Relay(state, fake.as_(ANYPS5, identity=APP_BOT), fake.as_(RESULTS, identity=WORKFLOW_BOT), self.anyps5_git, None, "main",
+            run = relay.Relay(state, fake.as_(ANYPS5, identity=APP_BOT), fake.as_(self.results_name, identity=WORKFLOW_BOT), self.anyps5_git, None, "main",
                               log=lambda text: self.log(f"relay: {text}"))
             changed = run.run()
             git(state, "add", "-A")
@@ -147,14 +148,14 @@ class Standin:
 
     def registrations(self):
         fake = self.github()
-        return [i for i in fake.as_(RESULTS, identity="reader").issues(state="open") if formats.payload(i["body"])[0] == "register"]
+        return [i for i in fake.as_(self.results_name, identity="reader").issues(state="open") if formats.payload(i["body"])[0] == "register"]
 
     def approve(self, issue, by):
-        self.github().as_(RESULTS, by).add_labels(issue, ["approved"])
+        self.github().as_(self.results_name, by).add_labels(issue, ["approved"])
         self.log(f"event: {by} added approved to registration #{issue}")
 
     def decline(self, issue, by):
-        self.github().as_(RESULTS, by).add_labels(issue, ["declined"])
+        self.github().as_(self.results_name, by).add_labels(issue, ["declined"])
         self.log(f"event: {by} added declined to registration #{issue}")
 
     def codes(self):

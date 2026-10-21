@@ -97,6 +97,53 @@ class Ready(Setup):
         self.assertTrue(list((self.stand.root / "outbox").glob("*-CPritch-create-issue.json")))
 
 
+class Switching(Setup):
+    """One setting switches the results repository (DESIGN.md, round 4 decision 1): the checkout and the registration
+    are the new repository's, and the sign-in is kept only when it names the same App."""
+
+    def other(self, name, client_id):
+        return standin.create(self.root / name, ["maintainer2"], self.history.dir, self.history.m2,
+                              [{"number": 8104, "title": "perf(agc): stage", "author": "Celegans12", "head": self.history.A, "head_ref": "perf/staging"}],
+                              {"maintainer2": "admin"}, client_id=client_id, results=f"maintainer2/{name}")
+
+    def test_the_same_app_keeps_the_sign_in_and_needs_a_new_registration(self):
+        self.onboard()
+        other = self.other("results-same-app", "Iv1.standin")
+        self.client.use(str(other.results_git), github=other.endpoint)
+        self.assertEqual(self.client.results_repository(), "maintainer2/results-same-app")
+        self.assertEqual(self.client.tester(), "CPritch")  # the same App: still signed in
+        self.assertEqual(self.client.registration()[0], "not registered")
+        self.assertEqual(self.client.ready(), (False, "this machine is not registered"))
+        self.client.register()
+        other.tick()
+        self.client.repo.sync()
+        self.assertEqual(self.client.registration()[0], "pending")
+        self.assertIn("CPritch/box", self.client.repo.registry()["pending"])
+
+    def test_another_app_needs_a_new_sign_in(self):
+        self.onboard()
+        self.assertEqual(self.client.tester(), "CPritch")
+        other = self.other("results-moved", "Iv1.maintainers-app")
+        self.client.use(str(other.results_git), github=self.stand.endpoint)  # the same GitHub, another App
+        self.assertIsNone(self.client.tester())
+        self.assertEqual(self.client.ready(), (False, "not signed in"))
+
+    def test_a_repository_that_cannot_be_read_changes_nothing(self):
+        self.onboard()
+        before = (self.config.results_url, self.client.results_repository())
+        with self.assertRaises(Exception):
+            self.client.use(str(self.root / "no-such-repository.git"))
+        self.assertEqual((self.config.results_url, self.client.results_repository()), before)
+        self.assertEqual(self.client.ready(), (True, ""))
+
+    def test_owner_name_is_the_github_url(self):
+        from title_runs import config as configs
+        for text in ("CPritch/anyps5-title-runs-results", "https://github.com/CPritch/anyps5-title-runs-results",
+                     "https://github.com/CPritch/anyps5-title-runs-results.git", " CPritch/anyps5-title-runs-results/ "):
+            self.assertEqual(configs.results_location(text), "https://github.com/CPritch/anyps5-title-runs-results.git")
+        self.assertEqual(configs.results_location("/home/x/standin/results.git"), "/home/x/standin/results.git")
+
+
 class PushAfterLabel(Setup):
     def test_a_labelled_pr_is_run_and_reported(self):
         self.onboard()

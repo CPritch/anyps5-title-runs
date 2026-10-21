@@ -200,6 +200,21 @@ class WalkthroughAndOverview(unittest.TestCase):
         self.assertEqual(window.overview.machines.topLevelItem(0).text(0), "standin-tester/" + self.engine.config.machine)
         self.assertEqual(window.overview.machines.topLevelItem(0).text(3), "@CPritch")
 
+    def test_settings_switch_the_results_repository(self):
+        from title_runs import standin
+        from title_runs.ui.window import MainWindow
+        from relay_helpers import History
+        (self.root / "h2").mkdir()
+        history = History(self.root / "h2")
+        other = standin.create(self.root / "moved", ["maintainer2"], history.dir, history.m2, [], {"maintainer2": "admin"},
+                               client_id="Iv1.maintainers-app", results="maintainer2/results")
+        window = MainWindow(self.engine)
+        window.settings.url.setText(str(other.results_git))
+        window.settings.save()
+        self.assertEqual(self.engine.client.results_repository(), "maintainer2/results")
+        self.assertIn("Now using maintainer2/results.", window.settings.check_label.text())
+        self.assertIn(f'url = "{other.results_git}"', self.config_path.read_text())
+
     def test_an_ignored_comment_shows_in_the_overview_and_to_its_tester(self):
         from title_runs import formats, standin
         from title_runs.ui.window import MainWindow

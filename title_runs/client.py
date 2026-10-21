@@ -12,10 +12,11 @@ import datetime
 import json
 import os
 import re
+import shutil
 import time
 from pathlib import Path
 
-from . import auth, formats, gh, job, platform_info, report, schedule, store, trust, verdict
+from . import auth, config as configs, formats, gh, job, platform_info, report, schedule, store, trust, verdict
 
 VERSION = "anyps5-title-runs 0.3"
 STALE_HOURS = 1  # the relay workflow last ran longer ago than this: warn
@@ -112,6 +113,30 @@ class Client:
             self._flow = auth.DeviceFlow(client_id, self.dir / "github-token.json", self.endpoint)
         return self._flow
 
+    def use(self, location, github=None):
+        """Switch to another results repository (OWNER/NAME, a URL or, for the stand-in, a path): the checkout starts
+        afresh, the registration is the new repository's, and the sign-in is kept only when the new repository names the
+        same App. Returns the URL. The caller saves the config."""
+        url = configs.results_location(location)
+        if not url:
+            raise ValueError("no results repository given")
+        fresh = store.ResultsRepo(url, self.dir / "results-new")
+        shutil.rmtree(fresh.dir, ignore_errors=True)
+        fresh.sync()  # raises when it cannot be read; nothing has changed then
+        fresh.config()
+        shutil.rmtree(self.dir / "results", ignore_errors=True)
+        fresh.dir.rename(self.dir / "results")
+        self.config.results_url = url
+        if github is not None:
+            self.config.results_github = github
+        elif url.startswith("https://github.com/"):
+            self.config.results_github = "github"
+        self.endpoint = self.config.results_github
+        self.repo = store.ResultsRepo(url, self.dir / "results")
+        self._flow = None
+        self.log(f"results repository: {url} ({self.repo.read('config.json', {}).get('results_repository', '?')})")
+        return url
+
     def tester(self):
         return self.flow().login()
 
@@ -141,8 +166,13 @@ class Client:
                 return {"machines": "approved", "pending": "pending", "declined": "declined"}[state], registry[state][key]
         mine = (self.dir / "registration.json")
         if mine.exists():
-            return "pending", json.loads(mine.read_text())
+            record = json.loads(mine.read_text())
+            if record.get("repository", self.results_repository()) == self.results_repository():
+                return "pending", record
         return "not registered", None
+
+    def results_repository(self):
+        return self.repo.read("config.json", {}).get("results_repository", "")
 
     def register(self):
         """Open the machine's registration issue in the results repository (as the tester)."""
@@ -152,7 +182,8 @@ class Client:
         body = formats.payload_body("register", data, f"Registration of {login}/{self.config.machine}: {self.info['gpu']}, "
                                     f"{self.info.get('driver', '')}, {self.info['os']}. A maintainer approves it by adding the label `approved`.")
         number = self.github().create_issue(f"Machine: {login}/{self.config.machine}", body)
-        (self.dir / "registration.json").write_text(json.dumps({"issue": number, "opened": formats.iso(formats.now())}))
+        (self.dir / "registration.json").write_text(json.dumps({"issue": number, "opened": formats.iso(formats.now()),
+                                                                "repository": self.results_repository()}))
         self.log(f"registration issue #{number} opened for {login}/{self.config.machine}")
         return number
 

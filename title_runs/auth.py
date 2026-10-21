@@ -52,8 +52,16 @@ class DeviceFlow:
         temporary.chmod(0o600)
         os.replace(temporary, self.token_file)
 
-    def login(self):
+    def stored_for_this_app(self):
+        """The stored sign-in, if it was made through this App: a results repository that names another App (one moved to
+        a maintainer's account) needs a new sign-in."""
         data = self.stored()
+        if data and data.get("client_id", self.client_id) != self.client_id:
+            return None
+        return data
+
+    def login(self):
+        data = self.stored_for_this_app()
         return data.get("login") if data else None
 
     def sign_out(self):
@@ -61,7 +69,7 @@ class DeviceFlow:
 
     def token(self):
         """A valid access token (refreshed when it is about to expire), or None when not signed in."""
-        data = self.stored()
+        data = self.stored_for_this_app()
         if not data:
             return None
         expires = data.get("expires_at")
@@ -112,7 +120,7 @@ class DeviceFlow:
             if error:
                 raise AuthError(f"sign-in failed: {error} ({reply.get('error_description', '')})")
             login = gh.GitHubRepo("", token=reply["access_token"]).login()
-        data = self.data(reply, login)
+        data = {**self.data(reply, login), "client_id": self.client_id}
         self.store(data)
         return data
 
@@ -131,7 +139,7 @@ class DeviceFlow:
         reply = self._post(TOKEN_URL, {"client_id": self.client_id, "grant_type": "refresh_token", "refresh_token": data["refresh_token"]})
         if reply.get("error"):
             raise AuthError(f"could not refresh the sign-in: {reply['error']}; sign in again")
-        fresh = self.data(reply, data["login"])
+        fresh = {**self.data(reply, data["login"]), "client_id": self.client_id}
         self.store(fresh)
         return fresh
 

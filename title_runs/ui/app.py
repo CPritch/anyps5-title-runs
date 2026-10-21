@@ -209,9 +209,19 @@ class Engine(QObject):
         configfile.save(self.config)
         self.log(f"saved {self.config.path}")
 
+    def switch_results(self, location):
+        """Settings' results repository changed: the client starts afresh for the new one (Client.use)."""
+        url = self.client.use(location)
+        self.save_config()
+        self.load(sync=False)
+        state, _ = self.client.registration()
+        return (f"Now using {self.client.results_repository() or url}. "
+                + ("Signed in as " + self.client.tester() + "." if self.client.tester() else "Sign in again: this repository names another App.")
+                + ("" if state == "approved" else " Register this machine there."))
+
     def check_connection(self, url):
         try:
-            repo = store.ResultsRepo(url, self.dir / "connection-check")
+            repo = store.ResultsRepo(clients.configs.results_location(url), self.dir / "connection-check")
             repo.sync()
             config, registry = repo.config(), repo.registry()
             last = repo.cursors().get("last_run")
@@ -310,7 +320,7 @@ def screenshots(engine, out, prefix=""):
 
 def new_config(path, results, github, state_dir=None):
     """A starting config for the walkthrough to fill: the results repository, the stand-in or GitHub, the state directory."""
-    data = {"state_dir": str(state_dir or ROOT / "state"), "results": {"url": results, "github": github},
+    data = {"state_dir": str(state_dir or ROOT / "state"), "results": {"url": configs.results_location(results), "github": github},
             "schedule": dict(configs.SCHEDULE), "sandbox": {"mode": "bwrap"}}
     Path(path).write_text("# anyps5-title-runs: written by the title-runs window. config.example.toml explains every key.\n\n" + configfile.dumps(data))
 
@@ -321,7 +331,7 @@ def main(argv=None):
     parser.add_argument("--listing", type=Path)
     parser.add_argument("--auto", action="store_true")
     parser.add_argument("--dumps", default="", help="the walkthrough's dumps folder to start from")
-    parser.add_argument("--results", default="", help="a new config: the results repository's URL")
+    parser.add_argument("--results", default="", help="a new config: the results repository, OWNER/NAME or a URL")
     parser.add_argument("--github", default="github", help='a new config: "github", or "standin:<github.json>" for the local stand-in')
     parser.add_argument("--state", type=Path, help="a new config: the state directory")
     parser.add_argument("--screenshots", type=Path)

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QCheckBox, QFormLayout, QGroupBox, QHBoxLayout, Q
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from .. import platform_info, verdict
+from ..config import results_location as clients_location
 from ..relay import overview
 from ..relay.render import utc
 from . import model
@@ -506,6 +507,9 @@ class SettingsTab(QWidget):
         results = QGroupBox("Results repository")
         form = QFormLayout(results)
         self.url = QLineEdit(config.results_url)
+        self.url.setPlaceholderText("OWNER/NAME, e.g. CPritch/anyps5-title-runs-results")
+        self.url.setToolTip("The results repository the maintainers named. Saving another one switches to it: its queue, "
+                            "a new registration, and a new sign-in if it uses another App.")
         form.addRow("Repository", self.url)
         check = QHBoxLayout()
         self.check_label = QLabel("")
@@ -606,7 +610,14 @@ class SettingsTab(QWidget):
 
     def save(self):
         config = self.engine.config
-        config.machine, config.results_url = self.machine.text().strip(), self.url.text().strip()
+        config.machine = self.machine.text().strip()
+        location = self.url.text().strip()
+        if location and clients_location(location) != config.results_url:
+            try:
+                self.check_label.setText(self.engine.switch_results(location))
+            except Exception as error:  # noqa: BLE001
+                self.check_label.setText(f"Could not switch: {error}")
+            self.url.setText(self.engine.config.results_url)
         config.screenshots = self.screenshots.isChecked()
         self.engine.save_config()
 

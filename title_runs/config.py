@@ -21,6 +21,17 @@ class ConfigError(ValueError):
     pass
 
 
+def results_location(text):
+    """What a tester types for the results repository, as the URL the client clones: OWNER/NAME and
+    https://github.com/OWNER/NAME become https://github.com/OWNER/NAME.git; other URLs and local paths stay as they are.
+    There is no built-in default (DESIGN.md, round 4 decision 1)."""
+    text = (text or "").strip()
+    found = re.fullmatch(r"(?:https://github\.com/)?([A-Za-z0-9-]+/[A-Za-z0-9._-]+?)(?:\.git)?/?", text)
+    if found and (text.startswith("https://github.com/") or not text.startswith(("/", ".", "~"))):
+        return f"https://github.com/{found.group(1)}.git"
+    return os.path.expanduser(text)
+
+
 def _path(value):
     return Path(os.path.expanduser(str(value))).resolve() if value else None
 

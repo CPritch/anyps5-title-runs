@@ -11,7 +11,7 @@
   title-runs relay poll ...              the results repository's workflow (title_runs/relay/__main__.py)
   title-runs export-results-repo DIR [OWNER/ANYPS5 OWNER/RESULTS]   fill a results repository from results_repo/
   title-runs standin tick|label|unlabel|command|push|approve|decline|codes|authorize --root DIR ...   the local stand-in
-  title-runs client [--config FILE] status|sign-in|register|queue|next|run-once|daemon   the tester's client without the window
+  title-runs client [--config FILE] status|sign-in|register|use REPO|queue|next|run-once|daemon   the tester's client without the window
   title-runs ui [--config FILE] [--setup] [--screenshots DIR] ...     the tray and the window (title_runs/ui/app.py)
 """
 
@@ -177,15 +177,26 @@ def standin_command(argv):
 
 
 def client_command(argv):
-    """title-runs client [--config FILE] queue|next|run-once|daemon|status|sign-in|register: the tester's client without
-    the window."""
+    """title-runs client [--config FILE] queue|next|run-once|daemon|status|sign-in|register|use OWNER/NAME: the tester's
+    client without the window."""
     from . import client
     parser = argparse.ArgumentParser(prog="title-runs client")
     parser.add_argument("--config", type=Path, default=ROOT / "config.toml")
-    parser.add_argument("what", choices=("queue", "next", "run-once", "daemon", "status", "sign-in", "register"))
+    parser.add_argument("what", choices=("queue", "next", "run-once", "daemon", "status", "sign-in", "register", "use"))
+    parser.add_argument("location", nargs="?", help="use: the results repository, OWNER/NAME or a URL (a path for the stand-in)")
     parser.add_argument("--ignore-schedule", action="store_true", help="run-once: start even if the schedule says not now (still needs ready)")
     args = parser.parse_args(argv)
     engine = client.Client(configs.load(args.config), log=lambda text: print(text, flush=True))
+    if args.what == "use":
+        if not args.location:
+            parser.error("use needs OWNER/NAME or a URL")
+        from . import configfile
+        engine.use(args.location)
+        configfile.save(engine.config)
+        state, _ = engine.registration()
+        print(f"results repository {engine.results_repository()} ({engine.config.results_url}); "
+              f"{'signed in as ' + engine.tester() if engine.tester() else 'sign in again (title-runs client sign-in)'}; machine {state}")
+        return 0
     engine.repo.sync()
     if args.what == "status":
         ready, why = engine.ready()
