@@ -161,7 +161,8 @@ A maintainer approves code they have looked at, so the approval names a commit:
   expired: 8118a04 was pushed after it by @someuser and is not checked. Label the PR again to queue it." Once a new
   head is queued, the notice leaves the top of the comment and stays in its earlier-heads history. Running jobs for
   the old SHA end after their current run; nobody starts a new one. A tester can still opt in to the new head
-  through the trust dialog. A push whose time can't be told (no workflow run) expires the approval too.
+  through the trust dialog. A push with no workflow run has no known pusher, so only the same patch-ids carry the
+  approval over it; otherwise it expires.
 - **Carried over without a maintainer** only when nothing the maintainer looked at changed:
   - a rebase whose own diff is identical to the approved one (same patch-id per commit, or an empty `git range-diff`
     apart from the base);

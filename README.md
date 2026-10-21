@@ -28,7 +28,8 @@ The results repository's one workflow, `relay` (`results_repo/.github/workflows/
 
 1. **Queue.** It reads AnyPS5's label events and comments as the App. A maintainer's `title-test` label pins the PR's
    head, if that head was pushed before the label; the push time and pusher come from the PR's earliest workflow run
-   for that head, since a label event carries no SHA. `/title-test [high|normal|low] [titles=..] [hw=..] [machines=N]
+   for that head, since a label event carries no SHA. A head with no workflow run needs `/title-test sha=<sha>`; a
+   refused label is removed, and the App says why in a new comment. `/title-test [high|normal|low] [titles=..] [hw=..] [machines=N]
    [sha=..] | stop` sets options and can pin any commit. Each queued head gets a job issue in the results repository.
 2. **A push after approval** carries the approval over if the new head has the approved head's patch-ids (a rebase),
    or if a collaborator who isn't the author pushed it. Otherwise the approval expires: the App removes the label,

@@ -63,13 +63,14 @@ are ISO 8601 in UTC (`2026-10-21T12:00:00Z`).
   ],
   "stopped": [{"pr": 7922, "by": "CPritch", "at": "…"}],
   "expired": [{"pr": 8104, "head": "69ac…", "job": "8104-69ac2e155ad0", "by": "8118…", "pusher": "Celegans12", "at": "…", "approved_by": "CPritch"}],
-  "refused": [{"pr": 8104, "by": "CPritch", "labelled": "…", "head": "8118…", "pushed": "…", "source": "its PR workflow run"}]
+  "refused": [{"pr": 8104, "by": "CPritch", "labelled": "…", "head": "8118…", "pushed": "…", "via": "label", "source": "its PR workflow run"}]
 }
 ```
 
 - `head`: the commit a maintainer approved. A label pins the PR's head when the workflow sees the label, if that head
-  was pushed before the label (`refused` otherwise); a command's `sha=` pins any commit of the PR. Testers build
-  exactly this commit merged onto current main.
+  was pushed before the label, by the PR's workflow run for that head (`refused` otherwise, also when the head has no
+  run: `pushed` is then null and `source` "no PR workflow run"); a command's `sha=` pins any commit of the PR.
+  Testers build exactly this commit merged onto current main.
 - `approval.via`: `label`, `command`, or `carried` (`from`, `reason`): a later head that has the approved head's
   patch-ids, or was pushed by a collaborator who is not the author.
 - `unapproved`: heads that were already there when a maintainer pinned an earlier commit with `sha=`; not checked.

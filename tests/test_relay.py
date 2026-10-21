@@ -53,14 +53,34 @@ class Label(unittest.TestCase):
         self.assertEqual(q["entries"], [])
         self.assertEqual((q["refused"][0]["head"], q["refused"][0]["source"]), (stand.history.B, "its PR workflow run"))
         self.assertEqual(stand.pull_labels(), [])
-        self.assertIn(f"was not queued: the head `{stand.history.B[:9]}` was pushed after it", stand.bodies()[-1])
+        self.assertIn(f"did not queue anything: the head `{stand.history.B[:9]}` was pushed after it", stand.bodies()[-1])
+        self.assertEqual(len(stand.calls(action="comment")), 1)  # the first comment on the PR is new anyway
 
-    def test_without_a_run_the_commit_date_decides(self):
+    def test_a_head_without_a_run_needs_a_sha_command(self):
         stand = Stand()
-        stand.at("2026-10-21T09:00:00Z").push(stand.history.R, run=False)  # committed 10:00 (History), labelled 09:30
-        stand.at("2026-10-21T09:30:00Z").label()
-        stand.at("2026-10-21T09:35:00Z").poll()
-        self.assertEqual(stand.queued()["refused"][0]["source"], "its commit date (no PR workflow run)")
+        stand.at("2026-10-21T09:00:00Z").push(stand.history.R, run=False)  # no PR workflow run for R; its commit date is 10:00
+        stand.at("2026-10-21T11:30:00Z").label()  # after the commit date, which no longer counts
+        stand.at("2026-10-21T11:35:00Z").poll()
+        q = stand.queued()
+        self.assertEqual((q["entries"], q["refused"][0]["source"], q["refused"][0]["pushed"]), ([], "no PR workflow run", None))
+        self.assertEqual(stand.pull_labels(), [])
+        self.assertIn(f"has no PR workflow run, so nothing tells when it was pushed and a label cannot approve it. Comment "
+                      f"`/title-test sha={stand.history.R[:9]}`", stand.bodies()[-1])
+        stand.at("2026-10-21T11:40:00Z").command(f"/title-test sha={stand.history.R[:9]}")
+        stand.at("2026-10-21T11:45:00Z").poll()
+        entry = stand.queued()["entries"][0]
+        self.assertEqual((entry["head"], entry["approval"]["via"], entry["approval"]["pinned"]), (stand.history.R, "command", True))
+
+    def test_a_refused_label_and_a_second_refusal_each_post_a_new_comment(self):
+        stand = queued_stand()
+        h = stand.history
+        stand.at("2026-10-21T12:20:00Z").push(h.B, actor="Celegans12", run=False)  # other code, and no run to time it
+        stand.at("2026-10-21T12:25:00Z").poll()  # expired: a new comment
+        self.assertEqual(stand.queued()["expired"][0]["by"], h.B)
+        stand.at("2026-10-21T12:30:00Z").label()
+        stand.at("2026-10-21T12:35:00Z").poll()  # refused: no run for B, another new comment
+        self.assertEqual(stand.queued()["refused"][0]["source"], "no PR workflow run")
+        self.assertEqual(len(stand.calls(who="title-runs[bot]", action="comment")), 3)
 
     def test_a_label_by_someone_else_is_ignored(self):
         stand = Stand()
@@ -116,6 +136,8 @@ class Push(unittest.TestCase):
         body = stand.bodies()[-1]
         self.assertIn(f"**Approval of `{h.A[:9]}` expired**: `{h.B[:9]}` was pushed after it by @Celegans12", body)
         self.assertIn("The App removed `title-test`", body)
+        self.assertEqual(len(stand.calls(who="title-runs[bot]", action="comment")), 2)  # queued, then expired: a new comment
+        self.assertEqual(stand.relay.comments["prs"]["8104"]["posts"][-1]["reason"], f"the approval of {h.A[:9]} expired")
         job = stand.issue(stand.relay.jobs[formats.job_id(8104, h.A)]["issue"])
         self.assertEqual(job["state"], "closed")
         stand.at("2026-10-21T12:30:00Z").poll()  # the App's own removal is not a maintainer stopping it
@@ -129,6 +151,11 @@ class Push(unittest.TestCase):
         stand.at("2026-10-21T12:40:00Z").label()
         stand.at("2026-10-21T12:45:00Z").poll()
         self.assertEqual(stand.queued()["entries"][0]["head"], h.B)
+        body = stand.bodies()[-1]
+        top, _, rest = body.partition("<summary>Earlier heads</summary>")
+        self.assertNotIn("expired", top)  # once the new head is queued the notice leaves the top
+        self.assertIn(f"- **Approval of `{h.A[:9]}` expired**: `{h.B[:9]}` was pushed after it", rest)
+        self.assertIn("The App removed `title-test`.", rest)
 
     def test_a_rebase_with_the_same_patch_ids_is_carried_over(self):
         stand = queued_stand()

@@ -25,9 +25,10 @@ def accepted_results(state, pr):
     return queued, tester
 
 
-def refresh(state, anyps5, queue, comments, pr, at, label="title-test", rules=verdict.DEFAULT):
+def refresh(state, anyps5, queue, comments, pr, at, label="title-test", rules=verdict.DEFAULT, notify=None):
     """Post or edit the App's comment on pr (anyps5: the App on AnyPS5). Returns (action, reason) or None when the text
-    did not change."""
+    did not change. notify: why the maintainer has to act (an expired approval, a refused label); the App then posts
+    a new comment, since edits notify nobody."""
     entry = next((e for e in queue["entries"] if e["pr"] == pr), None)
     stopped = next((s["by"] for s in reversed(queue.get("stopped", [])) if s["pr"] == pr), None)
     expired = [x for x in queue.get("expired", []) if x["pr"] == pr]
@@ -42,7 +43,7 @@ def refresh(state, anyps5, queue, comments, pr, at, label="title-test", rules=ve
     if record["posts"] and record["posts"][-1].get("body_sha256") == digest(body):
         return None
     previous = record["posts"][-1]["heads"] if record["comment_id"] and record["posts"] else None
-    action, reason = render.decide(previous, shot, order)
+    action, reason = ("new", notify) if notify else render.decide(previous, shot, order)
     if action == "edit" and record["comment_id"]:
         anyps5.edit_comment(record["comment_id"], body)
     else:

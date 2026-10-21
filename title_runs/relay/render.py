@@ -117,16 +117,31 @@ def details(results, rules=verdict.DEFAULT):
     return lines
 
 
+def expired_text(item, label):
+    return (f"**Approval of `{short(item['head'])}` expired**: `{short(item['by'])}` was pushed after it"
+            f"{' by @' + item['pusher'] if item.get('pusher') else ''} ({utc(item['at'])}) and is not checked. "
+            f"The App removed `{label}`; add it again to queue `{short(item['by'])}`.")
+
+
+def refused_text(item, label):
+    what = f"`{label}` added by @{item['by']}" if item.get("via", "label") == "label" else f"`/title-test` by @{item['by']}"
+    if item.get("pushed"):
+        return (f"{what} ({utc(item['labelled'])}) did not queue anything: the head `{short(item['head'])}` was pushed after it "
+                f"({utc(item['pushed'])}). Add the label again, or comment `/title-test sha=<the commit you checked>`.")
+    return (f"{what} ({utc(item['labelled'])}) did not queue anything: the head `{short(item['head'])}` has no PR workflow run, so "
+            f"nothing tells when it was pushed and a label cannot approve it. Comment `/title-test sha={short(item['head'])}` once you have "
+            f"checked that commit.")
+
+
 def notices(pr, expired, refused, label):
-    lines = []
-    for item in expired:
-        lines.append(f"**Approval of `{short(item['head'])}` expired**: `{short(item['by'])}` was pushed after it"
-                     f"{' by @' + item['pusher'] if item.get('pusher') else ''} ({utc(item['at'])}) and is not checked. "
-                     f"The App removed `{label}`; add it again to queue `{short(item['by'])}`.")
-    for item in refused:
-        lines.append(f"`{label}` added by @{item['by']} ({utc(item['labelled'])}) was not queued: the head `{short(item['head'])}` was pushed "
-                     f"after it ({utc(item['pushed'])}). Add the label again, or comment `/title-test sha=<the commit you checked>`.")
-    return lines
+    return [expired_text(item, label) for item in expired] + [refused_text(item, label) for item in refused]
+
+
+def history(expired, refused, label):
+    """Expired approvals and refused labels, oldest first, for the earlier-heads part once a new head is queued."""
+    items = [(x["at"], "- " + expired_text(x, label).replace(f"; add it again to queue `{short(x['by'])}`.", ".")) for x in expired]
+    items += [(x["labelled"], "- " + refused_text(x, label)) for x in refused]
+    return [line for _, line in sorted(items)]
 
 
 def render(pr, entry, by_head, tester_results=None, stopped=None, expired=(), refused=(), label="title-test", rules=verdict.DEFAULT):
@@ -149,7 +164,8 @@ def render(pr, entry, by_head, tester_results=None, stopped=None, expired=(), re
             lines.append("")
     else:
         lines += ["### Title runs", "", "Not queued" + (f" (stopped by @{stopped})." if stopped else "."), ""]
-    recent = notices(pr, expired[-1:], refused[-1:] if not entry else [], label)
+    # Until a head is queued again the latest expiry or refusal leads the comment; after that it is history.
+    recent = notices(pr, expired[-1:], refused[-1:], label) if not entry else []
     if recent:
         lines += recent + [""]
     shown = current or (expired[-1]["head"] if expired else None)
@@ -168,11 +184,17 @@ def render(pr, entry, by_head, tester_results=None, stopped=None, expired=(), re
         if trusted:
             lines += [f"**Run on the tester's trust** (`{short(head)}`, not approved by a maintainer):", ""] + HEADER + rows(trusted, rules=rules) + [""]
     earlier = [h for h in by_head if h != shown and by_head.get(h)]
-    if earlier:
-        lines += ["<details><summary>Earlier heads</summary>", ""] + HEADER
-        for head in earlier:
-            lines += rows(by_head[head], prefix=f"`{short(head)}` ", rules=rules)
-        lines += ["", "</details>", ""]
+    past = history(expired, refused, label) if entry else []
+    if earlier or past:
+        lines += ["<details><summary>Earlier heads</summary>", ""]
+        if earlier:
+            lines += HEADER
+            for head in earlier:
+                lines += rows(by_head[head], prefix=f"`{short(head)}` ", rules=rules)
+            lines.append("")
+        if past:
+            lines += past + [""]
+        lines += ["</details>", ""]
     lines.append("<sub>anyps5-title-runs: this comment is edited as machines report; a new comment is posted when an outcome "
                  "or a verdict changes. What leaves a tester's machine: timings, summary lines and outcome classes; never game "
                  "files.</sub>")

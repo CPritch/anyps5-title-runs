@@ -2,10 +2,11 @@
 on AnyPS5 and as the workflow on the results repository.
 
 1. AnyPS5's events since the last run: `title-test` added by a maintainer queues the PR's head, if that head was
-   pushed before the label (its PR workflow runs tell when, and who pushed); removed by a maintainer, it stops.
-   `/title-test` commands from maintainers set options or pin a commit (sha=).
+   pushed before the label (its PR workflow runs tell when, and who pushed); a head with no run needs
+   `/title-test sha=`. Removed by a maintainer, the label stops the PR. `/title-test` commands from maintainers set
+   options or pin a commit (sha=).
 2. Each queued PR's head: a new head carries the approval over (the same patch-ids, or pushed by a collaborator who is
-   not the author) or expires it: the App removes the label and says which commit expired it.
+   not the author) or expires it: the App removes the label and says which commit expired it in a new comment.
 3. Registrations: a tester's issue with a `register` payload is pending until a maintainer adds `approved`
    (`declined` turns it down); the workflow then records the machine in registry.json and closes the issue.
 4. Job issues: one per queued job, opened here, closed when the job leaves the queue.
@@ -20,7 +21,6 @@ checkout (the caller commits it); a failing step still saves what the steps befo
 """
 
 import json
-import subprocess
 from pathlib import Path
 
 from . import comment, overview, patchids
@@ -58,6 +58,7 @@ class Relay:
         self.comments = load(self.state / "comments.json", formats.empty_comments())
         self.cursors = load(self.state / "cursors.json", {})
         self.changed = set()
+        self.notify = {}  # pr -> why the App posts a new comment instead of editing: the maintainer has to act
 
     # -- helpers -------------------------------------------------------------------------------------------------------
 
@@ -78,29 +79,24 @@ class Relay:
         runs = [r for r in self.anyps5.workflow_runs(head_sha=sha) if r["event"] in ("pull_request", "pull_request_target")]
         return (runs[0]["created_at"], runs[0]["actor"]) if runs else (None, None)
 
-    def commit_time(self, sha):
-        if self.git_dir is None:
-            return None
-        patchids.ensure(self.git_dir, [sha], self.git_remote)
-        out = subprocess.run(["git", "--git-dir", str(self.git_dir), "log", "-1", "--format=%cI", sha], capture_output=True, text=True)
-        return out.stdout.strip() or None
-
     def pin(self, pr, at, by, labelled):
-        """The PR's head, if it was pushed before at (a label's or a command's time); otherwise None, recorded as refused
-        (and the label taken off again)."""
+        """The PR's head, if its PR workflow run shows it was pushed before at (a label's or a command's time).
+        Otherwise None, recorded as refused, the label taken off again and a new comment posted: a head pushed after
+        the label, or a head with no run (nothing else says when it was pushed; a commit's date is what its author
+        wrote), which needs /title-test sha=."""
         head = self.anyps5.pull(pr)["head"]
         pushed, _ = self.push_time(head)
-        source = "its PR workflow run"
-        if pushed is None:
-            pushed, source = self.commit_time(head), "its commit date (no PR workflow run)"
-        if pushed and formats.parse_time(pushed) > formats.parse_time(at):
-            self.queue["refused"].append({"pr": pr, "by": by, "labelled": at, "head": head, "pushed": pushed, "source": source})
-            if labelled:
-                self.anyps5.remove_label(pr, self.label)
-            self.changed.add(pr)
-            self.log(f"#{pr}: not queued: {head[:9]} was pushed at {pushed}, after {by}'s {'label' if labelled else 'command'} at {at}")
-            return None
-        return head
+        if pushed is not None and formats.parse_time(pushed) <= formats.parse_time(at):
+            return head
+        self.queue["refused"].append({"pr": pr, "by": by, "labelled": at, "head": head, "pushed": pushed, "via": "label" if labelled else "command",
+                                      "source": "its PR workflow run" if pushed else "no PR workflow run"})
+        if labelled:
+            self.anyps5.remove_label(pr, self.label)
+        self.changed.add(pr)
+        self.notify[pr] = f"{'a label' if labelled else 'a command'} by @{by} did not queue {head[:9]}"
+        why = f"was pushed at {pushed}, after" if pushed else "has no PR workflow run to time it against"
+        self.log(f"#{pr}: not queued: {head[:9]} {why} {by}'s {'label' if labelled else 'command'} at {at}")
+        return None
 
     def ignore(self, reason, issue, user, detail="", once=None):
         """Count what the workflow does not use, without a reply. once: a key for what every run sees again (a label, an
@@ -173,6 +169,7 @@ class Relay:
         self.anyps5.remove_label(entry["pr"], self.label)
         self.close_job(entry["job"], f"Approval expired: `{new[:9]}` was pushed after it{' by @' + pusher if pusher else ''}. Nobody starts this job any more.")
         self.changed.add(entry["pr"])
+        self.notify[entry["pr"]] = f"the approval of {entry['head'][:9]} expired"
         self.log(f"#{entry['pr']}: approval of {entry['head'][:9]} expired by {new[:9]} ({pusher or 'unknown pusher'})")
 
     def pushed(self, entry, new):
@@ -424,7 +421,7 @@ class Relay:
 
     def update_comments(self):
         for pr in sorted(self.changed):
-            posted = comment.refresh(self.state, self.anyps5, self.queue, self.comments, pr, self.at, self.label, self.rules)
+            posted = comment.refresh(self.state, self.anyps5, self.queue, self.comments, pr, self.at, self.label, self.rules, self.notify.get(pr))
             if posted:
                 self.log(f"#{pr}: {posted[0]} comment ({posted[1]})")
 
