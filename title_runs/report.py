@@ -35,7 +35,7 @@ def utc(stamp):
 
 def head_summary(results):
     """What the history table keeps of a head: outcome and verdict per title."""
-    out = {"head": results["head"], "date": utc(results.get("started", "")), "status": results.get("status"),
+    out = {"head": results["head"], "started": results.get("started", ""), "status": results.get("status"),
            "base": results.get("base", ""), "titles": {}}
     for title_id, entry in results.get("titles", {}).items():
         v = entry.get("verdict") or {}
@@ -97,7 +97,7 @@ def render(config, number, results, history, notes=()):
     lines += [f"**Head `{head[:9]}`** (merged as `{merge[:9]}` on main `{base[:9]}`), {utc(results.get('started', ''))}",
               f"Machine: {machine_line(results)}. Sandbox: {sandbox}.", ""]
     if results.get("simulated"):
-        lines += [f"**Simulated head** (a fixture for the dry-run demonstration, not a run): {results['simulated']}", ""]
+        lines += [f"**Simulated head** (a fixture for the dry-run demonstration, not a run): {results['simulated']}.", ""]
     if results.get("status") == "failed":
         lines += [f"The job failed: `{results.get('error', '?')}`", ""]
     if results.get("status") == "superseded":
@@ -143,9 +143,9 @@ def render(config, number, results, history, notes=()):
         for old in reversed(history):
             for title_id, t in old["titles"].items():
                 change = f"{t['p50_A']:.1f} -> {t['p50_B']:.1f} ms ({t['diff']:+.2f})" if t.get("diff") is not None else "-"
-                lines.append(f"| `{old['head'][:9]}` | {old['date']} | {title_id} | {t['outcome'].get('A', '-')} | {t['outcome'].get('B', '-')} | {change} | {t.get('verdict') or '-'} |")
+                lines.append(f"| `{old['head'][:9]}` | {utc(old['started'])} | {title_id} | {t['outcome'].get('A', '-')} | {t['outcome'].get('B', '-')} | {change} | {t.get('verdict') or '-'} |")
             if not old["titles"]:
-                lines.append(f"| `{old['head'][:9]}` | {old['date']} | - | - | - | - | {old.get('status')} |")
+                lines.append(f"| `{old['head'][:9]}` | {utc(old['started'])} | - | - | - | - | {old.get('status')} |")
         lines += ["", "</details>", ""]
     lines += [f"<sub>{TOOL}: this comment is edited for each new head; a new comment is posted when an outcome or the verdict "
               f"changes. What leaves the tester's machine: timings, summary lines, outcome classes and, when enabled, a screenshot; "
