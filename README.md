@@ -32,8 +32,10 @@ Python 3.11 or later, standard library only. Linux (bubblewrap for the sandbox).
      load frame, no pipeline build in the window, frame dumps stopped before the window), a run that does not count
      repeated once; main's `tools/performance_compare.py` per pair. The verdict rule: a difference counts when it is
      larger than both sides' spreads.
-   - a title without a route: #7264's `title_run.py`, unchanged, inside the sandbox: boot twice (cold, then warm) and
-     classify each run (`relink-failed`, `crashed`, `exited`, `stalled`, `blank`, `rendering`).
+   - a title without a route: #7264's `prepare()` and `run_title()`, unchanged: boot twice (cold, then warm) for the
+     title's `boot_seconds` (default: titles.json's `seconds`, else 60) and classify each run (`relink-failed`,
+     `crashed`, `exited`, `stalled`, `blank`, `rendering`). `run_title()` is given a wrapper that starts the title
+     in the sandbox, and an environment with only the title's variables.
 7. **Report**: one Markdown comment per PR and machine: title, scene, machine (GPU, driver, OS), base, merge and head
    commits, the outcome per side, p50/p90/p99 and GPU per present with the verdict, the summary lines in a collapsed
    block, a screenshot placeholder, and a table of earlier heads. The comment is edited for each new head; a new
@@ -132,6 +134,19 @@ the scene. Never game files, save data or the dump's contents. The poll reads pu
 
 What this repository adds is listed in `SUGGESTIONS.md`, with the parts that could go back to #7264.
 
+## Demo: a second head
+
+`demo/simulate_head.py` copies the state (not the trees, builds or runs), writes a fixture listing in which the PR
+has a new head and a results file for it (the real head's measurements, marked as simulated in the comment), and
+prints the times to poll at. Then, with the copy's config:
+
+```
+./title-runs --config COPY/config.toml poll --fixture COPY/fixture-listing.json --at SEEN       # new-head, waiting
+./title-runs --config COPY/config.toml poll --fixture COPY/fixture-listing.json --at SEEN+11m   # paused (not on the allowlist)
+./title-runs --config COPY/config.toml confirm 8104
+./title-runs --config COPY/config.toml publish 8104 --results COPY/fixture-results.json       # edit, with the earlier head in the history table
+```
+
 ## Tests
 
 ```
@@ -140,4 +155,4 @@ python3 -I -m unittest discover -s tests -t tests
 
 The poller against fixture listings (first and incremental polls, direct reads), the follow rules (Unblocks:, labels,
 drafts, closed PRs), debounce and supersede, the allowlist and confirmations, the verdict rule, the comment's
-contents, history and the edit-or-new rule, and the dry-run poster.
+contents, history and the edit-or-new rule, the dry-run poster, and `publish` refusing a head that is not ready.
