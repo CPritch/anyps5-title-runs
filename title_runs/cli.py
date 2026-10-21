@@ -17,7 +17,7 @@ from pathlib import Path
 
 from . import ROOT, config as configs, job, poller, poster, report
 from .github import GraphQL
-from .state import DONE, FAILED, RUNNING, State, iso, now, parse
+from .state import DONE, FAILED, READY, RUNNING, State, now, parse
 
 
 def paths(config):
@@ -120,6 +120,8 @@ def cmd_publish(config, args):
     head = state.current(args.pr)
     if head is None or head["head"] != results["head"]:
         raise SystemExit(f"#{args.pr}: the current head is {head and head['head'][:9]}, the results are for {results['head'][:9]}")
+    if head["status"] not in (READY, RUNNING):
+        raise SystemExit(f"#{args.pr} {head['head'][:9]} is {head['status']} ({head.get('trust', '')}); only a ready head's results are published")
     poller.finish(state, args.pr, results["head"], DONE if results.get("status") == "done" else FAILED, args.results)
     publish(config, state, args.pr, results, args.post)
     state.save()
