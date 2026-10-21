@@ -220,13 +220,14 @@ class Client:
     # -- claims and results, as comments -----------------------------------------------------------------------------
 
     def live_claims(self, issue):
-        """{machine: claim with its comment} on a job issue, read fresh from GitHub: withdrawals and expired claims out."""
+        """{machine: claim with its comment} on a job issue, read fresh from GitHub: withdrawn, reported and expired
+        claims out (a machine that has reported no longer stands in the way of another machine of its class)."""
         claims = {}
         for note in self.github().comments(issue=issue):
             kind, data = formats.payload(note["body"])
             if kind == "claim" and isinstance(data, dict) and data.get("tester") == note["user"]:
                 claims[data.get("machine")] = {**data, "comment": note["id"], "at": note["created_at"]}
-            elif kind == "withdraw" and isinstance(data, dict):
+            elif kind in ("withdraw", "result") and isinstance(data, dict):
                 if claims.get(data.get("machine"), {}).get("tester") == note["user"]:
                     del claims[data["machine"]]
         return {m: c for m, c in claims.items() if not formats.claim_expired(c)}

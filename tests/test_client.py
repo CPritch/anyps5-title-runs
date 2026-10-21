@@ -149,6 +149,22 @@ class PushAfterLabel(Setup):
         self.assertEqual(self.built, [])
 
 
+    def test_a_machine_that_reported_does_not_block_its_class(self):
+        self.onboard()
+        self.stand.label(8104, "CPritch")
+        self.stand.tick()
+        self.client.repo.sync()
+        issue = self.client.repo.queue()["entries"][0]["issue"]
+        job_id = formats.job_id(8104, self.history.A)
+        rival = formats.make_claim(job_id, "desk", "someone", self.client.machine_class, {"PPSA04263"}, head=self.history.A)
+        github = self.stand.github().as_(standin.RESULTS, "someone")
+        github.create_comment(issue, formats.payload_body("claim", rival, "desk claims it."))
+        github.create_comment(issue, formats.payload_body("result", {"job": job_id, "machine": "desk"}, "desk: done."))
+        with self.fake_run():
+            self.assertIsNotNone(self.client.run(8104, self.history.A))
+        self.assertEqual(self.built, [self.history.A])
+
+
 class TesterTrust(Setup):
     def test_unchecked_head_needs_the_tester_trust_and_is_marked(self):
         self.onboard()
