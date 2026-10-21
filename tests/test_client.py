@@ -92,6 +92,10 @@ class Ready(Setup):
         self.assertEqual(self.client.ready(), (True, ""))
         self.assertEqual(self.client.registration()[0], "approved")
 
+    def test_a_testers_writes_reach_the_outbox(self):
+        self.onboard()
+        self.assertTrue(list((self.stand.root / "outbox").glob("*-CPritch-create-issue.json")))
+
 
 class PushAfterLabel(Setup):
     def test_a_labelled_pr_is_run_and_reported(self):

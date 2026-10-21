@@ -151,7 +151,7 @@ def repo_as_tester(endpoint, repository, flow):
         login = flow.login()
         if not login:
             raise AuthError("not signed in")
-        return gh.FakeGitHub(endpoint.split(":", 1)[1]).as_(repository, login)
+        return gh.FakeGitHub.standin(endpoint.split(":", 1)[1]).as_(repository, login)
     token = flow.token()
     if not token:
         raise AuthError("not signed in")

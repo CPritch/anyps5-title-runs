@@ -203,6 +203,11 @@ class FakeGitHub:
         if body is not None:
             (self.outbox / f"{name}.md").write_text(body)
 
+    @classmethod
+    def standin(cls, path):
+        """The stand-in's fake (standin.py's layout): github.json with the outbox beside it."""
+        return cls(path, Path(path).parent / "outbox")
+
     def as_(self, repository, login=None, identity=None):
         """A FakeRepo acting as login (a user), or as identity (the App or the workflow) when login is None."""
         return FakeRepo(self, repository, login, identity or login or "anonymous")
