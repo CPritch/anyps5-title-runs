@@ -8,6 +8,12 @@ same commits, changes the SHAs but not the patch-ids. The workflow fetches AnyPS
 
 import subprocess
 
+# A head's own commits are compared only up to this many. More means main is behind the PR's base (a stale fork) or a
+# very long PR; in a blob-less clone each commit's diff fetches its blobs, which would outlast the workflow's timeout,
+# and a run that times out commits nothing and would stall on the same head every time. Such a push expires the
+# approval; the maintainer labels again.
+MAX_OWN = 100
+
 
 class PatchIdError(RuntimeError):
     pass
@@ -28,6 +34,11 @@ def ensure(git_dir, shas, remote=None):
         git(git_dir, "fetch", "--quiet", "--no-tags", remote, *missing)
 
 
+def own_count(git_dir, head, main):
+    base = git(git_dir, "merge-base", main, head).decode().strip()
+    return int(git(git_dir, "rev-list", "--count", "--no-merges", f"{base}..{head}").decode())
+
+
 def own_patch_ids(git_dir, head, main):
     base = git(git_dir, "merge-base", main, head).decode().strip()
     log = git(git_dir, "log", "--reverse", "--no-merges", "-p", "--no-color", "--pretty=format:commit %H", f"{base}..{head}")
@@ -39,6 +50,9 @@ def own_patch_ids(git_dir, head, main):
 
 def same_code(git_dir, approved, new, main):
     """(True, reason) when new's own commits have approved's patch-ids in order."""
+    counts = own_count(git_dir, approved, main), own_count(git_dir, new, main)
+    if max(counts) > MAX_OWN:
+        return False, f"{counts[1]} own commit(s) against {counts[0]}: more than {MAX_OWN}, not compared (is main behind the PR's base?)"
     a, b = own_patch_ids(git_dir, approved, main), own_patch_ids(git_dir, new, main)
     if a and a == b:
         return True, f"a rebase with the same {len(a)} patch-id(s) as {approved[:9]}"

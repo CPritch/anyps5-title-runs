@@ -157,6 +157,17 @@ class Push(unittest.TestCase):
         self.assertIn(f"- **Approval of `{h.A[:9]}` expired**: `{h.B[:9]}` was pushed after it", rest)
         self.assertIn("The App removed `title-test`.", rest)
 
+    def test_too_many_own_commits_are_not_compared(self):
+        from unittest import mock
+        from title_runs.relay import patchids
+        stand = queued_stand()
+        h = stand.history
+        with mock.patch.object(patchids, "MAX_OWN", 0):  # the rebase R would be carried over (next test)
+            stand.at("2026-10-21T12:20:00Z").push(h.R)
+            stand.at("2026-10-21T12:25:00Z").poll()
+        self.assertEqual(stand.queued()["entries"], [])
+        self.assertEqual(stand.queued()["expired"][0]["by"], h.R)
+
     def test_a_rebase_with_the_same_patch_ids_is_carried_over(self):
         stand = queued_stand()
         stand.at("2026-10-21T12:20:00Z").push(stand.history.R)
