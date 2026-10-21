@@ -48,6 +48,7 @@ class Driver:
         self.route, self.game, self.work, self.run_dir = route, game, Path(work), Path(run_dir)
         self.pad_tool, self.pad_file, self.log = pad_tool, pad_file, log
         self.marks = {}
+        self.started = time.monotonic()
 
     def latest(self):
         frames = sorted(self.work.glob("frame_*.bmp"), key=lambda p: p.stat().st_mtime)
@@ -135,7 +136,10 @@ class Driver:
                 self.log(step["log"])
             elif "mark" in step:
                 self.marks[step["mark"]] = self.summary_now()
-                self.log(f"{step['mark']} at {self.marks[step['mark']]:.1f} s")
+                if self.marks[step["mark"]]:
+                    self.log(f"{step['mark']} at {self.marks[step['mark']]:.1f} s")
+                else:
+                    self.log(f"{step['mark']} {time.monotonic() - self.started:.0f} s after the route started (no 10 s summaries in this run)")
                 if step["mark"] == stop_at:
                     return self.marks
             elif "loaded" in step:
