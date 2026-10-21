@@ -249,6 +249,7 @@ class Reports(unittest.TestCase):
                      "one more RTX 5060 Laptop GPU · NVIDIA 615 · Linux (borderline)", "### Machines", "| CPritch/laptop | RTX 5060 Laptop GPU · NVIDIA 615 · Linux |",
                      "2026-10-21 12:50 UTC", "### Pending registrations"):
             self.assertIn(text, body)
+        self.assertNotIn("running:", body)  # the laptop's claim ended with its result
 
 
 class CommandLine(unittest.TestCase):
