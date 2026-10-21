@@ -249,3 +249,25 @@ class WalkthroughAndOverview(unittest.TestCase):
         window.refresh()
         self.assertIn("1 from accounts without a registered machine", window.overview.ignored.text())
         self.assertIn("The workflow did not use your comment", window.queue.not_ready.text())
+
+    def test_a_note_on_a_registration_taken_since_is_not_shown(self):
+        from unittest import mock
+        from title_runs import formats
+        self.engine.client.finish_onboarding({})
+        flow = self.engine.client.flow()
+        device = flow.start()
+        self.stand.authorize(device["user_code"], "standin-tester")
+        flow.poll(device)
+        issue = self.engine.client.register()
+        self.stand.tick()
+        self.engine.load(sync=True)
+        stale = {"ignored": {"counts": {"registration": 1}, "recent": [
+            {"at": "2026-10-21T19:23:30Z", "issue": issue, "user": "standin-tester", "reason": "registration", "detail": "not in the expected form"}]}}
+        with mock.patch.object(self.engine.client.repo, "cursors", return_value=stale), \
+                mock.patch("title_runs.formats.now", return_value=formats.parse_time("2026-10-21T20:00:00Z")):
+            self.assertEqual(self.engine.ignored_mine(), "")  # the registration is pending now: the note is history
+            stale["ignored"]["recent"][0]["issue"] = issue + 100
+            self.assertIn("did not use your comment", self.engine.ignored_mine())
+        with mock.patch.object(self.engine.client.repo, "cursors", return_value=stale), \
+                mock.patch("title_runs.formats.now", return_value=formats.parse_time("2026-10-23T20:00:00Z")):
+            self.assertEqual(self.engine.ignored_mine(), "")  # more than a day old

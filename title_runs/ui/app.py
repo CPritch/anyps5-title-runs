@@ -104,7 +104,15 @@ class Engine(QObject):
     def ignored_mine(self):
         """The workflow answers nothing it does not use; the tester's own ignored comments are in its public cursors."""
         login = self.client.tester()
-        mine = [r for r in (self.client.repo.cursors().get("ignored") or {}).get("recent", []) if login and r.get("user") == login]
+        if not login:
+            return ""
+        registry = self.client.repo.registry()
+        settled = {m.get("issue") for state in ("machines", "pending", "declined") for m in registry.get(state, {}).values()
+                   if m.get("tester") == login}
+        day_ago = formats.now() - datetime.timedelta(days=1)
+        # Only what still stands: not a day old, and not on a registration the workflow has since taken.
+        mine = [r for r in (self.client.repo.cursors().get("ignored") or {}).get("recent", [])
+                if r.get("user") == login and r.get("issue") not in settled and formats.parse_time(r["at"]) > day_ago]
         if not mine:
             return ""
         last = mine[-1]
