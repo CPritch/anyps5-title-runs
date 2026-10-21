@@ -52,6 +52,27 @@ def os_name():
     return f"{platform.system()} {platform.release()}"
 
 
+def machine_id():
+    """A stable name for this computer, whatever the tester calls the machine: the warm-up records key on it, since
+    the caches belong to the computer (a hash of /etc/machine-id, or Windows' MachineGuid; the host name otherwise)."""
+    import hashlib
+    raw = ""
+    if WINDOWS:
+        out = _run("reg", "query", r"HKLM\SOFTWARE\Microsoft\Cryptography", "/v", "MachineGuid")
+        found = re.search(r"MachineGuid\s+REG_SZ\s+(\S+)", out)
+        raw = found.group(1) if found else ""
+    else:
+        for path in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+            try:
+                raw = Path(path).read_text().strip()
+            except OSError:
+                continue
+            if raw:
+                break
+    raw = raw or platform.node()
+    return "host-" + hashlib.sha256(raw.encode()).hexdigest()[:12]
+
+
 def machine_info():
     name, driver = gpu()
     system = os_name()

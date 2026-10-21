@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import VENDOR, route as routes, verdict as verdicts
+from . import VENDOR, platform_info, route as routes, verdict as verdicts
 from .game import Game
 
 sys.path.insert(0, str(VENDOR / "gtav_harness"))
@@ -64,6 +64,7 @@ class Side:
 class Protocol:
     def __init__(self, config, title, route, runs_dir, sides, log, base_line=""):
         self.config, self.title, self.route = config, title, route
+        self.machine_id = platform_info.machine_id()  # warm-ups belong to the computer, not to the name the tester gave it
         self.runs_dir, self.sides, self.log_line, self.base_line = Path(runs_dir), sides, log, base_line
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.dump_every = route.get("dump_every", 30)
@@ -77,7 +78,7 @@ class Protocol:
     def new_run(self, side, label):
         run = self.runs_dir / f"{datetime.datetime.now():%Y%m%d-%H%M%S}-{label}"
         run.mkdir(parents=True)
-        lines = [f"started={datetime.datetime.now().isoformat(timespec='seconds')}", f"machine={self.config.machine}",
+        lines = [f"started={datetime.datetime.now().isoformat(timespec='seconds')}", f"machine={self.machine_id}",
                  f"built_from={side.commit}", f"run_env={side.run_env_text}", f"title={self.title.title_id}",
                  f"graphics={self.title.graphics_mode or '?'}", f"sandbox={self.config.sandbox}",
                  f"allocator={self.config.allocator or 'glibc'}", f"base={self.base_line}", f"side={side.key} {side.label}"]
@@ -127,7 +128,7 @@ class Protocol:
         return line
 
     def warmed(self, side):
-        code, out = call(capture.warmed, runs_dir=str(self.runs_dir), machine=self.config.machine, built=side.commit, run_env=side.run_env_text)
+        code, out = call(capture.warmed, runs_dir=str(self.runs_dir), machine=self.machine_id, built=side.commit, run_env=side.run_env_text)
         return out.strip() if code == 0 else None
 
     def warm_up(self, side):
@@ -175,7 +176,7 @@ class Protocol:
             shutil.copy2(frames[-1], run / "last-frame.bmp")
 
     def window(self):
-        code, out = call(capture.window, runs_dir=str(self.runs_dir), machine=self.config.machine,
+        code, out = call(capture.window, runs_dir=str(self.runs_dir), machine=self.machine_id,
                          builds=[side.commit for side in self.sides], margin_s=30, seconds=60, dump_every=self.dump_every)
         if code != 0 or not out.strip():
             raise RuntimeError(f"no window: {out.strip()}")

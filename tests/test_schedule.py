@@ -167,3 +167,11 @@ class Choose(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MachineId(unittest.TestCase):
+    def test_stable_and_not_the_name(self):
+        from title_runs import platform_info
+        first = platform_info.machine_id()
+        self.assertRegex(first, r"^host-[0-9a-f]{12}$")
+        self.assertEqual(first, platform_info.machine_id())
