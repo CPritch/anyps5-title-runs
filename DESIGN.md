@@ -405,8 +405,8 @@ Charlie's answers to round 3's questions.
 3. **An expired approval gets a new comment** as well as the label's removal: the maintainer has to act, and edits
    notify nobody.
 4. **Comments the workflow does not accept get no reply.** They are ignored and counted in the Overview by reason,
-   so nobody can make the workflow write by commenting. The same goes for an `approved` or `declined` label from
-   someone who isn't a maintainer.
+   so nobody can make the workflow write by commenting. (Applied in the same way, not part of the answer: an
+   `approved` or `declined` label from someone who isn't a maintainer is ignored and counted, not replied to.)
 5. **A head with no PR workflow run is not approved by a label.** It needs `/title-test sha=<sha>`. The App removes
    the label and says so on the PR, in a new comment.
 6. **The expired notice moves** from the top of the App's comment into its earlier-heads history once a new head is
