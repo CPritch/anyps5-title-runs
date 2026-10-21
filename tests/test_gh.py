@@ -44,3 +44,26 @@ class Comments(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DryRun(unittest.TestCase):
+    def test_reads_go_through_and_writes_are_recorded(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        outbox = Path(tempfile.mkdtemp()) / "outbox"
+        inner = mock.Mock(repository="o/r")
+        inner.pull.return_value = {"head": "a" * 40}
+        dry = gh.DryRun(inner, outbox, "title-runs-dev[bot]")
+        self.assertEqual(dry.pull(7)["head"], "a" * 40)
+        number = dry.create_issue("Overview", "body", ["overview"])
+        dry.remove_label(7, "title-test")
+        self.assertFalse(inner.create_issue.called or inner.remove_label.called)
+        files = sorted(p.name for p in outbox.iterdir())
+        self.assertEqual(files, ["001-title-runs-devbot-create-issue.json", "001-title-runs-devbot-create-issue.md", "002-title-runs-devbot-remove-label.json"])
+        self.assertEqual(json.loads((outbox / files[0]).read_text())["number"], number)
+
+    def test_an_absent_repository_reads_empty(self):
+        import tempfile
+        dry = gh.DryRun(None, tempfile.mkdtemp(), "github-actions[bot]", "o/results")
+        self.assertEqual((dry.issues(), dry.comments(since="x"), dry.label_actor(1, "approved")), ([], [], None))

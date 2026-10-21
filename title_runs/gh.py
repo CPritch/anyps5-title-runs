@@ -175,6 +175,68 @@ class GitHubRepo(Repo):
         self.call("POST", f"/repos/{self.repository}/issues/comments/{comment_id}/reactions", {"content": content})
 
 
+class DryRun(Repo):
+    """Reads from a real repository (inner, a GitHubRepo), writes recorded in outbox instead of sent: what the workflow
+    would do, before it may. inner None stands for a repository that does not exist yet (every read is empty)."""
+
+    def __init__(self, inner, outbox, identity, repository=""):
+        self.inner, self.outbox, self.identity = inner, Path(outbox), identity
+        self.repository = inner.repository if inner else repository
+        self.number = 900000
+
+    def _read(self, name, empty, *args, **kwargs):
+        return getattr(self.inner, name)(*args, **kwargs) if self.inner else empty
+
+    def login(self): return self.identity
+    def pull(self, number): return self._read("pull", None, number)
+    def commits(self, number): return self._read("commits", [], number)
+    def permission(self, login): return self._read("permission", "none", login)
+    def issue_events(self, after=0): return self._read("issue_events", [], after)
+    def comments(self, since=None, issue=None): return self._read("comments", [], since=since, issue=issue)
+    def issues(self, label=None, state="open"): return self._read("issues", [], label=label, state=state)
+    def workflow_runs(self, head_sha=None, branch=None): return self._read("workflow_runs", [], head_sha=head_sha, branch=branch)
+    def label_actor(self, number, label): return self._read("label_actor", None, number, label)
+
+    def _write(self, action, request, body=None):
+        self.outbox.mkdir(parents=True, exist_ok=True)
+        name = f"{len(list(self.outbox.glob('*.json'))) + 1:03d}-{self.identity.replace('[', '').replace(']', '')}-{action}"
+        (self.outbox / f"{name}.json").write_text(json.dumps({"as": self.identity, "action": action, "repository": self.repository, **request}, indent=2))
+        if body is not None:
+            (self.outbox / f"{name}.md").write_text(body)
+
+    def _next(self):
+        self.number += 1
+        return self.number
+
+    def create_issue(self, title, body, labels=()):
+        number = self._next()
+        self._write("create-issue", {"number": number, "title": title, "labels": list(labels)}, body)
+        return number
+
+    def edit_issue(self, number, body=None, state=None):
+        self._write("edit-issue", {"number": number, "state": state}, body)
+
+    def add_labels(self, number, labels):
+        self._write("add-labels", {"number": number, "labels": list(labels)})
+
+    def remove_label(self, number, name):
+        self._write("remove-label", {"number": number, "label": name})
+
+    def create_comment(self, number, body):
+        comment_id = self._next()
+        self._write("comment", {"number": number, "comment_id": comment_id}, body)
+        return comment_id
+
+    def edit_comment(self, comment_id, body):
+        self._write("edit-comment", {"comment_id": comment_id}, body)
+
+    def delete_comment(self, comment_id):
+        self._write("delete-comment", {"comment_id": comment_id})
+
+    def react(self, comment_id, content):
+        self._write("react", {"comment_id": comment_id, "content": content})
+
+
 class FakeGitHub:
     """The stand-in's GitHub: {"repos": {name: {"pulls": {n: {...}}, "issues": {n: {...}}, "comments": {id: {...}},
     "events": [...], "runs": [...], "permissions": {login: permission}, "next": n}}, "next_id": n, "device": {...},
