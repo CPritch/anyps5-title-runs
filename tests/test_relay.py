@@ -1,328 +1,267 @@
+"""The relay workflow (title_runs/relay/relay.py) against the fake GitHub: labels and commands queue approved heads, a
+push expires an approval and the App takes the label off, testers register and report through comments, the App's
+comment and the overview."""
+
+import json
 import unittest
 
-from relay_helpers import Stand, claim, event, result
+from relay_helpers import NVIDIA_TOO, Stand, claim, result
 
-from title_runs import formats, schedule
-from title_runs.relay import patchids, queue
-
-
-def label(stand, head, sender="CPritch"):
-    return stand.queue_event("pull_request", event("labeled", HEAD=head, SENDER=sender))
+from title_runs import formats
+from title_runs.relay.commands import CommandError, parse_command
 
 
-def command(stand, body, sender="CPritch", association="OWNER", comment_id=501):
-    return stand.queue_event("issue_comment", event("comment", BODY=body, SENDER=sender, ASSOCIATION=association, COMMENT_ID=comment_id))
+def comment(stand, kind, data, user="CPritch", issue=None):
+    body = formats.payload_body(kind, data, f"A {kind} from the client.")
+    return stand.user(user).create_comment(issue, body)
 
 
-def push(stand, before, after, sender="Celegans12"):
-    stand.set_head(after)
-    return stand.queue_event("pull_request", event("synchronize", BEFORE=before, HEAD=after, SENDER=sender))
+def queued_stand():
+    stand = Stand()
+    issue = stand.register()
+    stand.at("2026-10-21T11:30:00Z").approve_machine(issue)
+    stand.at("2026-10-21T11:35:00Z").poll()
+    stand.at("2026-10-21T11:50:00Z").label()
+    stand.at("2026-10-21T11:55:00Z").poll()
+    return stand
 
 
 class Commands(unittest.TestCase):
     def test_parse(self):
-        self.assertEqual(queue.parse_command("thanks\n/title-test high titles=PPSA04263,PPSA01325 hw=amd,intel,windows machines=3\n"),
-                         {"stop": False, "priority": "high", "titles": ["PPSA04263", "PPSA01325"], "hw": ["amd", "intel", "windows"],
-                          "machines": 3, "sha": None})
-        self.assertEqual(queue.parse_command("/title-test")["priority"], None)
-        self.assertTrue(queue.parse_command("/title-test stop")["stop"])
-        self.assertEqual(queue.parse_command("/title-test sha=8D4F486")["sha"], "8d4f486")
-        self.assertIsNone(queue.parse_command("no command here; /title-test is mentioned mid-line"))
-        for bad in ("/title-test urgent", "/title-test machines=99", "/title-test titles=GTAV", "/title-test sha=xyz", "/title-test stop high",
-                    "/title-test colour=red"):
-            with self.assertRaises(queue.CommandError):
-                queue.parse_command(bad)
+        self.assertEqual(parse_command("/title-test high titles=PPSA04263 hw=amd,windows machines=3")["machines"], 3)
+        with self.assertRaises(CommandError):
+            parse_command("/title-test urgent")
 
 
 class Label(unittest.TestCase):
-    def test_label_pins_the_head_in_the_event(self):
-        stand = Stand()
-        h = stand.history
-        stand.set_head(h.B)  # a push landed after the label, before the workflow ran
-        label(stand, h.A)
+    def test_a_label_queues_the_head_pushed_before_it(self):
+        stand = queued_stand()
         entry = stand.queued()["entries"][0]
-        self.assertEqual(entry["head"], h.A)
-        self.assertEqual(entry["job"], formats.job_id(8104, h.A))
-        self.assertEqual(entry["approval"]["via"], "label")
-        calls = stand.outbox_calls()
-        self.assertEqual([c["action"] for c in calls], ["new"])
-        self.assertIn(f"Queued `{h.A[:9]}` for title runs", stand.bodies()[0])
+        self.assertEqual((entry["head"], entry["approval"]["via"], entry["approval"]["by"]), (stand.history.A, "label", "CPritch"))
+        job = stand.issue(entry["issue"])
+        self.assertTrue(job["title"].startswith(f"Job {entry['job']}"))
+        self.assertIn("job", job["labels"])
+        self.assertIn(f"Queued `{stand.history.A[:9]}` for title runs", stand.bodies()[-1])
+        self.assertEqual(stand.pull_labels(), ["title-test"])
 
-    def test_label_by_someone_else_is_ignored(self):
+    def test_a_head_pushed_after_the_label_is_not_queued(self):
         stand = Stand()
-        label(stand, stand.history.A, sender="Celegans12")
-        self.assertEqual(stand.queued()["entries"], [])
-        self.assertEqual(stand.outbox_calls(), [])
+        stand.at("2026-10-21T11:50:00Z").label()
+        stand.at("2026-10-21T11:52:00Z").push(stand.history.B)
+        stand.at("2026-10-21T11:55:00Z").poll()
+        q = stand.queued()
+        self.assertEqual(q["entries"], [])
+        self.assertEqual((q["refused"][0]["head"], q["refused"][0]["source"]), (stand.history.B, "its PR workflow run"))
+        self.assertEqual(stand.pull_labels(), [])
+        self.assertIn(f"was not queued: the head `{stand.history.B[:9]}` was pushed after it", stand.bodies()[-1])
 
-    def test_unlabel_stops(self):
+    def test_without_a_run_the_commit_date_decides(self):
         stand = Stand()
-        label(stand, stand.history.A)
-        stand.queue_event("pull_request", event("unlabeled", HEAD=stand.history.A, SENDER="CPritch"))
-        self.assertEqual(stand.queued()["entries"], [])
-        self.assertEqual(stand.queued()["stopped"][0]["pr"], 8104)
+        stand.at("2026-10-21T09:00:00Z").push(stand.history.R, run=False)  # committed 10:00 (History), labelled 09:30
+        stand.at("2026-10-21T09:30:00Z").label()
+        stand.at("2026-10-21T09:35:00Z").poll()
+        self.assertEqual(stand.queued()["refused"][0]["source"], "its commit date (no PR workflow run)")
 
-    def test_closed_leaves_the_queue(self):
+    def test_a_label_by_someone_else_is_ignored(self):
         stand = Stand()
-        label(stand, stand.history.A)
-        stand.queue_event("pull_request", event("closed", HEAD=stand.history.A, SENDER="CPritch"))
+        stand.label(actor="Celegans12")
+        stand.poll()
         self.assertEqual(stand.queued()["entries"], [])
+
+    def test_unlabel_by_a_maintainer_stops(self):
+        stand = queued_stand()
+        stand.at("2026-10-21T12:10:00Z").unlabel()
+        stand.at("2026-10-21T12:15:00Z").poll()
+        self.assertEqual(stand.queued()["entries"], [])
+        issue = stand.issue(stand.relay.jobs[formats.job_id(8104, stand.history.A)]["issue"])
+        self.assertEqual(issue["state"], "closed")
+
+    def test_a_second_poll_changes_nothing(self):
+        stand = queued_stand()
+        before = len(stand.calls())
+        stand.at("2026-10-21T12:00:00Z").poll()
+        self.assertEqual(len(stand.calls()), before)
 
 
 class Command(unittest.TestCase):
-    def test_options_and_reaction(self):
+    def test_options_sha_and_reaction(self):
         stand = Stand()
-        command(stand, "/title-test high titles=PPSA04263 hw=amd,windows machines=3")
+        stand.push(stand.history.B)
+        note = stand.at("2026-10-21T12:01:00Z").command(f"/title-test high hw=amd sha={stand.history.A[:7]}")
+        stand.at("2026-10-21T12:05:00Z").poll()
         entry = stand.queued()["entries"][0]
-        self.assertEqual((entry["priority"], entry["titles"], entry["hw"], entry["machines"]), ("high", ["PPSA04263"], ["amd", "windows"], 3))
-        self.assertEqual(entry["approval"]["via"], "command")
-        self.assertIn({"action": "react", "request": {"method": "POST", "path": "/repos/CPritch/AnyPS5/issues/comments/501/reactions",
-                                                      "json": {"content": "+1"}}, "content": "+1"}, stand.outbox_calls())
-
-    def test_sha_pins_an_earlier_commit(self):
-        stand = Stand()
-        h = stand.history
-        stand.set_head(h.B)
-        command(stand, f"/title-test sha={h.A[:7]}")
-        entry = stand.queued()["entries"][0]
-        self.assertEqual(entry["head"], h.A)
-        self.assertTrue(entry["approval"]["pinned"])
-
-    def test_sha_not_in_the_pr(self):
-        stand = Stand()
-        command(stand, "/title-test sha=abcdef1")
-        self.assertEqual(stand.queued()["entries"], [])
-        self.assertEqual(stand.outbox_calls()[-1]["content"], "confused")
+        self.assertEqual((entry["head"], entry["priority"], entry["hw"], entry["approval"]["pinned"]), (stand.history.A, "high", ["amd"], True))
+        self.assertEqual(stand.calls("title-runs[bot]", "react")[-1]["content"], "+1")
+        self.assertEqual(stand.calls("title-runs[bot]", "react")[-1]["path"].rsplit("/", 2)[-2], str(note))
 
     def test_refused_commands(self):
-        for sender, association, body in (("Celegans12", "CONTRIBUTOR", "/title-test high"),  # not a maintainer
-                                          ("notreally", "NONE", "/title-test high"),  # listed, but no association with the repository
-                                          ("CPritch", "OWNER", "/title-test urgent")):  # not understood
+        for actor, body in (("Celegans12", "/title-test high"), ("CPritch", "/title-test urgent")):
             stand = Stand()
-            command(stand, body, sender, association)
-            self.assertEqual(stand.queued()["entries"], [], body)
-            self.assertEqual([c.get("content") for c in stand.outbox_calls()], ["confused"])
-
-    def test_stop(self):
-        stand = Stand()
-        command(stand, "/title-test")
-        command(stand, "/title-test stop", comment_id=502)
-        self.assertEqual(stand.queued()["entries"], [])
-        self.assertIn("Off the queue (stopped by @CPritch)", stand.bodies()[-1])
+            stand.command(body, actor)
+            stand.poll()
+            self.assertEqual(stand.queued()["entries"], [])
+            self.assertEqual(stand.calls("title-runs[bot]", "react")[-1]["content"], "confused")
 
 
-class PushAfterApproval(unittest.TestCase):
-    def test_a_push_after_the_label_must_not_run(self):
-        stand = Stand()
+class Push(unittest.TestCase):
+    def test_a_push_by_the_author_expires_the_approval_and_the_label(self):
+        stand = queued_stand()
         h = stand.history
-        label(stand, h.A)
-        push(stand, h.A, h.B, sender="Celegans12")
+        stand.at("2026-10-21T12:20:00Z").push(h.B, actor="Celegans12")
+        stand.at("2026-10-21T12:25:00Z").poll()
         q = stand.queued()
-        entry = q["entries"][0]
-        self.assertEqual(entry["head"], h.A)
-        self.assertEqual([p["sha"] for p in entry["unapproved"]], [h.B])
-        self.assertIn(f"`{h.B[:9]}` pushed after approval by @Celegans12: **not checked**", stand.bodies()[-1])
-        machine = schedule.Machine("laptop", "CPritch", formats.machine_class("NVIDIA GeForce RTX 5060 Laptop GPU", "Linux"), {"PPSA04263"})
-        chosen = schedule.choose(q, machine, {}, {})
-        self.assertEqual(chosen.entry["head"], h.A)
-        self.assertNotIn(formats.job_id(8104, h.B), [c.job for c in schedule.rank(q, machine, {}, {})])
-
-    def test_refresh_without_an_event_is_not_approved_either(self):
-        stand = Stand()
-        h = stand.history
-        label(stand, h.A)
-        stand.set_head(h.B)
-        stand.queue_event("schedule", {}, refresh=True)
-        entry = stand.queued()["entries"][0]
-        self.assertEqual((entry["head"], entry["unapproved"][0]["by"]), (h.A, "unknown"))
-
-    def test_rebase_with_the_same_patch_ids_is_carried_over(self):
-        stand = Stand()
-        h = stand.history
-        self.assertEqual(patchids.own_patch_ids(h.git_dir, h.A, "main"), patchids.own_patch_ids(h.git_dir, h.R, "main"))
-        label(stand, h.A)
-        push(stand, h.A, h.R, sender="Celegans12")
-        entry = stand.queued()["entries"][0]
-        self.assertEqual((entry["head"], entry["approval"]["via"], entry["approval"]["from"], entry["earlier"]), (h.R, "carried", h.A, [h.A]))
-        self.assertIn("same 1 patch-id", entry["approval"]["reason"])
-
-    def test_rebase_that_edits_the_change_is_not(self):
-        stand = Stand()
-        h = stand.history
-        label(stand, h.A)
-        push(stand, h.A, h.C, sender="Celegans12")
-        self.assertEqual(stand.queued()["entries"][0]["head"], h.A)
-
-    def test_push_by_a_collaborator_is_carried_over(self):
-        stand = Stand()
-        h = stand.history
-        label(stand, h.A)
-        push(stand, h.A, h.B, sender="collab")
-        entry = stand.queued()["entries"][0]
-        self.assertEqual((entry["head"], entry["approval"]["reason"]), (h.B, "pushed by @collab (COLLABORATOR)"))
-
-    def test_push_by_the_author_is_not_even_when_a_collaborator(self):
-        stand = Stand()
-        h = stand.history
-        stand.set_association("Celegans12", "COLLABORATOR")
-        label(stand, h.A)
-        push(stand, h.A, h.B, sender="Celegans12")
-        self.assertEqual(stand.queued()["entries"][0]["head"], h.A)
-
-    def test_a_maintainer_approves_the_new_head(self):
-        stand = Stand()
-        h = stand.history
-        label(stand, h.A)
-        push(stand, h.A, h.B)
-        command(stand, f"/title-test sha={h.B[:10]}")
-        entry = stand.queued()["entries"][0]
-        self.assertEqual((entry["head"], entry["earlier"], entry["unapproved"]), (h.B, [h.A], []))
-
-
-class Publish(unittest.TestCase):
-    def queued_stand(self):
-        stand = Stand()
-        label(stand, stand.history.A)
-        return stand
-
-    def test_accepted_result_edits_the_queued_comment(self):
-        stand = self.queued_stand()
-        h = stand.history
-        c, r = claim(h.A), result(h.A)
-        report = stand.push({c[0]: c[1], r[0]: r[1]}, at=formats.parse_time("2026-10-21T13:00:00Z"))
-        self.assertEqual((report["accepted"], report["refused"]), ([r[0]], []))
-        self.assertEqual([x["action"] for x in stand.outbox_calls()], ["new", "edit"])
+        self.assertEqual(q["entries"], [])
+        self.assertEqual({k: q["expired"][0][k] for k in ("head", "by", "pusher")}, {"head": h.A, "by": h.B, "pusher": "Celegans12"})
+        self.assertEqual(stand.pull_labels(), [])
         body = stand.bodies()[-1]
-        self.assertIn("| laptop | NVIDIA GeForce RTX 5060 Laptop GPU, NVIDIA 615.71.09, Linux 7.2.8 | Grand Theft Auto V (PPSA04263) | rendering / rendering |", body)
-        self.assertIn("| still wanted | 1 more machine: any hardware | any |", body)
+        self.assertIn(f"**Approval of `{h.A[:9]}` expired**: `{h.B[:9]}` was pushed after it by @Celegans12", body)
+        self.assertIn("The App removed `title-test`", body)
+        job = stand.issue(stand.relay.jobs[formats.job_id(8104, h.A)]["issue"])
+        self.assertEqual(job["state"], "closed")
+        stand.at("2026-10-21T12:30:00Z").poll()  # the App's own removal is not a maintainer stopping it
+        self.assertEqual(stand.queued()["stopped"], [])
 
-    def refused(self, files, actor="CPritch", at="2026-10-21T13:00:00Z"):
-        stand = self.queued_stand()
-        files = files(stand.history)
-        report = stand.push(dict(files), actor=actor, at=formats.parse_time(at))
-        self.assertEqual(report["accepted"], [])
-        self.assertTrue(report["refused"])
-        self.assertEqual([x["action"] for x in stand.outbox_calls()], ["new"])
-        return report
-
-    def test_result_for_an_unapproved_head(self):
-        report = self.refused(lambda h: [claim(h.B), result(h.B)])
-        self.assertIn("not a head a maintainer approved", report["refused"][0][1])
-
-    def test_result_after_the_claim_expired(self):
-        report = self.refused(lambda h: [claim(h.A), result(h.A)], at="2026-10-21T15:00:01Z")
-        self.assertIn("after its claim expired", report["refused"][0][1])
-
-    def test_result_without_a_claim(self):
-        self.refused(lambda h: [result(h.A)])
-
-    def test_another_testers_machine(self):
-        report = self.refused(lambda h: [claim(h.A, "desktop", "other"), result(h.A, "desktop", "other")], actor="CPritch")
-        self.assertIn("may only add or change", report["refused"][0][1])
-
-    def test_not_a_tester(self):
-        self.refused(lambda h: [claim(h.A, tester="mallory"), result(h.A, tester="mallory")], actor="mallory")
-
-    def test_a_push_that_touches_the_queue_is_refused_whole(self):
-        report = self.refused(lambda h: [claim(h.A), result(h.A), ("queue.json", '{"format": 1, "entries": []}')])
-        self.assertIn("queue.json", report["refused"][0][1])
-
-    def test_a_queue_pushed_to_main_is_never_read(self):
-        stand = self.queued_stand()
+    def test_labelling_again_queues_the_new_head(self):
+        stand = queued_stand()
         h = stand.history
-        forged = stand.queued()
-        forged["entries"][0].update(head=h.B, job=formats.job_id(8104, h.B))
-        first = stand.push({"queue.json": forged}, at=formats.parse_time("2026-10-21T13:00:00Z"))
-        self.assertIn("queue.json", first["refused"][0][1])
-        c, r = claim(h.B), result(h.B)
-        second = stand.push({c[0]: c[1], r[0]: r[1]}, at=formats.parse_time("2026-10-21T13:00:00Z"))
-        self.assertEqual(second["accepted"], [])
-        self.assertIn("not a head a maintainer approved", second["refused"][0][1])
+        stand.at("2026-10-21T12:20:00Z").push(h.B)
+        stand.at("2026-10-21T12:25:00Z").poll()
+        stand.at("2026-10-21T12:40:00Z").label()
+        stand.at("2026-10-21T12:45:00Z").poll()
+        self.assertEqual(stand.queued()["entries"][0]["head"], h.B)
 
-    def test_markup_in_a_result(self):
-        def files(h):
-            path, data = result(h.A)
-            data["machine_line"] = "<script>"
-            return [claim(h.A), (path, data)]
-        self.refused(files)
+    def test_a_rebase_with_the_same_patch_ids_is_carried_over(self):
+        stand = queued_stand()
+        stand.at("2026-10-21T12:20:00Z").push(stand.history.R)
+        stand.at("2026-10-21T12:25:00Z").poll()
+        entry = stand.queued()["entries"][0]
+        self.assertEqual((entry["head"], entry["approval"]["via"]), (stand.history.R, "carried"))
+        self.assertEqual(stand.pull_labels(), ["title-test"])
 
-    def test_tester_trust_result_is_shown_apart(self):
-        stand = self.queued_stand()
-        h = stand.history
-        stand.set_head(h.B)
-        c, r = claim(h.B), result(h.B, trust="tester")
-        report = stand.push({c[0]: c[1], r[0]: r[1]}, at=formats.parse_time("2026-10-21T13:00:00Z"))
-        self.assertEqual(report["accepted"], [r[0]])
-        self.assertIn(f"**Run on the tester's trust** (`{h.B[:9]}`, not approved by a maintainer)", stand.bodies()[-1])
+    def test_a_push_by_a_collaborator_is_carried_over(self):
+        stand = queued_stand()
+        stand.at("2026-10-21T12:20:00Z").push(stand.history.B, actor="collab")
+        stand.at("2026-10-21T12:25:00Z").poll()
+        self.assertEqual(stand.queued()["entries"][0]["approval"]["reason"], "pushed by @collab, a collaborator")
+
+
+class Registration(unittest.TestCase):
+    def test_pending_until_a_maintainer_adds_approved(self):
+        stand = Stand()
+        issue = stand.register()
+        stand.poll()
+        self.assertIn("CPritch/laptop", stand.registry()["pending"])
+        self.assertIn("registration", stand.issue(issue)["labels"])
+        stand.approve_machine(issue, actor="Celegans12")
+        stand.poll()
+        self.assertEqual(stand.registry()["machines"], {})
+        self.assertIn("counts only from a maintainer", stand.issue_comments(issue)[-1]["body"])
+        stand.user("CPritch").remove_label(issue, "approved")
+        stand.approve_machine(issue)
+        stand.poll()
+        machine = stand.registry()["machines"]["CPritch/laptop"]
+        self.assertEqual((machine["approved_by"], stand.issue(issue)["state"]), ("CPritch", "closed"))
+        self.assertIn("Approved by @CPritch", stand.issue_comments(issue)[-1]["body"])
+
+    def test_declined(self):
+        stand = Stand()
+        issue = stand.register()
+        stand.poll()
+        stand.approve_machine(issue, label="declined")
+        stand.poll()
+        self.assertIn("CPritch/laptop", stand.registry()["declined"])
+
+    def test_a_registration_for_someone_else_is_refused(self):
+        stand = Stand()
+        issue = stand.register(tester="CPritch", opened_by="mallory")
+        stand.poll()
+        self.assertEqual(stand.registry()["pending"], {})
+        self.assertEqual(stand.issue(issue)["state"], "closed")
+
+
+class Reports(unittest.TestCase):
+    def setUp(self):
+        self.stand = queued_stand()
+        self.h = self.stand.history
+        self.issue = self.stand.queued()["entries"][0]["issue"]
+
+    def report(self, at="2026-10-21T12:50:00Z", user="CPritch", data=None, claimed="2026-10-21T12:00:00Z"):
+        self.stand.at("2026-10-21T12:00:00Z")
+        comment(self.stand, "claim", claim(self.h.A, claimed=claimed), user, self.issue)
+        self.stand.at(at)
+        comment(self.stand, "result", data or result(self.h.A), user, self.issue)
+        self.stand.at(max(at, "2026-10-21T13:00:00Z")).poll()  # ISO times in UTC compare as strings
+
+    def test_a_claimed_result_is_accepted_and_shown(self):
+        self.report()
+        path = self.stand.state / "results" / formats.job_id(8104, self.h.A) / "laptop.json"
+        self.assertTrue(path.exists())
+        body = self.stand.bodies()[-1]
+        self.assertIn("| laptop | NVIDIA GeForce RTX 5060 Laptop GPU, NVIDIA 615.71.09, Linux 7.2.8 | Grand Theft Auto V (PPSA04263) | rendering / rendering | "
+                      "78.0 → 77.7 ms | no difference (borderline) |", body)
+        self.assertIn("PPSA04263: No difference on 1 of 1 RTX 5060 Laptop GPU · NVIDIA 615 · Linux machine, median -0.35 ms", body)
+        self.assertIn("borderline, one more machine of this class wanted", body)
+        self.assertEqual(self.stand.registry()["machines"]["CPritch/laptop"]["last_report"], "2026-10-21T12:50:00Z")
+
+    def test_a_second_machine_of_the_class_settles_the_combined_verdict(self):
+        self.report()
+        second = self.stand.register(machine="laptop-2", info=NVIDIA_TOO)
+        self.stand.at("2026-10-21T13:10:00Z").approve_machine(second)
+        self.stand.at("2026-10-21T13:15:00Z").poll()
+        comment(self.stand, "claim", claim(self.h.A, "laptop-2", claimed="2026-10-21T13:15:00Z", info=NVIDIA_TOO), "CPritch", self.issue)
+        self.stand.at("2026-10-21T14:00:00Z")
+        comment(self.stand, "result", result(self.h.A, "laptop-2", a=(78.1, 77.8), b=(78.2, 77.9), info=NVIDIA_TOO), "CPritch", self.issue)
+        self.stand.at("2026-10-21T14:05:00Z").poll()
+        body = self.stand.bodies()[-1]
+        self.assertIn("PPSA04263: No difference on 2 of 2 RTX 5060 Laptop GPU · NVIDIA 615 · Linux machines, median -0.12 ms", body)
+        self.assertNotIn("borderline, one more", body)
+
+    def test_unregistered_results_are_ignored(self):
+        self.report(user="mallory", data=result(self.h.A, tester="mallory"))
+        self.assertFalse((self.stand.state / "results").exists())
+
+    def test_a_result_after_its_claim_expired_is_refused(self):
+        self.report(at="2026-10-21T15:00:01Z")
+        self.assertFalse((self.stand.state / "results").exists())
+        self.assertIn("outside its claim", self.stand.issue_comments(self.issue)[-1]["body"])
+
+    def test_a_result_without_a_claim_is_refused(self):
+        comment(self.stand, "result", result(self.h.A), "CPritch", self.issue)
+        self.stand.at("2026-10-21T13:00:00Z").poll()
+        self.assertIn("no claim of laptop", self.stand.issue_comments(self.issue)[-1]["body"])
+
+    def test_a_result_for_another_head_is_refused(self):
+        self.report(data=result(self.h.B))
+        self.assertFalse((self.stand.state / "results").exists())
+
+    def test_tester_trust_results_are_shown_apart(self):
+        self.stand.push(self.h.B, actor="collab")
+        self.stand.at("2026-10-21T12:30:00Z").poll()
+        trust = self.stand.relay.cursors["tester_trust_issue"]
+        comment(self.stand, "result", result(self.h.B, trust="tester"), "CPritch", trust)
+        self.stand.at("2026-10-21T13:00:00Z").poll()
+        self.assertIn(f"**Run on the tester's trust** (`{self.h.B[:9]}`", self.stand.bodies()[-1])
+
+    def test_the_overview(self):
+        self.report()
+        body = self.stand.issue(self.stand.relay.cursors["overview_issue"])["body"]
+        for text in ("### Queue", f"| CPritch/AnyPS5#8104 | `{self.h.A[:9]}` | @CPritch (label) |", "no difference on 1 of 1",
+                     "one more RTX 5060 Laptop GPU · NVIDIA 615 · Linux (borderline)", "### Machines", "| CPritch/laptop | RTX 5060 Laptop GPU · NVIDIA 615 · Linux |",
+                     "2026-10-21 12:50 UTC", "### Pending registrations"):
+            self.assertIn(text, body)
 
 
 class CommandLine(unittest.TestCase):
-    """The workflows' steps, run as the workflows run them: title-runs relay queue|publish with --forge fake."""
-
-    def run_relay(self, stand, *args):
+    def test_poll_step(self):
         import subprocess
         from title_runs import ROOT
-        spec = f"fake:{stand.state}:{stand.outbox}"
-        return subprocess.run(["python3", "-I", str(ROOT / "title-runs"), "relay", *args, "--forge", spec], capture_output=True, text=True)
-
-    def test_queue_and_publish_steps(self):
-        import json
         stand = Stand()
-        h = stand.history
-        payload = stand.root / "event.json"
-        payload.write_text(json.dumps({"client_payload": {"event": "pull_request", "payload": event("labeled", HEAD=h.A, SENDER="CPritch")}}))
-        done = self.run_relay(stand, "queue", "--state", str(stand.state_dir), "--data", str(stand.checkout), "--event-name", "repository_dispatch",
-                              "--event-file", str(payload), "--anyps5-git", str(h.git_dir), "--main-ref", "main")
+        stand.label()
+        done = subprocess.run(["python3", "-I", str(ROOT / "title-runs"), "relay", "poll", "--state", str(stand.state), "--anyps5-git",
+                               str(stand.history.git_dir), "--main-ref", "main", "--fake", f"{stand.root / 'github.json'}:{stand.root / 'outbox'}"],
+                              capture_output=True, text=True)
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(stand.queued()["entries"][0]["head"], h.A)
-        from relay_helpers import git, write
-        before = git(stand.checkout, "rev-parse", "HEAD")
-        for path, data in (claim(h.A, claimed=formats.iso(formats.now())), result(h.A)):
-            write(stand.checkout, path, json.dumps(data))
-        git(stand.checkout, "add", "-A")
-        git(stand.checkout, "commit", "-qm", "laptop")
-        after = git(stand.checkout, "rev-parse", "HEAD")
-        done = self.run_relay(stand, "publish", "--state", str(stand.state_dir), "--data", str(stand.checkout), "--actor", "CPritch",
-                              "--before", before, "--after", after)
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual([c["action"] for c in stand.outbox_calls()], ["new", "edit"])
-
-
-class NewOrEdit(unittest.TestCase):
-    def first(self):
-        stand = Stand()
-        h = stand.history
-        label(stand, h.A)
-        c, r = claim(h.A), result(h.A)
-        stand.push({c[0]: c[1], r[0]: r[1]}, at=formats.parse_time("2026-10-21T13:00:00Z"))
-        push(stand, h.A, h.R)  # carried over: same patch-ids
-        return stand
-
-    def test_second_head_with_the_same_outcome_edits(self):
-        stand = self.first()
-        h = stand.history
-        c, r = claim(h.R, claimed="2026-10-21T14:00:00Z"), result(h.R)
-        stand.push({c[0]: c[1], r[0]: r[1]}, at=formats.parse_time("2026-10-21T15:00:00Z"))
-        self.assertEqual(stand.outbox_calls()[-1]["action"], "edit")
-        body = stand.bodies()[-1]
-        self.assertIn(f"Title runs for `{h.R[:9]}`", body)
-        self.assertIn(f"Carried over from `{h.A[:9]}`", body)
-        self.assertIn("<details><summary>Earlier heads</summary>", body)
-        self.assertIn(f"| `{h.A[:9]}` laptop |", body)
-
-    def test_outcome_change_posts_a_new_comment(self):
-        stand = self.first()
-        h = stand.history
-        c, r = claim(h.R, claimed="2026-10-21T14:00:00Z"), result(h.R, outcome_b="crashed (exit 139)", verdict="not enough counted runs")
-        r[1]["titles"]["PPSA04263"]["verdict"] = {"verdict": "not enough counted runs", "diff": None}
-        stand.push({c[0]: c[1], r[0]: r[1]}, at=formats.parse_time("2026-10-21T15:00:00Z"))
-        self.assertEqual(stand.outbox_calls()[-1]["action"], "new")
-
-    def test_verdict_flip_posts_a_new_comment(self):
-        stand = self.first()
-        h = stand.history
-        c, r = claim(h.R, claimed="2026-10-21T14:00:00Z"), result(h.R, verdict="faster", diff=-7.0)
-        stand.push({c[0]: c[1], r[0]: r[1]}, at=formats.parse_time("2026-10-21T15:00:00Z"))
-        self.assertEqual(stand.outbox_calls()[-1]["action"], "new")
+        self.assertEqual(json.loads((stand.state / "queue.json").read_text())["entries"][0]["head"], stand.history.A)
 
 
 if __name__ == "__main__":

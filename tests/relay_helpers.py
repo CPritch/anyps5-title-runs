@@ -1,4 +1,4 @@
-"""A results repository checkout, a fake AnyPS5 (FakeForge), a small git history for patch-ids, and fixture events."""
+"""The relay's world for tests: a fake GitHub, a small git history for patch-ids, a results checkout, claims and results."""
 
 import json
 import os
@@ -8,8 +8,7 @@ from pathlib import Path
 
 import helpers  # noqa: F401  (puts the repository on sys.path)
 
-from title_runs import export, formats
-from title_runs.relay import forge as forges
+from title_runs import formats, gh
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "events"
 GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
@@ -70,114 +69,123 @@ class History:
         self.m1 = m1
 
 
-def event(name, **values):
-    """A fixture event with its {PLACEHOLDERS} filled, keeping the type of each value."""
-    def fill(node):
-        if isinstance(node, dict):
-            return {k: fill(v) for k, v in node.items()}
-        if isinstance(node, list):
-            return [fill(v) for v in node]
-        if isinstance(node, str) and node.startswith("{") and node.endswith("}") and node[1:-1] in values:
-            return values[node[1:-1]]
-        return node
-    return fill(json.loads((FIXTURES / f"{name}.json").read_text()))
-
-
 class Stand:
-    """A results repository's two branches as two checkouts (data: main, with claims and results; state: config, queue
-    and comments) and the fake forge, in a temporary directory."""
+    """The relay's world: a fake GitHub (AnyPS5 and the results repository) with a clock the tests set, the History as
+    AnyPS5's git objects, and a state directory standing in for the results repository's checkout."""
 
-    def __init__(self, testers=None):
+    ANYPS5, RESULTS = "CPritch/AnyPS5", "CPritch/anyps5-title-runs-results"
+
+    def __init__(self, maintainers=("CPritch",)):
         self.root = Path(tempfile.mkdtemp())
         self.history = History(self.root)
-        self.checkout, self.state_dir = self.root / "data", self.root / "state"
-        export.export(self.checkout, self.state_dir, "CPritch/AnyPS5")
-        config = json.loads((self.state_dir / "config.json").read_text())
-        config.update(maintainers=["CPritch", "notreally"], testers=testers or {"CPritch": {"machines": ["laptop"]}, "other": {"machines": ["desktop"]}})
-        (self.state_dir / "config.json").write_text(json.dumps(config, indent=2))
-        for directory in (self.checkout, self.state_dir):
-            git(directory, "init", "-q", "-b", "main")
-            git(directory, "add", "-A")
-            git(directory, "commit", "-qm", "results repository")
-        self.state = self.root / "forge.json"
-        self.state.write_text(json.dumps({
-            "repository": "CPritch/AnyPS5",
-            "pulls": {"8104": {"number": 8104, "title": "perf(agc): stage the written elements", "author": "Celegans12", "state": "open",
-                               "head": self.history.A, "commits": [self.history.A]}},
-            "associations": {"CPritch": "OWNER", "collab": "COLLABORATOR", "Celegans12": "CONTRIBUTOR", "notreally": "NONE"}}))
-        self.outbox = self.root / "outbox"
+        self.time = "2026-10-21T12:00:00Z"
+        self.github = gh.FakeGitHub.create(self.root / "github.json", self.root / "outbox")
+        self.github.clock = lambda: self.time
+        anyps5 = self.github.repo(self.ANYPS5)
+        anyps5["pulls"]["8104"] = {"number": 8104, "title": "perf(agc): stage the written elements", "author": "Celegans12", "state": "open",
+                                   "head": self.history.A, "head_ref": "perf/staging", "commits": [self.history.A], "labels": []}
+        anyps5["runs"].append({"head_sha": self.history.A, "created_at": "2026-10-21T11:00:00Z", "actor": "Celegans12", "event": "pull_request",
+                               "branch": "perf/staging"})
+        anyps5["permissions"].update({"CPritch": "admin", "collab": "write", "Celegans12": "read"})
+        self.github.repo(self.RESULTS)["permissions"].update({"CPritch": "admin"})
+        self.github.save()
+        self.state = self.root / "state"
+        self.state.mkdir()
+        (self.state / "config.json").write_text(json.dumps({"format": 1, "repository": self.ANYPS5, "results_repository": self.RESULTS,
+                                                            "maintainers": list(maintainers), "label": "title-test"}))
 
-    def forge(self):
-        return forges.FakeForge(self.state, self.outbox)
+    def at(self, stamp):
+        self.time = stamp
+        return self
 
-    def set_head(self, sha):
-        data = json.loads(self.state.read_text())
-        pull = data["pulls"]["8104"]
+    def app(self):
+        return self.github.as_(self.ANYPS5, identity="title-runs[bot]")
+
+    def workflow(self):
+        return self.github.as_(self.RESULTS, identity="github-actions[bot]")
+
+    def user(self, login, repository=None):
+        return self.github.as_(repository or self.RESULTS, login)
+
+    def poll(self, refresh=True):
+        from title_runs.relay import relay
+        self.relay = relay.Relay(self.state, self.app(), self.workflow(), self.history.git_dir, None, "main",
+                                 now=formats.parse_time(self.time), log=lambda *_: None)
+        return self.relay.run(refresh)
+
+    # -- AnyPS5 -------------------------------------------------------------------------------------------------------
+
+    def label(self, actor="CPritch", name="title-test"):
+        self.user(actor, self.ANYPS5).add_labels(8104, [name])
+
+    def unlabel(self, actor="CPritch", name="title-test"):
+        self.user(actor, self.ANYPS5).remove_label(8104, name)
+
+    def push(self, sha, actor="Celegans12", run=True):
+        self.github.reload()
+        pull = self.github.repo(self.ANYPS5)["pulls"]["8104"]
         pull["head"] = sha
-        if sha not in pull["commits"]:
-            pull["commits"].append(sha)
-        self.state.write_text(json.dumps(data))
+        pull["commits"].append(sha)
+        if run:
+            self.github.repo(self.ANYPS5)["runs"].append({"head_sha": sha, "created_at": self.time, "actor": actor, "event": "pull_request",
+                                                          "branch": "perf/staging"})
+        self.github.save()
 
-    def set_association(self, login, association):
-        data = json.loads(self.state.read_text())
-        data["associations"][login] = association
-        self.state.write_text(json.dumps(data))
+    def command(self, body, actor="CPritch"):
+        return self.user(actor, self.ANYPS5).create_comment(8104, body)
 
-    def queue_event(self, name, payload, refresh=False, at=None):
-        from title_runs.relay import queue
-        workflow = queue.QueueWorkflow(self.state_dir, self.checkout, self.forge(), self.history.git_dir, None, "main", now=at, log=lambda *_: None)
-        if refresh:
-            workflow.refresh()
-        else:
-            workflow.handle(name, payload)
-        changed = workflow.finish()
-        git(self.state_dir, "add", "-A")
-        if git(self.state_dir, "status", "--porcelain"):
-            git(self.state_dir, "commit", "-qm", f"queue: {name}")
-        return workflow, changed
+    # -- the results repository ---------------------------------------------------------------------------------------
+
+    def register(self, tester="CPritch", machine="laptop", info=None, opened_by=None):
+        data = {"format": 1, "tester": tester, "machine": machine, "class": info or NVIDIA, "titles": ["PPSA04263"]}
+        body = formats.payload_body("register", data, f"Register {machine}.")
+        return self.user(opened_by or tester).create_issue(f"Machine: {tester}/{machine}", body)
+
+    def approve_machine(self, issue, actor="CPritch", label="approved"):
+        self.user(actor).add_labels(issue, [label])
 
     def queued(self):
-        return json.loads((self.state_dir / "queue.json").read_text())
+        return json.loads((self.state / "queue.json").read_text())
 
-    def outbox_calls(self):
-        return [json.loads(p.read_text()) for p in sorted(self.outbox.glob("*.json"))] if self.outbox.exists() else []
+    def registry(self):
+        return json.loads((self.state / "registry.json").read_text())
 
-    def bodies(self):
-        return [p.read_text() for p in sorted(self.outbox.glob("*.md"))] if self.outbox.exists() else []
+    def calls(self, who=None, action=None):
+        out = [json.loads(p.read_text()) for p in sorted((self.root / "outbox").glob("*.json"))]
+        return [c for c in out if (who is None or c["as"] == who) and (action is None or c["action"] == action)]
 
-    def push(self, files, actor="CPritch", at=None):
-        """Commit files {path: data} as a tester's push and run the publish workflow on it."""
-        from title_runs.relay import publish
-        before = git(self.checkout, "rev-parse", "HEAD")
-        for path, data in files.items():
-            write(self.checkout, path, data if isinstance(data, str) else json.dumps(data, indent=1))
-        git(self.checkout, "add", "-A")
-        git(self.checkout, "commit", "-qm", f"push by {actor}")
-        after = git(self.checkout, "rev-parse", "HEAD")
-        report = publish.publish(self.state_dir, self.checkout, self.forge(), actor, before, after, at=at, log=lambda *_: None)
-        git(self.state_dir, "add", "-A")
-        if git(self.state_dir, "status", "--porcelain"):
-            git(self.state_dir, "commit", "-qm", "publish")
-        return report
+    def bodies(self, who="title-runs[bot]"):
+        tag = "-" + who.replace("[", "").replace("]", "") + "-"
+        return [p.read_text() for p in sorted((self.root / "outbox").glob("*.md")) if tag in p.name]
 
+    def issue(self, number):
+        self.github.reload()
+        return self.github.repo(self.RESULTS)["issues"][str(number)]
 
-NVIDIA = formats.machine_class("NVIDIA GeForce RTX 5060 Laptop GPU", "Linux 7.2.8")
+    def issue_comments(self, number):
+        return self.workflow().comments(issue=number)
+
+    def pull_labels(self):
+        return self.app().pull(8104)["labels"]
 
 
-def claim(head, machine="laptop", tester="CPritch", claimed="2026-10-21T12:00:00Z", hours=3):
+NVIDIA = formats.machine_class("NVIDIA GeForce RTX 5060 Laptop GPU", "Linux 7.2.8", "NVIDIA 615.71.09")
+NVIDIA_TOO = formats.machine_class("NVIDIA GeForce RTX 5060 Laptop GPU", "Linux 6.17.1", "NVIDIA 615.42.01")
+
+
+def claim(head, machine="laptop", tester="CPritch", claimed="2026-10-21T12:00:00Z", hours=3, info=None):
     job = formats.job_id(8104, head)
-    return formats.claim_path(job, machine), formats.make_claim(job, machine, tester, NVIDIA, ["PPSA04263"], formats.parse_time(claimed), hours, head=head)
+    return formats.make_claim(job, machine, tester, info or NVIDIA, ["PPSA04263"], formats.parse_time(claimed), hours, head=head)
 
 
-def result(head, machine="laptop", tester="CPritch", trust="queue", outcome_b="rendering", verdict="no difference beyond the spread", diff=-0.33):
+def result(head, machine="laptop", tester="CPritch", trust="queue", outcome_b="rendering", a=(78.0, 78.0), b=(77.6, 77.7), info=None):
     job = formats.job_id(8104, head)
-    data = {"format": 1, "job": job, "pr": 8104, "head": head, "base": "d97361bd0df0" + "0" * 28, "merge": "1" * 40, "machine": machine,
-            "tester": tester, "class": NVIDIA, "machine_line": "NVIDIA GeForce RTX 5060 Laptop GPU, NVIDIA 615.71.09, Linux 7.2.8",
+    return {"format": 1, "job": job, "pr": 8104, "head": head, "base": "d97361bd0df0" + "0" * 28, "merge": "1" * 40, "machine": machine,
+            "tester": tester, "class": info or NVIDIA, "machine_line": "NVIDIA GeForce RTX 5060 Laptop GPU, NVIDIA 615.71.09, Linux 7.2.8",
             "trust": trust, "status": "done", "sandbox": "bwrap", "started": "2026-10-21T12:05:00Z", "finished": "2026-10-21T12:55:00Z",
             "titles": {"PPSA04263": {"name": "Grand Theft Auto V", "version": "01.010.002", "scene": "Story Mode, the bank",
                                      "outcome": {"A": "rendering", "B": outcome_b},
-                                     "verdict": {"verdict": verdict, "diff": diff, "diff_pct": diff / 78 * 100, "spread": 0.39, "gpu_diff": 0.07},
-                                     "sides": {"A": {"p50": [78.2, 77.9], "p90": [87.6, 89.1], "p99": [108.9, 114.4], "gpu": [63.0, 62.6]},
-                                               "B": {"p50": [78.0 + diff, 77.6 + diff], "p90": [87.9, 88.0], "p99": [109.5, 105.9], "gpu": [63.0, 62.7]}},
+                                     "verdict": {"verdict": "no difference"},
+                                     "sides": {"A": {"p50": list(a), "p90": [87.6, 89.1], "p99": [108.9, 114.4], "gpu": [63.0, 62.6]},
+                                               "B": {"p50": list(b), "p90": [87.9, 88.0], "p99": [109.5, 105.9], "gpu": [63.0, 62.7]}},
                                      "summary_lines": {"A": ['{"commit":"d97361bd0df0"}'], "B": ['{"commit":"' + head[:12] + '"}']}}}}
-    return formats.result_path(job, machine), data

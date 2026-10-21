@@ -1,8 +1,5 @@
-"""The App's one comment per PR: collect the PR's accepted results, render, post or edit (comments.json).
-
-Only results the publish workflow accepted are shown: comments.json lists each accepted result file with the SHA-256
-of the content it accepted, so a file changed afterwards in the repository is left out until it is accepted again.
-"""
+"""The App's one comment per PR: collect the PR's accepted results (results/, which only the workflow writes), render,
+post or edit (comments.json keeps the comment's id and what each post showed)."""
 
 import hashlib
 import json
@@ -16,35 +13,40 @@ def digest(text):
     return hashlib.sha256(text.encode() if isinstance(text, str) else text).hexdigest()
 
 
-def accepted_results(checkout, comments, pr):
-    """{head: {machine: result}} for queue-trust results and for tester-trust results of pr."""
+def accepted_results(state, pr):
+    """{head: {machine: result}} for results of heads a maintainer approved, and for results run on a tester's trust."""
     queued, tester = {}, {}
-    for path, record in comments.get("accepted", {}).items():
-        file = Path(checkout) / path
-        if record.get("pr") != pr or not file.exists() or digest(file.read_bytes()) != record["sha256"]:
+    for path in sorted(Path(state).glob("results/*/*.json")):
+        result = json.loads(path.read_text())
+        if result.get("pr") != pr:
             continue
-        result = json.loads(file.read_text())
         group = queued if result["trust"] == "queue" else tester
         group.setdefault(result["head"], {})[result["machine"]] = result
     return queued, tester
 
 
-def refresh(checkout, forge, queue, comments, pr, at):
+def refresh(state, anyps5, queue, comments, pr, at, label="title-test"):
+    """Post or edit the App's comment on pr (anyps5: the App on AnyPS5). Returns (action, reason) or None when the text
+    did not change."""
     entry = next((e for e in queue["entries"] if e["pr"] == pr), None)
     stopped = next((s["by"] for s in reversed(queue.get("stopped", [])) if s["pr"] == pr), None)
-    queued, tester = accepted_results(checkout, comments, pr)
+    expired = [x for x in queue.get("expired", []) if x["pr"] == pr]
+    refused = [x for x in queue.get("refused", []) if x["pr"] == pr]
+    queued, tester = accepted_results(state, pr)
     order = (entry["earlier"] + [entry["head"]]) if entry else sorted(queued)
-    body = render.render(pr, entry, queued, tester, stopped)
+    ordered = {head: queued[head] for head in order if head in queued}
+    ordered.update({head: results for head, results in queued.items() if head not in ordered})
+    body = render.render(pr, entry, ordered, tester, stopped, expired, refused, label)
     shot = render.snapshot(queued, tester)
-    state = comments["prs"].setdefault(str(pr), {"comment_id": None, "posts": []})
-    if state["posts"] and state["posts"][-1].get("body_sha256") == digest(body):
+    record = comments["prs"].setdefault(str(pr), {"comment_id": None, "posts": []})
+    if record["posts"] and record["posts"][-1].get("body_sha256") == digest(body):
         return None
-    previous = state["posts"][-1]["heads"] if state["comment_id"] and state["posts"] else None
+    previous = record["posts"][-1]["heads"] if record["comment_id"] and record["posts"] else None
     action, reason = render.decide(previous, shot, order)
-    if action == "edit" and state["comment_id"]:
-        forge.edit_comment(state["comment_id"], body)
+    if action == "edit" and record["comment_id"]:
+        anyps5.edit_comment(record["comment_id"], body)
     else:
         action = "new"
-        state["comment_id"] = forge.create_comment(pr, body)
-    state["posts"].append({"action": action, "at": formats.iso(at), "reason": reason, "heads": shot, "body_sha256": digest(body)})
+        record["comment_id"] = anyps5.create_comment(pr, body)
+    record["posts"].append({"action": action, "at": formats.iso(at), "reason": reason, "heads": shot, "body_sha256": digest(body)})
     return action, reason

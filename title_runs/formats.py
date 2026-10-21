@@ -6,6 +6,7 @@ validated before anything is posted from them.
 """
 
 import datetime
+import json
 import re
 
 FORMAT = 1
@@ -118,7 +119,9 @@ def hw_token_matches(token, machine):
 # -- queue.json --------------------------------------------------------------------------------------------------------
 
 def empty_queue(repository):
-    return {"format": FORMAT, "repository": repository, "updated": iso(now()), "entries": [], "stopped": [], "cursor": {}}
+    """entries: the approved heads to test; stopped, expired (approvals a push expired) and refused (labels whose head
+    arrived after them): what the App's comment and the overview show."""
+    return {"format": FORMAT, "repository": repository, "updated": iso(now()), "entries": [], "stopped": [], "expired": [], "refused": []}
 
 
 APPROVALS = ("label", "command", "carried")
@@ -148,6 +151,8 @@ def check_entry(entry, where="entry"):
     if approval["via"] == "carried":
         _string(approval, "from", f"{where} approval", SHA)
         _string(approval, "reason", f"{where} approval", TEXT, 200)
+    if "issue" in entry and not isinstance(entry["issue"], int):
+        raise FormatError(f"{where}: issue is not an issue number")
     for i, push in enumerate(entry.get("unapproved", [])):
         _string(push, "sha", f"{where} unapproved[{i}]", SHA)
         _string(push, "by", f"{where} unapproved[{i}]", LOGIN)
@@ -290,19 +295,80 @@ def check_result(data, path=None):
 # -- config.json and comments.json -------------------------------------------------------------------------------------
 
 def check_config(data):
+    """The results repository's config.json (maintainers edit it): repository (AnyPS5), results_repository, maintainers,
+    label, app (id, client_id, bot), tool (repository, commit)."""
     if not isinstance(data, dict) or data.get("format") != FORMAT:
         raise FormatError(f"config.json: format is not {FORMAT}")
-    repository = _string(data, "repository", "config.json", re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+"))
+    name = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+")
+    _string(data, "repository", "config.json", name)
+    if "results_repository" in data:
+        _string(data, "results_repository", "config.json", name)
     maintainers = _need(data, "maintainers", list, "config.json")
     if not all(isinstance(m, str) and LOGIN.fullmatch(m) for m in maintainers):
         raise FormatError("config.json: maintainers is not a list of logins")
-    testers = _need(data, "testers", dict, "config.json")
-    for login, tester in testers.items():
-        if not LOGIN.fullmatch(login) or not all(isinstance(m, str) and MACHINE.fullmatch(m) for m in tester.get("machines", [])):
-            raise FormatError(f"config.json: testers.{login} is not a login with machine names")
     data.setdefault("label", "title-test")
+    data.setdefault("app", {})
     return data
 
 
 def empty_comments():
     return {"format": FORMAT, "prs": {}, "accepted": {}}
+
+
+# -- comments from testers (DESIGN.md, round 3): a marker line, a sentence for people, and one JSON block -------------
+
+MARKS = {"claim": "<!-- title-runs claim -->", "result": "<!-- title-runs result -->", "withdraw": "<!-- title-runs withdraw -->",
+         "register": "<!-- title-runs register -->"}
+PAYLOAD = re.compile(r"```json\n(.*?)\n```", re.S)
+COMMENT_LIMIT = 60000  # GitHub refuses comment bodies over 65,536 characters
+
+
+def payload_body(kind, data, text):
+    body = f"{MARKS[kind]}\n{text}\n\n```json\n{json_dumps(data)}\n```\n"
+    if len(body) > COMMENT_LIMIT:
+        raise FormatError(f"a {kind} comment of {len(body)} characters is over {COMMENT_LIMIT}")
+    return body
+
+
+def payload(body):
+    """(kind, data) of a tester's comment or issue body, or (None, None)."""
+    for kind, mark in MARKS.items():
+        if (body or "").lstrip().startswith(mark):
+            found = PAYLOAD.search(body)
+            if not found:
+                return kind, None
+            try:
+                return kind, json.loads(found.group(1))
+            except ValueError:
+                return kind, None
+    return None, None
+
+
+def json_dumps(data):
+    return json.dumps(data, indent=1, sort_keys=True)
+
+
+def machine_key(tester, machine):
+    return f"{tester}/{machine}"
+
+
+def check_registration(data):
+    """A machine's registration (the body of its issue): tester, machine, class, titles."""
+    where = "registration"
+    if not isinstance(data, dict) or data.get("format") != FORMAT:
+        raise FormatError(f"{where}: format is not {FORMAT}")
+    _string(data, "tester", where, LOGIN)
+    _string(data, "machine", where, MACHINE)
+    info = _need(data, "class", dict, where)
+    for key in ("vendor", "os", "gpu"):
+        _string(info, key, f"{where} class", TEXT, 120)
+    for key in ("driver", "os_name"):
+        _string(info, key, f"{where} class", TEXT, 120, required=False)
+    titles = data.get("titles", [])
+    if not isinstance(titles, list) or not all(isinstance(t, str) and TITLE_ID.fullmatch(t) for t in titles):
+        raise FormatError(f"{where}: titles is not a list of title IDs")
+    return data
+
+
+def empty_registry():
+    return {"format": FORMAT, "machines": {}, "pending": {}, "declined": {}}

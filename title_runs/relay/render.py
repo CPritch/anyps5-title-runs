@@ -1,20 +1,21 @@
-"""The App's comment on a PR: the approved head's results from every machine, what is still wanted, pushes after the
-approval, runs on testers' own trust, and earlier heads. Rendered from queue.json and results/ only.
+"""The App's comment on a PR: what the queue holds for it, the approved head's results from every machine, the combined
+verdict per class of machines, what is still wanted, runs on testers' own trust, earlier heads, and what happened to the
+approval (a push expired it, or a label came after the head). Rendered from the state files only.
 
-Every value shown comes from a result that formats.check_result has accepted (no markup characters in text, numbers
-as numbers, summary lines as single lines), and the summary lines go into code blocks.
+Every value shown comes from a result that formats.check_result accepted (no markup characters in text, numbers as
+numbers, summary lines as single lines); verdicts are recomputed from the p50 lists (verdict.py); summary lines go
+into code blocks.
 """
 
 import datetime
-import statistics
 
-from .. import formats
+from .. import formats, verdict
 
 MARK = "<!-- anyps5-title-runs pr={pr} -->"
 
 
 def short(sha):
-    return sha[:9]
+    return (sha or "")[:9]
 
 
 def utc(stamp):
@@ -24,43 +25,60 @@ def utc(stamp):
         return "?"
 
 
-def mean(values):
-    return statistics.mean(values) if values else None
-
-
 def outcome_class(text):
     return (text or "").split(" ")[0]
 
 
 def title_name(title_id, entry):
-    name = entry.get("name") or title_id
-    return f"{name} ({title_id})"
+    return f"{entry.get('name') or title_id} ({title_id})"
+
+
+def machine_verdict(entry):
+    return verdict.machine(entry.get("sides") or {})
 
 
 def p50_change(entry):
+    v = machine_verdict(entry)
     sides = entry.get("sides") or {}
-    a, b = mean(sides.get("A", {}).get("p50", [])), mean(sides.get("B", {}).get("p50", []))
-    return f"{a:.1f} → {b:.1f} ms" if a is not None and b is not None else ""
+    a, b = sides.get("A", {}).get("p50", []), sides.get("B", {}).get("p50", [])
+    if v.get("diff") is None or not a or not b:
+        return ""
+    return f"{sum(a) / len(a):.1f} → {sum(b) / len(b):.1f} ms"
 
 
 def verdict_word(entry):
-    v = entry.get("verdict") or {}
-    word = v.get("verdict", "")
-    return {"faster": "**faster**", "slower": "**slower**"}.get(word, word)
+    v = machine_verdict(entry)
+    word = {"faster": "**faster**", "slower": "**slower**"}.get(v["verdict"], v["verdict"])
+    return word + (" (borderline)" if v.get("borderline") else "")
 
 
-def rows(results):
-    """One table row per machine and title of the given results ({machine: result})."""
+HEADER = ["| machine | GPU, driver, OS | title | outcome main / PR | p50 main → PR | verdict |", "|---|---|---|---|---|---|"]
+
+
+def rows(results, prefix=""):
     out = []
-    for machine, result in sorted(results.items()):
+    for name, result in sorted(results.items()):
         if result["status"] != "done":
-            out.append(f"| {machine} | {result['machine_line']} | | {result['status']}{': ' + result['error'] if result.get('error') else ''} | | |")
+            out.append(f"| {prefix}{name} | {result['machine_line']} | | {result['status']}{': ' + result['error'] if result.get('error') else ''} | | |")
             continue
         for title_id, entry in sorted(result["titles"].items()):
             outcome = entry["outcome"]
-            out.append(f"| {machine} | {result['machine_line']} | {title_name(title_id, entry)} | {outcome['A']} / {outcome['B']} | "
+            out.append(f"| {prefix}{name} | {result['machine_line']} | {title_name(title_id, entry)} | {outcome['A']} / {outcome['B']} | "
                        f"{p50_change(entry)} | {verdict_word(entry)} |")
     return out
+
+
+def combined_lines(results):
+    lines = []
+    titles = sorted({t for r in results.values() if r["status"] == "done" for t in r["titles"]})
+    for title_id in titles:
+        for combined in verdict.by_class(results, title_id).values():
+            text = combined["text"]
+            for word in ("Faster", "Slower", "Mixed"):
+                if text.startswith(word):
+                    text = f"**{word}**" + text[len(word):]
+            lines.append(f"- {title_id}: {text}.")
+    return lines
 
 
 def still_wanted(entry, results):
@@ -75,22 +93,23 @@ def still_wanted(entry, results):
 
 def details(results):
     lines = []
-    for machine, result in sorted(results.items()):
+    for name, result in sorted(results.items()):
         if result["status"] != "done":
             continue
         for title_id, entry in sorted(result["titles"].items()):
             sides = entry.get("sides") or {}
-            lines += [f"**{machine}, {title_id}**: main `{short(result.get('base', ''))}` (A) against `{short(result['head'])}` merged onto it "
+            lines += [f"**{name}, {title_id}**: main `{short(result.get('base', ''))}` (A) against `{short(result['head'])}` merged onto it "
                       f"(B), {entry.get('scene', '')}; sandbox {'bubblewrap' if result['sandbox'] == 'bwrap' else '**off**'}.", "",
                       "| | main | this PR |", "|---|---|---|"]
             for key, label in (("p50", "p50 frame"), ("p90", "p90"), ("p99", "p99"), ("gpu", "GPU per present")):
                 a = ", ".join(f"{v:.1f}" for v in sides.get("A", {}).get(key, [])) or "-"
                 b = ", ".join(f"{v:.1f}" for v in sides.get("B", {}).get(key, [])) or "-"
                 lines.append(f"| {label} | {a} ms | {b} ms |")
-            v = entry.get("verdict") or {}
+            v = machine_verdict(entry)
             if v.get("diff") is not None:
-                lines += ["", f"p50 {v['diff']:+.2f} ms ({v['diff_pct']:+.1f} %), spread {v['spread']:.2f} ms, GPU {v['gpu_diff']:+.2f} ms per "
-                              f"present. A difference counts when it is larger than both sides' spreads."]
+                gpu = f", GPU {v['gpu_diff']:+.2f} ms per present" if v.get("gpu_diff") is not None else ""
+                lines += ["", f"p50 {v['diff']:+.2f} ms ({v['diff_pct']:+.1f} %); spread {v['spread']:.2f} ms; 1 % of main {v['size']:.2f} ms{gpu}. "
+                              f"A difference counts when it is larger than both."]
             summary = entry.get("summary_lines") or {}
             if summary:
                 lines += ["", "```"] + [line for side in ("A", "B") for line in summary.get(side, [])] + ["```"]
@@ -98,10 +117,22 @@ def details(results):
     return lines
 
 
-def render(pr, entry, by_head, tester_results=None, stopped=None):
-    """by_head: {head sha: {machine: result}} for the queue's approved heads (the current one and earlier ones);
-    tester_results: {head: {machine: result}} run on a tester's own trust. entry: the queue entry, or None when the PR
-    is off the queue (stopped: who took it off)."""
+def notices(pr, expired, refused, label):
+    lines = []
+    for item in expired:
+        lines.append(f"**Approval of `{short(item['head'])}` expired**: `{short(item['by'])}` was pushed after it"
+                     f"{' by @' + item['pusher'] if item.get('pusher') else ''} ({utc(item['at'])}) and is not checked. "
+                     f"The App removed `{label}`; add it again to queue `{short(item['by'])}`.")
+    for item in refused:
+        lines.append(f"`{label}` added by @{item['by']} ({utc(item['labelled'])}) was not queued: the head `{short(item['head'])}` was pushed "
+                     f"after it ({utc(item['pushed'])}). Add the label again, or comment `/title-test sha=<the commit you checked>`.")
+    return lines
+
+
+def render(pr, entry, by_head, tester_results=None, stopped=None, expired=(), refused=(), label="title-test"):
+    """by_head: {head: {machine: result}} for heads a maintainer approved; tester_results: {head: {machine: result}} run
+    on a tester's own trust; entry: the queue entry, or None when the PR is off the queue (stopped: who took it off;
+    expired, refused: what happened to its approvals, newest last)."""
     lines = [MARK.format(pr=pr)]
     current = entry["head"] if entry else None
     if entry:
@@ -110,32 +141,37 @@ def render(pr, entry, by_head, tester_results=None, stopped=None):
         lines += [f"### Title runs for `{short(current)}` (queued by @{entry['queued_by']}, {entry['priority']})", "",
                   f"Queued `{short(current)}` for title runs: approved by @{approval['by']} ({how}, {utc(approval['at'])})."
                   + (f" Carried over from `{short(approval['from'])}`: {approval['reason']}." if approval["via"] == "carried" else ""),
-                  "Each machine fetches this commit, merges it onto main locally and runs it against that main, both built on the "
-                  "machine in a sandbox. Numbers are from one machine and one scene each; they are not a review.", ""]
+                  "Each machine fetches this commit, merges it onto main locally and runs it against that main, both built on the machine in a "
+                  "sandbox. Numbers are from one machine and one scene each; they are not a review.", ""]
         for push in entry.get("unapproved", []):
-            lines.append(f"`{short(push['sha'])}` pushed after approval by @{push['by']}: **not checked**. Testers keep to "
-                         f"`{short(current)}` until a maintainer approves a newer head.")
+            lines.append(f"`{short(push['sha'])}` is the PR's head but not the approved commit: not checked. Testers run `{short(current)}`.")
         if entry.get("unapproved"):
             lines.append("")
     else:
-        lines += [f"### Title runs", "", f"Off the queue{f' (stopped by @{stopped})' if stopped else ''}.", ""]
-    results = by_head.get(current, {}) if current else {}
-    header = ["| machine | GPU, driver, OS | title | outcome main / PR | p50 main → PR | verdict |", "|---|---|---|---|---|---|"]
+        lines += ["### Title runs", "", "Not queued" + (f" (stopped by @{stopped})." if stopped else "."), ""]
+    recent = notices(pr, expired[-1:], refused[-1:] if not entry else [], label)
+    if recent:
+        lines += recent + [""]
+    shown = current or (expired[-1]["head"] if expired else None)
+    results = by_head.get(shown, {}) if shown else {}
+    combined = combined_lines(results)
+    if combined:
+        lines += combined + [""]
     table = rows(results)
     wanted = still_wanted(entry, results) if entry else None
     if table or wanted:
-        lines += header + table + ([wanted] if wanted else []) + [""]
+        lines += HEADER + table + ([wanted] if wanted else []) + [""]
     detail = details(results)
     if detail:
         lines += ["<details><summary>Per machine: the timed runs and summary lines</summary>", ""] + detail + ["</details>", ""]
     for head, trusted in sorted((tester_results or {}).items()):
         if trusted:
-            lines += [f"**Run on the tester's trust** (`{short(head)}`, not approved by a maintainer):", ""] + header + rows(trusted) + [""]
-    earlier = [h for h in (entry.get("earlier", []) if entry else by_head) if h != current and by_head.get(h)]
+            lines += [f"**Run on the tester's trust** (`{short(head)}`, not approved by a maintainer):", ""] + HEADER + rows(trusted) + [""]
+    earlier = [h for h in by_head if h != shown and by_head.get(h)]
     if earlier:
-        lines += ["<details><summary>Earlier heads</summary>", ""] + header
-        for head in reversed(earlier):
-            lines += [row.replace("| ", f"| `{short(head)}` ", 1) for row in rows(by_head[head])]
+        lines += ["<details><summary>Earlier heads</summary>", ""] + HEADER
+        for head in earlier:
+            lines += rows(by_head[head], prefix=f"`{short(head)}` ")
         lines += ["", "</details>", ""]
     lines.append("<sub>anyps5-title-runs: this comment is edited as machines report; a new comment is posted when an outcome "
                  "or a verdict changes. What leaves a tester's machine: timings, summary lines and outcome classes; never game "
@@ -148,22 +184,21 @@ def snapshot(by_head, tester_results=None):
     out = {}
     for group in (by_head, tester_results or {}):
         for head, results in group.items():
-            for machine, result in results.items():
+            for name, result in results.items():
                 if result["status"] != "done":
                     continue
                 for title_id, entry in result["titles"].items():
-                    out.setdefault(head, {}).setdefault(machine, {})[title_id] = [
-                        outcome_class(entry["outcome"]["A"]), outcome_class(entry["outcome"]["B"]), (entry.get("verdict") or {}).get("verdict")]
+                    out.setdefault(head, {}).setdefault(name, {})[title_id] = [
+                        outcome_class(entry["outcome"]["A"]), outcome_class(entry["outcome"]["B"]), machine_verdict(entry)["verdict"]]
     return out
 
 
 def latest(shot, order):
-    """{(machine, title): state} of the latest head (in order) each machine and title reported."""
     out = {}
     for head in order:
-        for machine, titles in shot.get(head, {}).items():
+        for name, titles in shot.get(head, {}).items():
             for title_id, state in titles.items():
-                out[(machine, title_id)] = state
+                out[(name, title_id)] = state
     return out
 
 
@@ -177,10 +212,10 @@ def decide(previous, current, order):
         old = before.get(key)
         if old is None:
             continue
-        machine, title_id = key
+        name, title_id = key
         for i, side in ((0, "main"), (1, "this PR")):
             if old[i] != state[i]:
-                return "new", f"{machine}, {title_id}: {side} went from {old[i]} to {state[i]}"
+                return "new", f"{name}, {title_id}: {side} went from {old[i]} to {state[i]}"
         if state[2] in ("faster", "slower") and old[2] != state[2]:
-            return "new", f"{machine}, {title_id}: the verdict went from {old[2]} to {state[2]}"
+            return "new", f"{name}, {title_id}: the verdict went from {old[2]} to {state[2]}"
     return "edit", "no outcome or verdict changed"
