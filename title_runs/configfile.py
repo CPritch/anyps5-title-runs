@@ -64,7 +64,7 @@ def config_data(config):
         "github": {"repo": config.repo, "client": config.github_client, "token_env": config.github_token_env, "budget_reserve": config.budget_reserve},
         "tester": {"name": config.tester, "machine": config.machine},
         "machine": dict(config.machine_info),
-        "results": {"url": config.results_url, "token_env": config.results_token_env, "state_branch": config.state_branch},
+        "results": {"url": config.results_url, "github": config.results_github},
         "schedule": dict(config.schedule),
         "client": {"screenshots": config.screenshots},
         "follow": {"prs": list(config.follow_prs), "auto_unblocks": config.auto_unblocks, "labels": list(config.follow_labels),

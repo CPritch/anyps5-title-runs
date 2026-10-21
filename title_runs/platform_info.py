@@ -138,3 +138,56 @@ def running(names):
         except OSError:
             continue
     return sorted(found & names)
+
+
+IDLE_SETTERS = ("swayidle", "hypridle", "gnome-session-b", "gnome-shell", "ksmserver", "plasmashell", "xfce4-power-man", "xss-lock")
+
+
+def idle_detection():
+    """(True, how) when this machine can tell that it is idle, else (False, why): the walkthrough's "When it may run"
+    page. Linux: logind's IdleHint, which only a desktop or an idle daemon sets."""
+    if WINDOWS:
+        return True, "Windows reports the last keyboard or mouse input"
+    out = _run("loginctl", "show-session", *([os.environ["XDG_SESSION_ID"]] if os.environ.get("XDG_SESSION_ID") else []),
+               "-p", "IdleHint", "-p", "IdleSinceHint")
+    values = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+    if values.get("IdleHint") == "yes" or values.get("IdleSinceHint", "0") not in ("", "0"):
+        return True, "logind reports idle time (IdleHint has been set on this session)"
+    setters = running(IDLE_SETTERS)
+    desktop = os.environ.get("XDG_CURRENT_DESKTOP") or os.environ.get("DESKTOP_SESSION") or "this desktop"
+    if setters:
+        return True, f"{', '.join(setters)} tells logind when the computer is idle"
+    return False, (f"{desktop} does not tell logind when the computer is idle: no idle daemon runs and logind's IdleHint "
+                   f"has never been set on this session")
+
+
+def fullscreen():
+    """True while a fullscreen program has the screen (Hyprland, X11, Windows); False when not, or when it cannot tell."""
+    if WINDOWS:
+        state = ctypes.c_int(0)
+        try:
+            if ctypes.windll.shell32.SHQueryUserNotificationState(ctypes.byref(state)) == 0:
+                return state.value in (2, 3, 4)  # busy, a Direct3D fullscreen program, presentation mode
+        except (AttributeError, OSError):
+            return False
+        return False
+    if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE") and shutil.which("hyprctl"):
+        try:
+            window = json.loads(_run("hyprctl", "activewindow", "-j") or "{}")
+        except json.JSONDecodeError:
+            return False
+        return bool(window.get("fullscreen"))
+    if os.environ.get("DISPLAY") and shutil.which("xprop"):
+        active = re.search(r"0x[0-9a-f]+", _run("xprop", "-root", "_NET_ACTIVE_WINDOW"))
+        return bool(active) and "_NET_WM_STATE_FULLSCREEN" in _run("xprop", "-id", active.group(0), "_NET_WM_STATE")
+    return False
+
+
+def fullscreen_detection():
+    if WINDOWS:
+        return True, "Windows reports fullscreen programs"
+    if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE") and shutil.which("hyprctl"):
+        return True, "Hyprland reports whether the active window is fullscreen"
+    if os.environ.get("DISPLAY") and shutil.which("xprop"):
+        return True, "the X11 window manager reports fullscreen windows"
+    return False, "this desktop does not report fullscreen windows to other programs"

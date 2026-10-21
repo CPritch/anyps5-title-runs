@@ -1,9 +1,11 @@
-"""The tester's client: read the queue from the results repository, choose a job by the score, claim it, build and run
-it (job.run), push the result. The tray and the window read its status file and write its requests (pause, stop).
+"""The tester's client: read the queue from the public results repository, choose a job by the score, claim it with a
+comment on the job's issue, build and run it (job.run), report the result with another comment. The tray and the
+window read its status file and write its requests (pause, stop).
 
-Approval is per commit: the client builds the queue entry's SHA merged onto main, asks the queue again just before
-building (job.run's recheck) and between runs, and stops when the entry has moved on. A head the queue has not
-approved runs only after the trust dialog, and its result is marked "tester".
+Nothing runs until the tester has been through the walkthrough, signed in through the App and a maintainer has
+approved the machine (ready()). Approval is per commit: the client builds the queue entry's SHA merged onto main,
+asks the queue again just before building and between runs, and stops when the entry has moved on. A head the queue
+has not approved runs only after the trust dialog, and its result is marked "tester".
 """
 
 import datetime
@@ -13,9 +15,10 @@ import re
 import time
 from pathlib import Path
 
-from . import formats, job, platform_info, report, schedule, store, trust
+from . import auth, formats, gh, job, platform_info, report, schedule, store, trust
 
-VERSION = "anyps5-title-runs 0.2"
+VERSION = "anyps5-title-runs 0.3"
+STALE_HOURS = 1  # the relay workflow last ran longer ago than this: warn
 RENEW_MINUTES = 45
 UNSAFE = re.compile(r"[<>`|\r\n\x00-\x08\x0b-\x1f]")
 STAGE = re.compile(r"^(?:[AB]: |#\d+: |not built)")  # job.run's stage lines (merge, submodules, builds): shown as progress
@@ -76,6 +79,10 @@ def to_result(results, head, machine, tester, info, trust_mark):
     return formats.check_result(data, formats.result_path(data["job"], machine))
 
 
+class NotReady(RuntimeError):
+    pass
+
+
 class Client:
     def __init__(self, config, log=print, info=None):
         self.config = config
@@ -89,21 +96,88 @@ class Client:
             log(text)
 
         self.log = both
-        token_file = self.dir / "results-token"
-        if config.results_token_env and not os.environ.get(config.results_token_env) and token_file.exists():
-            # The token the setup window saved (mode 0600); git gets it through the credential helper (store.py).
-            os.environ[config.results_token_env] = token_file.read_text().strip()
-        self.repo = store.ResultsRepo(config.results_url, self.dir / "results", config.results_token_env, config.state_branch,
-                                      author=(config.tester or "tester", f"{config.tester or 'tester'}@users.noreply.github.com"))
+        self.repo = store.ResultsRepo(config.results_url, self.dir / "results")
+        self.endpoint = config.results_github
         self.trust = trust.TrustStore(self.dir / "trust.json")
         self.status = Status(self.dir / "status.json")
         self.info = info or config.machine_info or platform_info.machine_info()
         self.machine_class = formats.machine_class(self.info["gpu"], self.info["os"], self.info.get("driver", ""))
+        self._flow = None
+
+    # -- sign-in, registration, the walkthrough -----------------------------------------------------------------------
+
+    def flow(self):
+        if self._flow is None:
+            client_id = (self.repo.read("config.json", {}).get("app") or {}).get("client_id", "")
+            self._flow = auth.DeviceFlow(client_id, self.dir / "github-token.json", self.endpoint)
+        return self._flow
+
+    def tester(self):
+        return self.flow().login()
+
+    def github(self):
+        """The results repository as the signed-in tester."""
+        return auth.repo_as_tester(self.endpoint, self.repo.config()["results_repository"], self.flow())
+
+    def onboarded(self):
+        return (self.dir / "onboarding.json").exists()
+
+    def finish_onboarding(self, answers):
+        self.dir.mkdir(parents=True, exist_ok=True)
+        (self.dir / "onboarding.json").write_text(json.dumps({"completed": formats.iso(formats.now()), **answers}, indent=1))
+
+    def registration(self):
+        """("approved" | "pending" | "declined" | "not registered", the registry's record or None)."""
+        login = self.tester()
+        if not login:
+            return "not registered", None
+        key = formats.machine_key(login, self.config.machine)
+        registry = self.repo.registry()
+        for state in ("machines", "pending", "declined"):
+            if key in registry.get(state, {}):
+                return {"machines": "approved", "pending": "pending", "declined": "declined"}[state], registry[state][key]
+        mine = (self.dir / "registration.json")
+        if mine.exists():
+            return "pending", json.loads(mine.read_text())
+        return "not registered", None
+
+    def register(self):
+        """Open the machine's registration issue in the results repository (as the tester)."""
+        login = self.tester()
+        data = {"format": formats.FORMAT, "tester": login, "machine": self.config.machine, "class": self.machine_class,
+                "titles": sorted(self.config.titles)}
+        body = formats.payload_body("register", data, f"Registration of {login}/{self.config.machine}: {self.info['gpu']}, "
+                                    f"{self.info.get('driver', '')}, {self.info['os']}. A maintainer approves it by adding the label `approved`.")
+        number = self.github().create_issue(f"Machine: {login}/{self.config.machine}", body)
+        (self.dir / "registration.json").write_text(json.dumps({"issue": number, "opened": formats.iso(formats.now())}))
+        self.log(f"registration issue #{number} opened for {login}/{self.config.machine}")
+        return number
+
+    def ready(self):
+        """(True, "") once the tester has been through the walkthrough, is signed in and the machine is approved."""
+        if not self.onboarded():
+            return False, "the first-run walkthrough is not done"
+        if not self.tester():
+            return False, "not signed in"
+        state, _ = self.registration()
+        if state != "approved":
+            return False, {"pending": "waiting for a maintainer to approve this machine", "declined": "a maintainer declined this machine",
+                           "not registered": "this machine is not registered"}[state]
+        return True, ""
+
+    def stale(self):
+        """Hours since the relay workflow last ran, when that is more than STALE_HOURS (GitHub can drop scheduled runs,
+        and disables a schedule after 60 days without activity)."""
+        last = self.repo.cursors().get("last_run")
+        if not last:
+            return None
+        hours = (formats.now() - formats.parse_time(last)).total_seconds() / 3600
+        return hours if hours > STALE_HOURS else None
 
     # -- the queue -----------------------------------------------------------------------------------------------------
 
     def machine(self):
-        return schedule.Machine(self.config.machine, self.config.tester, self.machine_class, set(self.config.titles))
+        return schedule.Machine(self.config.machine, self.tester() or self.config.tester, self.machine_class, set(self.config.titles))
 
     def ranked(self, sync=True):
         if sync:
@@ -115,7 +189,10 @@ class Client:
         return best if best is not None and best.score > 0 else None
 
     def allowed_now(self, at=None):
-        """(True, "") when the schedule lets work start now, else (False, why)."""
+        """(True, "") when work may start now: ready, and the schedule allows it."""
+        ready, why = self.ready()
+        if not ready:
+            return False, why
         at = at or datetime.datetime.now().astimezone()
         rules = self.config.schedule
         paused = self.status.read().get("paused_until")
@@ -126,19 +203,37 @@ class Client:
             return False, f"outside the hours {first:02d}-{last:02d}"
         if rules.get("mains_only", True) and platform_info.on_mains() is False:
             return False, "on battery"
-        games = platform_info.running(rules.get("pause_for", []))
-        if games:
-            return False, f"{', '.join(games)} is running"
-        if rules.get("idle_only", True):
+        busy = platform_info.running(rules.get("pause_for", [])) + (["a fullscreen program"] if rules.get("pause_fullscreen", True) and platform_info.fullscreen() else [])
+        if busy:
+            return False, f"{', '.join(busy)} is running"
+        if rules.get("idle_only", True) and platform_info.idle_detection()[0]:
             idle = platform_info.idle_seconds()
             if idle is not None and idle < 60 * rules.get("idle_minutes", 10):
                 return False, f"in use (idle {idle / 60:.0f} of {rules.get('idle_minutes', 10)} min)"
         return True, ""
 
-    # -- a job ---------------------------------------------------------------------------------------------------------
+    # -- claims and results, as comments -----------------------------------------------------------------------------
+
+    def live_claims(self, issue):
+        """{machine: claim with its comment} on a job issue, read fresh from GitHub: withdrawals and expired claims out."""
+        claims = {}
+        for note in self.github().comments(issue=issue):
+            kind, data = formats.payload(note["body"])
+            if kind == "claim" and isinstance(data, dict) and data.get("tester") == note["user"]:
+                claims[data.get("machine")] = {**data, "comment": note["id"], "at": note["created_at"]}
+            elif kind == "withdraw" and isinstance(data, dict):
+                if claims.get(data.get("machine"), {}).get("tester") == note["user"]:
+                    del claims[data["machine"]]
+        return {m: c for m, c in claims.items() if not formats.claim_expired(c)}
+
+    def withdraw(self, issue, claim, reason):
+        self.github().create_comment(issue, formats.payload_body("withdraw", {"machine": claim["machine"], "job": claim["job"]},
+                                                                  f"{claim['machine']} withdraws its claim: {reason}."))
+        self.log(f"withdrew the claim on #{issue}: {reason}")
 
     def recheck(self, pr, head, trust_mark):
-        """None while head may still run, else why not: the queue moved on, or the tester's trust was revoked."""
+        """None while head may still run, else why not: the queue moved on, the job issue closed, or the tester's trust
+        was revoked."""
         if self.status.read().get("stop_requested"):
             return "stopped by the tester"
         self.repo.sync()
@@ -152,38 +247,42 @@ class Client:
         author = self.status.read().get("job", {}).get("author", "")
         return None if self.trust.allows(pr, author, head) else f"the trust for {head[:9]} was revoked"
 
-    def renew(self, claim):
-        if formats.parse_time(claim["expires"]) - formats.now() < datetime.timedelta(minutes=RENEW_MINUTES):
-            fresh = formats.make_claim(claim["job"], claim["machine"], claim["tester"], claim["class"], claim["titles"], head=claim["head"], client=VERSION)
-            claim.update(fresh)
-            self.repo.write({formats.claim_path(claim["job"], claim["machine"]): claim}, f"renew claim {claim['job']} ({claim['machine']})")
-
     def run(self, pr, head, trust_mark="queue", title="", author=""):
-        """Claim, build, run, push the result. Returns the result file's data, or None when the job stopped before
-        anything was built (its claim is then withdrawn)."""
-        if trust_mark == "queue":
-            stop = self.recheck(pr, head, "queue")
-            if stop:
-                raise RuntimeError(f"not claimed: {stop}")
-        elif not self.trust.allows(pr, author, head):
-            raise RuntimeError(f"not claimed: no trust for {author}'s #{pr} at {head[:9]}")
+        """Claim, build, run, report. Returns the result, or None when the job stopped before anything was built."""
+        ready, why = self.ready()
+        if not ready:
+            raise NotReady(why)
         self.repo.sync()
+        login = self.tester()
         job_id = formats.job_id(pr, head)
-        claim = formats.make_claim(job_id, self.config.machine, self.config.tester, self.machine_class, set(self.config.titles),
-                                   head=head, client=VERSION)
-        self.repo.write({formats.claim_path(job_id, self.config.machine): claim}, f"claim {job_id} ({self.config.machine})")
+        if trust_mark == "queue":
+            entry = next((e for e in self.repo.queue()["entries"] if e["pr"] == pr), None)
+            if entry is None or entry["head"] != head:
+                raise RuntimeError(f"not claimed: #{pr} at {head[:9]} is not what the queue approves")
+            issue = entry.get("issue")
+            if not issue:
+                raise RuntimeError(f"not claimed: the workflow has not opened #{pr}'s job issue yet")
+            key = formats.class_key(self.machine_class)
+            rivals = {m: c for m, c in self.live_claims(issue).items() if m != self.config.machine and formats.class_key(c["class"]) == key}
+            if rivals:
+                raise RuntimeError(f"not claimed: {', '.join(rivals)} ({key}) claimed it first")
+            claim = formats.make_claim(job_id, self.config.machine, login, self.machine_class, set(self.config.titles), head=head, client=VERSION)
+            mine = self.github().create_comment(issue, formats.payload_body("claim", claim, f"{login}/{self.config.machine} claims {job_id}."))
+            first = sorted((c for m, c in self.live_claims(issue).items() if formats.class_key(c["class"]) == key), key=lambda c: (c["at"], c["comment"]))
+            if first and first[0]["comment"] != mine:
+                self.withdraw(issue, claim, f"{first[0]['machine']} claimed it first")
+                raise RuntimeError(f"not claimed: {first[0]['machine']} claimed it first")
+        else:
+            if not self.trust.allows(pr, author, head):
+                raise RuntimeError(f"not claimed: no trust for {author}'s #{pr} at {head[:9]}")
+            issue = self.repo.cursors().get("tester_trust_issue")
+            claim = None
         self.status.update(state="running", line=f"Running: #{pr} · {', '.join(self.config.titles)} · starting", progress="starting", stop_requested=False,
-                           job={"pr": pr, "head": head, "title": title, "author": author, "trust": trust_mark, "claimed": claim["claimed"]})
-        self.log(f"claimed {job_id}")
+                           job={"pr": pr, "head": head, "title": title, "author": author, "trust": trust_mark, "issue": issue})
+        self.log(f"claimed {job_id} on #{issue}" if claim else f"running {job_id} on the tester's trust")
 
         def progress(text):
             self.status.update(line=f"Running: #{pr} · {', '.join(self.config.titles)} · {text}", progress=text)
-
-        def should_stop():
-            reason = self.recheck(pr, head, trust_mark)
-            if not reason:
-                self.renew(claim)
-            return reason
 
         def note(text):
             self.log(text)
@@ -191,23 +290,24 @@ class Client:
                 progress(text)
 
         results = job.run(self.config, self.config.state_dir, pr, head, note,
-                          recheck=lambda: self.recheck(pr, head, trust_mark), progress=progress, should_stop=should_stop)
+                          recheck=lambda: self.recheck(pr, head, trust_mark), progress=progress, should_stop=lambda: self.recheck(pr, head, trust_mark))
         if results["status"] == "superseded" and not results.get("titles"):
-            self.repo.sync()
-            self.repo.write({formats.claim_path(job_id, self.config.machine): None}, f"withdraw claim {job_id}: {results['detail'][:80]}")
+            if claim:
+                self.withdraw(issue, claim, results["detail"])
             self.status.update(state="idle", line=f"Stopped #{pr}: {results['detail']}", job={})
-            self.log(f"withdrew the claim: {results['detail']}")
             return None
-        data = to_result(results, head, self.config.machine, self.config.tester, self.machine_class, trust_mark)
-        self.repo.sync()
-        self.repo.write({formats.result_path(job_id, self.config.machine): data}, f"result {job_id} ({self.config.machine}): {data['status']}")
-        recent = [{"pr": pr, "head": head, "status": data["status"], "at": formats.iso(formats.now())}] + self.status.read().get("recent", [])[:9]
-        self.status.update(state="error" if data["status"] == "failed" else "idle", line=f"Posted #{pr}: {data['status']}", job={}, recent=recent)
-        self.log(f"pushed {formats.result_path(job_id, self.config.machine)} ({data['status']})")
+        data = to_result(results, head, self.config.machine, login, self.machine_class, trust_mark)
+        if issue is None:
+            raise RuntimeError("the results repository has no issue for runs on testers' trust yet")
+        comment_id = self.github().create_comment(issue, formats.payload_body("result", data, f"{login}/{self.config.machine}: {data['status']}."))
+        recent = [{"pr": pr, "head": head, "status": data["status"], "at": formats.iso(formats.now()), "issue": issue, "comment": comment_id}] \
+            + self.status.read().get("recent", [])[:9]
+        self.status.update(state="error" if data["status"] == "failed" else "idle", line=f"Reported #{pr}: {data['status']}", job={}, recent=recent)
+        self.log(f"reported {job_id} on #{issue} ({data['status']})")
         return data
 
     def run_next(self):
-        """Run the best-scoring job, if the schedule allows one now. Returns what happened, for the log."""
+        """Run the best-scoring job, if the client is ready and the schedule allows it now."""
         allowed, why = self.allowed_now()
         if not allowed:
             self.status.update(state="idle", line=f"Waiting: {why}")
