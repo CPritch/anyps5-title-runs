@@ -366,6 +366,30 @@ class WalkthroughAndOverview(unittest.TestCase):
             self.assertEqual(self.engine.ignored_mine(), "")  # more than a day old
 
 
+@unittest.skipIf(QApplication is None, "PySide6 is not installed")
+class RowListFill(unittest.TestCase):
+    """Enough rows to need a scrollbar: the scrollbar resizes the list while rows are added, before their labels are
+    set (this flickered between one row and many in the first overnight run)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_many_rows_fill_in_a_small_list(self):
+        from title_runs.ui.home import RowList
+        view = RowList()
+        view.resize(400, 120)
+        view.show()
+        rows = [f"<b>#{n}</b> a change with a long enough title to wrap onto a second line here" for n in range(18)]
+        view.set_rows(rows)
+        self.app.processEvents()
+        self.assertEqual(view.count(), 18)
+        self.assertTrue(all(view.itemWidget(view.item(i)) is not None for i in range(18)))
+        first = view.item(0)
+        view.set_rows(rows)  # the same rows again: nothing rebuilt
+        self.assertIs(view.item(0), first)
+
+
 class MainScreenModel(unittest.TestCase):
     """ui/home.py's words (model.header, step, waiting_for): what a tester reads on the main screen."""
 

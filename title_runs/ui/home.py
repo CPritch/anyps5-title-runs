@@ -27,8 +27,12 @@ class RowList(QListWidget):
         self.setSelectionMode(QListWidget.NoSelection)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollMode(QListWidget.ScrollPerPixel)
+        self.rows = None
 
     def set_rows(self, rows):
+        if rows == self.rows:  # unchanged: no rebuild, so no flicker on the two-second refresh
+            return
+        self.rows = list(rows)
         self.clear()
         for html in rows:
             item = QListWidgetItem()
@@ -43,6 +47,8 @@ class RowList(QListWidget):
         for i in range(self.count()):
             item = self.item(i)
             label = self.itemWidget(item)
+            if label is None:  # a row being added: a scrollbar appearing resizes the list before its label is set
+                continue
             item.setSizeHint(QSize(width, label.heightForWidth(width) + 4))
 
     def resizeEvent(self, event):  # noqa: N802
