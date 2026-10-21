@@ -1,6 +1,7 @@
 """The window's model (no Qt), and the trust dialog's rules (offscreen Qt): Run anyway needs a scope, the box ticked and
 the author's name typed exactly; Enter does not accept."""
 
+import datetime
 import json
 import os
 import unittest
@@ -8,6 +9,7 @@ from pathlib import Path
 
 import helpers  # noqa: F401
 
+from title_runs import formats
 from title_runs.ui import model
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -325,6 +327,21 @@ class WalkthroughAndOverview(unittest.TestCase):
         self.assertEqual(query.call_count, 1)
         self.assertEqual(query.call_args[0][1]["owner"], "CPritch")
         self.assertIn("Pull requests of CPritch/AnyPS5, listed", self.engine.listing_note())
+
+    def test_a_maintainers_app_starts_a_stale_relay(self):
+        from unittest import mock
+        stale = {"last_run": "2026-10-21T20:00:00Z"}
+        with mock.patch.object(self.engine.client, "maintainer", return_value=True), \
+                mock.patch.object(self.engine.client.repo, "cursors", return_value=stale), \
+                mock.patch("title_runs.gh.GitHubRepo.dispatch", side_effect=RuntimeError("403")), \
+                mock.patch("subprocess.run", return_value=mock.Mock(returncode=0, stderr="")) as run:
+            now = formats.parse_time("2026-10-21T20:10:00Z")
+            self.assertEqual(self.engine.keep_relay_going(now), "gh")
+            self.assertEqual(self.engine.keep_relay_going(now + datetime.timedelta(minutes=2)), None)  # not again within 5 minutes
+            self.assertEqual(self.engine.keep_relay_going(now + datetime.timedelta(minutes=6)), "gh")
+        self.assertEqual(run.call_args[0][0][:3], ["gh", "workflow", "run"])
+        with mock.patch.object(self.engine.client, "maintainer", return_value=False):
+            self.assertIsNone(self.engine.keep_relay_going(now + datetime.timedelta(hours=1)))  # testers never do
 
     def test_a_note_on_a_registration_taken_since_is_not_shown(self):
         from unittest import mock
