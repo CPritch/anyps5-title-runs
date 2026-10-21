@@ -6,6 +6,7 @@ developer should hear about happened: an outcome changed (a side that rendered n
 frame-time verdict changed (no difference -> faster or slower, or faster <-> slower). Otherwise the comment is edited.
 """
 
+import datetime
 import json
 import statistics
 
@@ -21,9 +22,20 @@ def ms(values):
     return ", ".join(f"{v:.1f}" for v in values) + " ms" if values else "-"
 
 
+def utc(stamp):
+    """An ISO time with an offset, as YYYY-MM-DD HH:MM UTC."""
+    try:
+        moment = datetime.datetime.fromisoformat(stamp)
+    except ValueError:
+        return stamp
+    if moment.tzinfo is None:
+        return moment.strftime("%Y-%m-%d %H:%M")
+    return moment.astimezone(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
 def head_summary(results):
     """What the history table keeps of a head: outcome and verdict per title."""
-    out = {"head": results["head"], "date": results.get("started", "")[:16].replace("T", " "), "status": results.get("status"),
+    out = {"head": results["head"], "date": utc(results.get("started", "")), "status": results.get("status"),
            "base": results.get("base", ""), "titles": {}}
     for title_id, entry in results.get("titles", {}).items():
         v = entry.get("verdict") or {}
@@ -71,7 +83,7 @@ def verdict_text(v):
     if v.get("diff") is None:
         return v.get("verdict", "no verdict")
     word = {"faster": "**faster**", "slower": "**slower**"}.get(v["verdict"], v["verdict"])
-    return f"{word}: {v['diff']:+.2f} ms p50 ({v['diff_pct']:+.1f} %), spread {v['spread']:.2f} ms, GPU {v['gpu_diff']:+.2f} ms per present"
+    return f"{word} (p50 {v['diff']:+.2f} ms, {v['diff_pct']:+.1f} %; spread {v['spread']:.2f} ms; GPU {v['gpu_diff']:+.2f} ms per present)"
 
 
 def render(config, number, results, history, notes=()):
@@ -82,7 +94,7 @@ def render(config, number, results, history, notes=()):
              f"Automatic runs of this PR's heads on titles the tester owns. Each head is GitHub's merge of the PR "
              f"(`refs/pull/{number}/merge`), run against main at that merge's base, both built on this machine. "
              f"Numbers are from one machine and one scene; they are not a review.", ""]
-    lines += [f"**Head `{head[:9]}`** (merged as `{merge[:9]}` on main `{base[:9]}`), {results.get('started', '')[:16].replace('T', ' ')}",
+    lines += [f"**Head `{head[:9]}`** (merged as `{merge[:9]}` on main `{base[:9]}`), {utc(results.get('started', ''))}",
               f"Machine: {machine_line(results)}. Sandbox: {sandbox}.", ""]
     if results.get("simulated"):
         lines += [f"**Simulated head** (a fixture for the dry-run demonstration, not a run): {results['simulated']}", ""]
@@ -107,13 +119,14 @@ def render(config, number, results, history, notes=()):
         graphics = config.titles[title_id].graphics_mode if title_id in config.titles else ""
         window = ab.get("window", {})
         lines += [f"**{title_id}**{', Graphics Mode ' + graphics if graphics else ''}: two counted runs per side in the order "
-                  f"main, PR, main, PR; window `{window.get('spec', '?')}` (60 s, 30 s after the scene settles), caches warm, "
+                  f"main, PR, main, PR. Each side's caches were warmed until its last 60 s built no pipelines. Window "
+                  f"`APS5_TRACE_FRAMES={window.get('spec', '?')}` (about 60 s, from 30 s after the scene settles), "
                   f"APS5_TRACE_EVENTS=4194304, no other trace or profile switch, the log on a pseudo-terminal.", ""]
         a, b = sides.get("A", {}), sides.get("B", {})
         lines += ["| | main | this PR |", "|---|---|---|"]
         for key, label in (("p50", "p50 frame"), ("p90", "p90"), ("p99", "p99"), ("gpu", "GPU per present")):
             lines.append(f"| {label} | {ms(a.get(key, []))} | {ms(b.get(key, []))} |")
-        lines += ["", f"Verdict (a difference counts when it is larger than both sides' spreads): {verdict_text(v)}.", ""]
+        lines += ["", f"Verdict: {verdict_text(v)}. A difference counts when it is larger than both sides' spreads.", ""]
         not_counted = [r for r in ab.get("runs", []) if not r.get("counts")]
         if not_counted:
             lines += ["Runs that did not count: " + "; ".join(f"{r['run']}: {r.get('capture', '?').split('; ', 1)[-1]}" for r in not_counted), ""]

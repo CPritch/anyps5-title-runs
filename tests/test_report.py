@@ -53,7 +53,7 @@ class Render(unittest.TestCase):
         self.assertTrue(body.startswith("<!-- anyps5-title-runs machine=box -->"))
         for text in ("`refs/pull/10/merge`", "Head `hhhhhhhhh`", "main `bbbbbbbbb`", "NVIDIA GeForce RTX 5060 Laptop GPU, driver 615.71.09, Linux 7.2.8",
                      "bubblewrap", "| Grand Theft Auto V (PPSA04263 01.010.002) | Story Mode, loaded | rendering | rendering |",
-                     "Graphics Mode Performance", "| p50 frame | 73.4, 73.4 ms | 65.2, 65.0 ms |", "**faster**: -8.30 ms p50",
+                     "Graphics Mode Performance", "| p50 frame | 73.4, 73.4 ms | 65.2, 65.0 ms |", "**faster** (p50 -8.30 ms",
                      "<details><summary>Summary lines", "Screenshot:", "A note.", "never game files"):
             self.assertIn(text, body)
         self.assertNotIn("Earlier heads", body)
