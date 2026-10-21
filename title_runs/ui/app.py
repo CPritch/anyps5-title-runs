@@ -111,6 +111,14 @@ class Engine(QObject):
                     f"Run workflow (its README has the steps).")
         return (f"<b>The test list hasn't updated for {hours:.0f} hours</b>, so new tests may show up late. {words.Team()} can restart it.")
 
+    def overnight_notice(self):
+        """Tonight's list paused because its main doesn't start the game: what the tester should know."""
+        paused = self.overnight.read().get("paused") if self.overnight.enabled() else None
+        if not paused or not self.status().get("paused_until"):
+            return ""
+        return (f"<b>Tonight's list is paused</b>: AnyPS5's main ({paused['main'][:9]}) crashes the game before it starts, so every change "
+                f"on it would fail. The game said: {paused['reason'][:200]}")
+
     def ignored_mine(self):
         """The workflow answers nothing it does not use; the tester's own ignored comments are in its public cursors."""
         login = self.client.tester()

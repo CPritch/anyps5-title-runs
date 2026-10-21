@@ -152,7 +152,7 @@ class HomePage(QWidget):
         state = self.engine.home()
         self.headline.setText(state["headline"])
         self.detail.setText(state["detail"])
-        notes = [n for n in (self.engine.stale_text(), self.engine.ignored_mine()) if n]
+        notes = [n for n in (self.engine.overnight_notice(), self.engine.stale_text(), self.engine.ignored_mine()) if n]
         self.notice.setText("<br>".join(notes))
         self.notice.setVisible(bool(notes))
         running = state["kind"] == "running"

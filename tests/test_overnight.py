@@ -95,6 +95,34 @@ class Run(unittest.TestCase):
         self.assertIn("#8104 `aaaaaaaaa` perf(agc): stage (Celegans12): No difference", summary)
         self.assertTrue(self.client.status.read()["recent"][0]["local"])
 
+    def crashed(self, side):
+        runs = self.config.state_dir / "runs" / "PPSA04263"
+        (runs / f"{side}-warm").mkdir(parents=True)
+        (runs / f"{side}-warm" / "game.log").write_text("[libc] unhandled exception 'St11logic_error'\n"
+                                                          "  what():  sceVoiceSetThreadsParams: worker priority and affinity are not implemented\n")
+        results = fake_results(8104, A)
+        title = results["titles"]["PPSA04263"]
+        title.update(ab={"warm": {side: {"run": f"{side}-warm", "reached": False}}, "runs": [], "error": f"side {side}: the warm-up did not reach the scene"},
+                     runs_dir=str(runs))
+        title["verdict"] = {"verdict": "not enough counted runs"}
+        return results
+
+    def test_a_main_that_crashes_the_game_pauses_the_night(self):
+        with mock.patch("title_runs.job.run", return_value=self.crashed("A")):
+            self.assertIsNone(self.night.run(self.night.queued()[0], self.client))
+        data = self.night.read()
+        self.assertEqual(data["entries"][0]["status"], "queued")  # not this change's fault
+        self.assertEqual(data["paused"]["reason"], "sceVoiceSetThreadsParams: worker priority and affinity are not implemented")
+        self.assertEqual(self.client.status.read()["paused_until"], "indefinitely")
+        self.assertIn("**Paused**", (self.config.state_dir / "overnight" / "2026-10-21.md").read_text())
+
+    def test_a_change_that_crashes_the_game_is_failed_with_the_crash(self):
+        with mock.patch("title_runs.job.run", return_value=self.crashed("B")):
+            self.night.run(self.night.queued()[0], self.client)
+        entry = self.night.read()["entries"][0]
+        self.assertEqual(entry["status"], "failed")
+        self.assertEqual(entry["verdict"], "the change doesn't start the game: sceVoiceSetThreadsParams: worker priority and affinity are not implemented")
+
     def test_stop_puts_the_head_back_on_the_list(self):
         def stopped(*args, **kwargs):
             self.client.status.update(stop_requested=True)

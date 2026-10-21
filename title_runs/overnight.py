@@ -140,9 +140,22 @@ class Overnight:
             client.status.update(state="idle", line=f"Stopped #{pr}", job={}, progress="")
             self.write(data)
             return None
+        side, reason = failure(results)
+        if side == "A":
+            # Tonight's main itself doesn't start the game: not this PR's fault, and every other PR would fail the same way.
+            record.update(status="queued")
+            data["paused"] = {"at": formats.iso(formats.now()), "main": main, "reason": reason}
+            self.write(data)
+            self.log(f"overnight: paused: main {main[:9]} doesn't start the game: {reason}")
+            client.status.update(state="idle", line=f"Paused: tonight's main doesn't start the game ({reason[:120]})", job={}, progress="",
+                                 paused_until="indefinitely")
+            self.write_summary()
+            return None
         result = report_result(results, head, client)
-        record.update(status="done" if result["status"] == "done" else "failed", at=formats.iso(formats.now()), main=main,
-                      verdict=summary_words(result, verdict.DEFAULT), job=f"{pr}-{head[:12]}")
+        counted = side is None and result["status"] == "done" and all((entry.get("sides") or {}) for entry in result["titles"].values())
+        record.update(status="done" if counted else "failed", at=formats.iso(formats.now()), main=main,
+                      verdict=summary_words(result, verdict.DEFAULT) if side is None else f"the change doesn't start the game: {reason}",
+                      job=f"{pr}-{head[:12]}")
         self.write(data)
         draft = self.write_draft(entry, result, main)
         record["draft"] = str(draft)
@@ -179,6 +192,9 @@ class Overnight:
         for e in data["entries"]:
             if e["status"] in ("done", "failed"):
                 lines.append(f"- #{e['pr']} `{e['head'][:9]}` {e['title']} ({e['author']}): {e.get('verdict', e['status'])}. Draft: {e.get('draft', '-')}")
+        if data.get("paused"):
+            lines += ["", f"**Paused** at {data['paused']['at']}: main `{data['paused']['main'][:9]}` doesn't start the game: "
+                          f"{data['paused']['reason']}"]
         waiting = [e for e in data["entries"] if e["status"] == "queued"]
         skipped = [e for e in data["entries"] if e["status"] == "skipped"]
         if waiting:
@@ -188,6 +204,30 @@ class Overnight:
         path = self.out / f"{night}.md"
         path.write_text("\n".join(lines) + "\n")
         return path
+
+
+def failure(results):
+    """("A" | "B", the crash's own words) when a side's game didn't reach the scene, else (None, ""). The words are
+    the game log's last "what():" or unhandled-exception line, when there is one."""
+    for entry in results.get("titles", {}).values():
+        ab = entry.get("ab") or {}
+        error = ab.get("error") or ""
+        if not error.startswith("side "):
+            continue
+        side = error.split()[1].rstrip(":")
+        run = ((ab.get("warm") or {}).get(side) or {}).get("run")
+        reason = error
+        if run and entry.get("runs_dir"):
+            log = Path(entry["runs_dir"]) / run / "game.log"
+            try:
+                lines = [line.strip() for line in log.read_text(errors="replace").splitlines()
+                         if "what():" in line or "unhandled exception" in line or "Assertion" in line]
+            except OSError:
+                lines = []
+            if lines:
+                reason = lines[-1].replace("what():", "").strip()
+        return side, reason
+    return None, ""
 
 
 def report_result(results, head, client):
