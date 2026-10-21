@@ -27,7 +27,7 @@ class Workflow(unittest.TestCase):
         on = self.data[True] if True in self.data else self.data["on"]
         self.assertEqual(set(on), {"schedule", "workflow_dispatch"})
         cron = on["schedule"][0]["cron"]
-        self.assertTrue(cron.startswith("2-57/5 "), cron)  # every 5 minutes, off the start of the hour
+        self.assertEqual(cron, "2/5 * * * *")  # every 5 minutes from minute 2, in the start/step form GitHub documents
 
     def test_one_secret(self):
         self.assertEqual(set(re.findall(r"secrets\.([A-Z_]+)", self.text)), {"APP_PRIVATE_KEY"})

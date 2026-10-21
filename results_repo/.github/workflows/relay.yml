@@ -5,7 +5,7 @@
 name: relay
 on:
   schedule:
-    - cron: "2-57/5 * * * *"  # every 5 minutes, off the hour (GitHub delays runs most at the start of an hour)
+    - cron: "2/5 * * * *"  # every 5 minutes from minute 2 (2, 7 … 57), off the hour (GitHub delays runs most at the start of an hour); the form GitHub documents
   workflow_dispatch:
 concurrency:
   group: relay
