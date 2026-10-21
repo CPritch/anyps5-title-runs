@@ -56,7 +56,7 @@ class DeviceFlow:
         """The stored sign-in, if it was made through this App: a results repository that names another App (one moved to
         a maintainer's account) needs a new sign-in."""
         data = self.stored()
-        if data and data.get("client_id", self.client_id) != self.client_id:
+        if data and data.get("client_id") != self.client_id:  # a sign-in kept before tokens named their App counts as another's
             return None
         return data
 

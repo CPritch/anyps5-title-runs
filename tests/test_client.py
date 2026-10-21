@@ -136,6 +136,14 @@ class Switching(Setup):
         self.assertEqual((self.config.results_url, self.client.results_repository()), before)
         self.assertEqual(self.client.ready(), (True, ""))
 
+    def test_a_sign_in_that_names_no_app_is_not_used(self):
+        self.onboard()
+        flow = self.client.flow()
+        data = flow.stored()
+        del data["client_id"]  # as round 3 stored them
+        flow.store(data)
+        self.assertIsNone(self.client.tester())
+
     def test_owner_name_is_the_github_url(self):
         from title_runs import config as configs
         for text in ("CPritch/anyps5-title-runs-results", "https://github.com/CPritch/anyps5-title-runs-results",
