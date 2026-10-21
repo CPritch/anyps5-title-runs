@@ -1,17 +1,26 @@
-"""Source trees for a job: GitHub's merge of the PR (refs/pull/N/merge) and main at that merge's base.
+"""Source trees for a job: main, and the approved commit merged onto that main locally.
+
+Approval names a commit (DESIGN.md), so a job fetches exactly that SHA and current main and merges them here; it never
+builds refs/pull/N/merge or the branch's head. The merge is made with a fixed identity and the approved commit's own
+date, so the same main and head give the same merge commit on every machine.
 
 Both sides are worktrees of the tester's clone (source.repo_dir), kept at fixed paths under the state directory so
 their build directories stay valid and rebuild incrementally. Submodules are filled from the clone's own submodule
 repositories at the commit each side pins (git archive), so a worktree never needs the network for them unless a pin
-is missing locally, in which case that submodule repository fetches it.
+is missing locally, in which case that submodule repository fetches it. All of this runs before the build, outside
+the build sandbox, which has no network.
 """
 
 import io
 import json
+import os
 import shutil
 import subprocess
 import tarfile
 from pathlib import Path
+
+MERGE_IDENTITY = {"GIT_AUTHOR_NAME": "anyps5-title-runs", "GIT_AUTHOR_EMAIL": "title-runs@localhost",
+                  "GIT_COMMITTER_NAME": "anyps5-title-runs", "GIT_COMMITTER_EMAIL": "title-runs@localhost"}
 
 
 class SourceError(RuntimeError):
@@ -25,23 +34,34 @@ def git(directory, *args, check=True, binary=False):
     return result.stdout if binary else result.stdout.strip()
 
 
-def fetch_pr(repo_dir, remote, number):
-    """Fetch the PR's head and GitHub's merge ref. Returns (head, merge, base) or raises when GitHub has no merge ref
-    (the PR does not merge cleanly into its base branch)."""
-    head_ref, merge_ref = f"refs/title-runs/pr-{number}/head", f"refs/title-runs/pr-{number}/merge"
-    git(repo_dir, "fetch", "--no-tags", "-q", remote, f"+refs/pull/{number}/head:{head_ref}")
-    merged = subprocess.run(["git", "-C", str(repo_dir), "fetch", "--no-tags", "-q", remote, f"+refs/pull/{number}/merge:{merge_ref}"], capture_output=True, text=True)
-    head = git(repo_dir, "rev-parse", head_ref)
+def fetch_approved(repo_dir, remote, head, main_branch="main"):
+    """Fetch the approved commit by its SHA (GitHub serves any commit reachable from a ref, refs/pull/* included) and
+    main's current tip. Returns main's SHA."""
+    git(repo_dir, "fetch", "--no-tags", "-q", remote, f"+refs/heads/{main_branch}:refs/title-runs/main")
+    if subprocess.run(["git", "-C", str(repo_dir), "cat-file", "-e", f"{head}^{{commit}}"], capture_output=True).returncode != 0:
+        git(repo_dir, "fetch", "--no-tags", "-q", remote, head)
+    if git(repo_dir, "rev-parse", f"{head}^{{commit}}") != head:
+        raise SourceError(f"{head} did not resolve to itself")
+    git(repo_dir, "update-ref", f"refs/title-runs/approved/{head}", head)
+    return git(repo_dir, "rev-parse", "refs/title-runs/main")
+
+
+def merge_onto(tree, main, head):
+    """Merge head onto main in the worktree (already checked out at main). Returns the merge commit; raises SourceError
+    when they conflict."""
+    date = git(tree, "show", "-s", "--format=%cI", head)
+    env = {**os.environ, **MERGE_IDENTITY, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
+    merged = subprocess.run(["git", "-C", str(tree), "merge", "--no-ff", "--no-edit", "-q", "-m", f"Merge {head[:12]} onto main {main[:12]} (title runs)", head],
+                            capture_output=True, text=True, env=env)
     if merged.returncode != 0:
-        raise SourceError(f"#{number} has no merge ref (it does not merge cleanly into its base): {merged.stderr.strip()[:300]}")
-    merge = git(repo_dir, "rev-parse", merge_ref)
-    parents = git(repo_dir, "rev-list", "--parents", "-n", "1", merge).split()[1:]
-    if len(parents) != 2:
-        raise SourceError(f"#{number}: {merge} is not a merge commit")
-    base, merged_head = parents
-    if merged_head != head:
-        raise SourceError(f"#{number}: GitHub's merge ref {merge[:9]} merges {merged_head[:9]}, not the head {head[:9]} (it is being recomputed; try again)")
-    return head, merge, base
+        conflicts = git(tree, "diff", "--name-only", "--diff-filter=U", check=False).split()
+        subprocess.run(["git", "-C", str(tree), "merge", "--abort"], capture_output=True)
+        raise SourceError(f"{head[:9]} does not merge onto main {main[:9]}: " + (f"conflicts in {', '.join(conflicts[:5])}" if conflicts else merged.stderr.strip()[:200]))
+    merge = git(tree, "rev-parse", "HEAD")
+    parents = git(tree, "rev-list", "--parents", "-n", "1", merge).split()[1:]
+    if parents != [main, head]:
+        raise SourceError(f"the merge {merge[:9]} has parents {parents}, not main {main[:9]} and {head[:9]}")
+    return merge
 
 
 def worktree(repo_dir, path, commit):

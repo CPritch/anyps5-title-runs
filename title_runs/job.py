@@ -1,4 +1,5 @@
-"""One job: a followed PR's head, built as GitHub's merge ref and as main at the merge's base, run on the tester's titles."""
+"""One job: an approved commit of a PR, merged onto current main locally and built beside that main, both in the build
+sandbox, then run on the tester's titles in the title sandbox."""
 
 import contextlib
 import datetime
@@ -67,8 +68,12 @@ def boot_and_classify(config, title, build_dir, work, out, log):
             "outcome": title_run.worst(runs)}
 
 
-def run(config, state_dir, number, head, log):
-    """Build and run; returns the job's results (also written to jobs/<number>-<head>/results.json)."""
+def run(config, state_dir, number, head, log, recheck=None, progress=None, should_stop=None):
+    """Build and run head (the approved SHA); returns the job's results (also written to jobs/<number>-<head>/results.json).
+
+    recheck() -> a reason or None, called after the trees are ready and just before anything is built: the client asks
+    the queue again whether this SHA is still the approved one. progress(text) and should_stop() go to the A/B protocol:
+    a job whose head is superseded ends after the run it is in."""
     state_dir = Path(state_dir)
     job_dir = state_dir / "jobs" / f"{number}-{head[:12]}"
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -81,21 +86,29 @@ def run(config, state_dir, number, head, log):
             stream.write(f"{datetime.datetime.now():%H:%M:%S} {text}\n")
 
     try:
-        fetched_head, merge, base = sources.fetch_pr(config.repo_dir, config.remote, number)
-        if fetched_head != head:
-            results.update(status="superseded", detail=f"the PR's head is now {fetched_head[:9]}")
-            return finish(job_dir, results)
-        results.update(merge=merge, base=base)
-        note(f"#{number} head {head[:9]}, merge {merge[:9]}, base {base[:9]}")
+        base = sources.fetch_approved(config.repo_dir, config.remote, head)
         trees = {"A": state_dir / "trees" / "main", "B": state_dir / "trees" / "pr"}
+        sources.worktree(config.repo_dir, trees["A"], base)
+        sources.worktree(config.repo_dir, trees["B"], base)
+        merge = sources.merge_onto(trees["B"], base, head)
+        results.update(merge=merge, base=base)
+        note(f"#{number}: {head[:9]} merged onto main {base[:9]} as {merge[:9]}")
         commits = {"A": base, "B": merge}
+        for key in ("A", "B"):
+            pins = sources.submodules(config.repo_dir, trees[key], commits[key])
+            note(f"{key}: {commits[key][:9]}, {len(pins)} submodules filled")
+        # The last check before anything is built: the tree merges exactly the approved SHA, and the queue still names it.
+        built = sources.git(trees["B"], "rev-parse", "HEAD^2")
+        stop = f"the tree to build merges {built[:9]}, not {head[:9]}" if built != head else (recheck() if recheck else None)
+        if stop:
+            results.update(status="superseded", detail=stop)
+            note(f"not built: {stop}")
+            return finish(job_dir, results)
         builds = {}
         for key in ("A", "B"):
-            sources.worktree(config.repo_dir, trees[key], commits[key])
-            pins = sources.submodules(config.repo_dir, trees[key], commits[key])
             build_dir = state_dir / "builds" / ("main" if key == "A" else "pr")
-            note(f"{key}: building {commits[key][:9]} ({len(pins)} submodules)")
-            builds[key] = {"dir": build_dir, **build.build(trees[key], build_dir, config.cmake_args, job_dir / f"build-{key}.log", commits[key])}
+            note(f"{key}: building {commits[key][:9]} in the {config.sandbox} build sandbox")
+            builds[key] = {"dir": build_dir, **build.build(trees[key], build_dir, config.cmake_args, job_dir / f"build-{key}.log", commits[key], config.sandbox)}
             note(f"{key}: built in {builds[key]['seconds']} s, {builds[key]['prx']} prx, shader cache version {builds[key]['shader_cache_version']}")
         results["builds"] = {key: {k: str(v) for k, v in value.items()} for key, value in builds.items()}
         for title_id, title in config.titles.items():
@@ -112,9 +125,12 @@ def run(config, state_dir, number, head, log):
                     entry.setdefault("version", found["version"])
                     sides.append(protocol.Side(key, label, commits[key], executable, work, builds[key]["dir"], trees["A"] / "tools",
                                                state_dir / "caches" / title_id / label, run_env_rules(trees[key])))
-                base_line = f"main {base[:9]}; PR #{number} head {head[:9]} merged as {merge[:9]}"
+                base_line = f"main {base[:9]}; PR #{number} approved {head[:9]} merged onto it locally as {merge[:9]}"
                 measure = protocol.Protocol(config, title, route, state_dir / "runs" / title_id, sides, note, base_line)
+                measure.progress, measure.should_stop = progress, should_stop
                 ab = measure.ab(f"pr{number}-{head[:7]}")
+                if ab.get("stopped"):
+                    results.update(status="superseded", detail=ab["stopped"])
                 entry.update(ab=ab, verdict=protocol.verdict(ab.get("runs", [])), runs_dir=str(state_dir / "runs" / title_id))
                 entry["outcome"] = outcome_of(ab)
             else:
@@ -126,7 +142,7 @@ def run(config, state_dir, number, head, log):
                     entry.setdefault("version", boot["version"])
                 entry["scene"] = f"boot, {entry['boot']['A']['seconds']} s (no route)"
                 entry["outcome"] = {key: entry["boot"][key]["outcome"] for key in ("A", "B")}
-        results["status"] = "done"
+        results.setdefault("status", "done")
     except Exception as error:
         results["status"] = "failed"
         results["error"] = f"{type(error).__name__}: {error}"

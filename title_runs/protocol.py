@@ -235,14 +235,19 @@ class Protocol:
         self.log(run, out.strip())
         return result
 
+    progress = None  # progress(text): what the job is doing ("main warm-up", "PR run 2/4"), for the client's tray
+    should_stop = None  # should_stop() -> a reason, checked between runs: the job ends after the run it is in
+
     def ab(self, name):
         """Warm-ups as needed, one window, A B A B with one repeat per run that does not count."""
         warm = {}
+        say = self.progress or (lambda text: None)
         for side in self.sides:
             by = self.warmed(side)
             if by:
                 warm[side.key] = {"run": by, "warm": "already"}
             else:
+                say(f"{'main' if side.key == 'A' else 'PR'} warm-up")
                 result = self.warm_up(side)
                 warm[side.key] = {**result, "warm": "warm-up"}
                 if not result["reached"]:
@@ -250,7 +255,12 @@ class Protocol:
         window = self.window()
         runs = []
         for number, side in enumerate([self.sides[0], self.sides[1], self.sides[0], self.sides[1]]):
+            stop = self.should_stop() if self.should_stop else None
+            if stop:
+                return {"warm": warm, "window": {"spec": window[0], "dump_limit": window[1], "from": window[2]}, "runs": runs,
+                        "pairs": self.pairs(runs), "stopped": stop}
             label = f"{name}-{side.key}{number // 2 + 1}"
+            say(f"{'main' if side.key == 'A' else 'PR'} run {number // 2 + 1}, {number + 1}/4")
             result = self.timed(side, label, window, warm[side.key]["run"])
             if not result["counts"]:
                 retry = self.timed(side, label + "r", window, warm[side.key]["run"])
