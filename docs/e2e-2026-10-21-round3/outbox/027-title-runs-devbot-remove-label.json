@@ -1,0 +1,7 @@
+{
+  "as": "title-runs-dev[bot]",
+  "action": "remove-label",
+  "repository": "CPritch/AnyPS5",
+  "method": "DELETE",
+  "path": "/repos/CPritch/AnyPS5/issues/8104/labels/title-test"
+}

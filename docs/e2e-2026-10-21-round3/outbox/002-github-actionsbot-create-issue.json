@@ -1,0 +1,12 @@
+{
+  "as": "github-actions[bot]",
+  "action": "create-issue",
+  "repository": "CPritch/anyps5-title-runs-results",
+  "method": "POST",
+  "path": "/repos/CPritch/anyps5-title-runs-results/issues",
+  "number": 2,
+  "title": "Runs on testers' own trust",
+  "labels": [
+    "tester-trust"
+  ]
+}

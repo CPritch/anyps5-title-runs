@@ -1,0 +1,10 @@
+{
+  "as": "github-actions[bot]",
+  "action": "add-labels",
+  "repository": "CPritch/anyps5-title-runs-results",
+  "method": "POST",
+  "path": "/repos/CPritch/anyps5-title-runs-results/issues/5/labels",
+  "labels": [
+    "registration"
+  ]
+}

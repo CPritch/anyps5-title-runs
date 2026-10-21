@@ -1,0 +1,12 @@
+{
+  "as": "github-actions[bot]",
+  "action": "create-issue",
+  "repository": "CPritch/anyps5-title-runs-results",
+  "method": "POST",
+  "path": "/repos/CPritch/anyps5-title-runs-results/issues",
+  "number": 7,
+  "title": "Job 8104-8118a04e4ff4: CPritch/AnyPS5#8104 perf(agc): stage the written elements of address-based compu",
+  "labels": [
+    "job"
+  ]
+}

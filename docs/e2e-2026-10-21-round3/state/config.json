@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "repository": "CPritch/AnyPS5",
+  "results_repository": "CPritch/anyps5-title-runs-results",
+  "maintainers": [
+    "CPritch"
+  ],
+  "label": "title-test",
+  "app": {
+    "id": 0,
+    "client_id": "Iv1.standin",
+    "bot": "title-runs-dev[bot]"
+  },
+  "tool": {
+    "repository": "CPritch/anyps5-title-runs",
+    "commit": "dba0246d4eb6b3ec67921e7916e9a2b4947652f3"
+  }
+}

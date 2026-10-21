@@ -1,0 +1,42 @@
+{
+ "entries": [
+  {
+   "approval": {
+    "at": "2026-10-21T15:49:04Z",
+    "by": "CPritch",
+    "pinned": false,
+    "via": "label"
+   },
+   "author": "Celegans12",
+   "earlier": [],
+   "head": "8118a04e4ff4cd817ad25fab2d69eaafea50ae6f",
+   "hw": [],
+   "issue": 7,
+   "job": "8104-8118a04e4ff4",
+   "machines": 2,
+   "pr": 8104,
+   "priority": "normal",
+   "queued_at": "2026-10-21T15:49:04Z",
+   "queued_by": "CPritch",
+   "title": "perf(agc): stage the written elements of address-based compute builds in device memory",
+   "titles": [],
+   "unapproved": []
+  }
+ ],
+ "expired": [
+  {
+   "approved_by": "CPritch",
+   "at": "2026-10-21T15:47:17Z",
+   "by": "8118a04e4ff4cd817ad25fab2d69eaafea50ae6f",
+   "head": "69ac2e155ad018ed1fb9028d2028d15999a8571e",
+   "job": "8104-69ac2e155ad0",
+   "pr": 8104,
+   "pusher": "Celegans12"
+  }
+ ],
+ "format": 1,
+ "refused": [],
+ "repository": "CPritch/AnyPS5",
+ "stopped": [],
+ "updated": "2026-10-21T15:49:04Z"
+}

@@ -1,0 +1,8 @@
+{
+  "as": "github-actions[bot]",
+  "action": "edit-issue",
+  "repository": "CPritch/anyps5-title-runs-results",
+  "method": "PATCH",
+  "path": "/repos/CPritch/anyps5-title-runs-results/issues/4",
+  "state": "closed"
+}

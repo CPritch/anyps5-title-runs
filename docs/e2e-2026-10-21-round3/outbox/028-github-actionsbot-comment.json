@@ -1,0 +1,8 @@
+{
+  "as": "github-actions[bot]",
+  "action": "comment",
+  "repository": "CPritch/anyps5-title-runs-results",
+  "method": "POST",
+  "path": "/repos/CPritch/anyps5-title-runs-results/issues/4/comments",
+  "comment_id": 1025
+}

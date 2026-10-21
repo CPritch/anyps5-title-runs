@@ -1,0 +1,86 @@
+{
+ "accepted_at": "2026-10-21T15:46:10Z",
+ "base": "d97361bd0df0a54b11570602391aa003bff31047",
+ "class": {
+  "driver": "NVIDIA 615.71.09",
+  "gpu": "NVIDIA GeForce RTX 5060 Laptop GPU",
+  "os": "linux",
+  "os_name": "Linux 7.2.8-zen1-2-zen",
+  "vendor": "nvidia"
+ },
+ "comment": 1017,
+ "finished": "2026-10-21T15:44:36Z",
+ "format": 1,
+ "head": "69ac2e155ad018ed1fb9028d2028d15999a8571e",
+ "job": "8104-69ac2e155ad0",
+ "machine": "synthetic",
+ "machine_line": "?",
+ "merge": "f0a2a25b459f18a992ddcc53607e4e968cd6e4ba",
+ "pr": 8104,
+ "sandbox": "bwrap",
+ "started": "2026-10-21T15:31:24Z",
+ "status": "done",
+ "tester": "standin-tester-3",
+ "titles": {
+  "PPSA04263": {
+   "name": "Grand Theft Auto V",
+   "not_counted": [],
+   "outcome": {
+    "A": "rendering",
+    "B": "rendering"
+   },
+   "scene": "SYNTHETIC: the laptop's run of 69ac2e155 today with the PR's p50 lowered by 1.5 ms",
+   "sides": {
+    "A": {
+     "gpu": [
+      62.318,
+      62.827
+     ],
+     "p50": [
+      77.749,
+      77.762
+     ],
+     "p90": [
+      86.153,
+      88.196
+     ],
+     "p99": [
+      99.105,
+      105.418
+     ]
+    },
+    "B": {
+     "gpu": [
+      62.855,
+      62.588
+     ],
+     "p50": [
+      76.233,
+      76.535
+     ],
+     "p90": [
+      88.43,
+      88.693
+     ],
+     "p99": [
+      108.73,
+      112.335
+     ]
+    }
+   },
+   "summary_lines": {
+    "A": [],
+    "B": []
+   },
+   "verdict": {
+    "diff": 0.1285000000000025,
+    "diff_pct": 0.1652616213644083,
+    "gpu_diff": 0.1490000000000009,
+    "spread": 0.3019999999999925,
+    "verdict": "no difference"
+   },
+   "version": "01.010.002"
+  }
+ },
+ "trust": "queue"
+}

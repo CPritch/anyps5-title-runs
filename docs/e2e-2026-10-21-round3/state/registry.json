@@ -1,0 +1,64 @@
+{
+ "declined": {},
+ "format": 1,
+ "machines": {
+  "standin-tester-2/laptop-2": {
+   "approved_at": "2026-10-21T15:47:09Z",
+   "approved_by": "CPritch",
+   "class": {
+    "driver": "NVIDIA 615.71.09",
+    "gpu": "NVIDIA GeForce RTX 5060 Laptop GPU",
+    "os": "linux",
+    "os_name": "Linux 7.2.8-zen1-2-zen",
+    "vendor": "nvidia"
+   },
+   "issue": 6,
+   "last_report": "2026-10-21T15:47:09Z",
+   "machine": "laptop-2",
+   "opened": "2026-10-21T15:47:09Z",
+   "tester": "standin-tester-2",
+   "titles": [
+    "PPSA04263"
+   ]
+  },
+  "standin-tester-3/synthetic": {
+   "approved_at": "2026-10-21T15:46:10Z",
+   "approved_by": "CPritch",
+   "class": {
+    "driver": "NVIDIA 615.71.09",
+    "gpu": "NVIDIA GeForce RTX 5060 Laptop GPU",
+    "os": "linux",
+    "os_name": "Linux 7.2.8-zen1-2-zen",
+    "vendor": "nvidia"
+   },
+   "issue": 5,
+   "last_report": "2026-10-21T15:46:10Z",
+   "machine": "synthetic",
+   "opened": "2026-10-21T15:46:10Z",
+   "tester": "standin-tester-3",
+   "titles": [
+    "PPSA04263"
+   ]
+  },
+  "standin-tester/laptop": {
+   "approved_at": "2026-10-21T15:31:14Z",
+   "approved_by": "CPritch",
+   "class": {
+    "driver": "NVIDIA 615.71.09",
+    "gpu": "NVIDIA GeForce RTX 5060 Laptop GPU",
+    "os": "linux",
+    "os_name": "Linux 7.2.8-zen1-2-zen",
+    "vendor": "nvidia"
+   },
+   "issue": 1,
+   "last_report": "2026-10-21T15:44:36Z",
+   "machine": "laptop",
+   "opened": "2026-10-21T15:30:57Z",
+   "tester": "standin-tester",
+   "titles": [
+    "PPSA04263"
+   ]
+  }
+ },
+ "pending": {}
+}

@@ -1,0 +1,41 @@
+2026-10-21T15:30:57Z event: standin-tester entered the device code KZHF-SLNT
+2026-10-21T15:30:57Z relay: registration standin-tester/laptop pending (#1)
+2026-10-21T15:30:57Z relay: run done, changed nothing
+2026-10-21T15:31:02Z event: CPritch entered the device code PWDR-TKQX
+2026-10-21T15:31:14Z event: CPritch entered the device code JKHF-MHHR
+2026-10-21T15:31:14Z relay: registration standin-tester/laptop: approved by CPritch
+2026-10-21T15:31:14Z relay: run done, changed nothing
+2026-10-21T15:31:18Z event: CPritch added title-test to #8104
+2026-10-21T15:31:18Z relay: #8104: queued 69ac2e155 (label by CPritch)
+2026-10-21T15:31:18Z relay: #8104: job issue #4 for 8104-69ac2e155ad0
+2026-10-21T15:31:18Z relay: #8104: new comment (the first comment on this PR)
+2026-10-21T15:31:18Z relay: run done, changed #8104
+2026-10-21T15:44:44Z relay: accepted results/8104-69ac2e155ad0/laptop.json from @standin-tester
+2026-10-21T15:44:44Z relay: #8104: edit comment (no outcome or verdict changed)
+2026-10-21T15:44:44Z relay: run done, changed #8104
+2026-10-21T15:46:10Z event: standin-tester-3 entered the device code WRHH-SSSS
+2026-10-21T15:46:10Z relay: registration standin-tester-3/synthetic pending (#5)
+2026-10-21T15:46:10Z relay: run done, changed nothing
+2026-10-21T15:46:10Z relay: registration standin-tester-3/synthetic: approved by CPritch
+2026-10-21T15:46:10Z relay: run done, changed nothing
+2026-10-21T15:46:10Z relay: accepted results/8104-69ac2e155ad0/synthetic.json from @standin-tester-3
+2026-10-21T15:46:10Z relay: #8104: edit comment (no outcome or verdict changed)
+2026-10-21T15:46:10Z relay: run done, changed #8104
+2026-10-21T15:47:09Z event: standin-tester-2 entered the device code RLWB-DTGR
+2026-10-21T15:47:09Z relay: registration standin-tester-2/laptop-2 pending (#6)
+2026-10-21T15:47:09Z relay: run done, changed nothing
+2026-10-21T15:47:09Z relay: registration standin-tester-2/laptop-2: approved by CPritch
+2026-10-21T15:47:09Z relay: run done, changed nothing
+2026-10-21T15:47:09Z relay: accepted results/8104-69ac2e155ad0/laptop-2.json from @standin-tester-2
+2026-10-21T15:47:09Z relay: #8104: edit comment (no outcome or verdict changed)
+2026-10-21T15:47:09Z relay: run done, changed #8104
+2026-10-21T15:47:17Z event: Celegans12 pushed 8118a04e4 to #8104
+2026-10-21T15:47:17Z relay: #8104: approval of 69ac2e155 expired by 8118a04e4 (Celegans12)
+2026-10-21T15:47:17Z relay: #8104: edit comment (no outcome or verdict changed)
+2026-10-21T15:47:17Z relay: run done, changed #8104
+2026-10-21T15:49:04Z relay: run done, changed nothing
+2026-10-21T15:49:04Z event: CPritch added title-test to #8104
+2026-10-21T15:49:04Z relay: #8104: queued 8118a04e4 (label by CPritch)
+2026-10-21T15:49:04Z relay: #8104: job issue #7 for 8104-8118a04e4ff4
+2026-10-21T15:49:04Z relay: #8104: edit comment (no outcome or verdict changed)
+2026-10-21T15:49:04Z relay: run done, changed #8104

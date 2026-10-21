@@ -1,0 +1,152 @@
+{
+ "accepted": {},
+ "format": 1,
+ "prs": {
+  "8104": {
+   "comment_id": 1009,
+   "posts": [
+    {
+     "action": "new",
+     "at": "2026-10-21T15:31:18Z",
+     "body_sha256": "ca58e36e8614f7df388587e4df0ecf72ae3dee95896ce942d03e2a4aa1580bb6",
+     "heads": {},
+     "reason": "the first comment on this PR"
+    },
+    {
+     "action": "edit",
+     "at": "2026-10-21T15:44:44Z",
+     "body_sha256": "5fd1b9d47bcbc32b31783ac8014d83ddded12ff9c50d0fba9d0937f2dbd2c393",
+     "heads": {
+      "69ac2e155ad018ed1fb9028d2028d15999a8571e": {
+       "laptop": {
+        "PPSA04263": [
+         "rendering",
+         "rendering",
+         "no difference"
+        ]
+       }
+      }
+     },
+     "reason": "no outcome or verdict changed"
+    },
+    {
+     "action": "edit",
+     "at": "2026-10-21T15:46:10Z",
+     "body_sha256": "f48330b0005b01f74f3bfb67c06e4d1d850f215060d800a2d6db5c539e552d80",
+     "heads": {
+      "69ac2e155ad018ed1fb9028d2028d15999a8571e": {
+       "laptop": {
+        "PPSA04263": [
+         "rendering",
+         "rendering",
+         "no difference"
+        ]
+       },
+       "synthetic": {
+        "PPSA04263": [
+         "rendering",
+         "rendering",
+         "faster"
+        ]
+       }
+      }
+     },
+     "reason": "no outcome or verdict changed"
+    },
+    {
+     "action": "edit",
+     "at": "2026-10-21T15:47:09Z",
+     "body_sha256": "d034e1d73fbc04122da64c4994c924f1a0e5bb77faa87e359b315cf3c82bdead",
+     "heads": {
+      "69ac2e155ad018ed1fb9028d2028d15999a8571e": {
+       "laptop": {
+        "PPSA04263": [
+         "rendering",
+         "rendering",
+         "no difference"
+        ]
+       },
+       "laptop-2": {
+        "PPSA04263": [
+         "rendering",
+         "rendering",
+         "no difference"
+        ]
+       },
+       "synthetic": {
+        "PPSA04263": [
+         "rendering",
+         "rendering",
+         "faster"
+        ]
+       }
+      }
+     },
+     "reason": "no outcome or verdict changed"
+    },
+    {
+     "action": "edit",
+     "at": "2026-10-21T15:47:17Z",
+     "body_sha256": "30db11224b525acd63a57530635ca855839fe61b97279e2412e27c896f11cc4e",
+     "heads": {
+      "69ac2e155ad018ed1fb9028d2028d15999a8571e": {
+       "laptop": {
+        "PPSA04263": [
+         "rendering",
+         "rendering",
+         "no difference"
+        ]
+       },
+       "laptop-2": {
+        "PPSA04263": [
+         "rendering",
+         "rendering",
+         "no difference"
+        ]
+       },
+       "synthetic": {
+        "PPSA04263": [
+         "rendering",
+         "rendering",
+         "faster"
+        ]
+       }
+      }
+     },
+     "reason": "no outcome or verdict changed"
+    },
+    {
+     "action": "edit",
+     "at": "2026-10-21T15:49:04Z",
+     "body_sha256": "f589e473487c4f4fa4d7a26a1124f34e5fab070d218b0f5f569d27a1f8f07972",
+     "heads": {
+      "69ac2e155ad018ed1fb9028d2028d15999a8571e": {
+       "laptop": {
+        "PPSA04263": [
+         "rendering",
+         "rendering",
+         "no difference"
+        ]
+       },
+       "laptop-2": {
+        "PPSA04263": [
+         "rendering",
+         "rendering",
+         "no difference"
+        ]
+       },
+       "synthetic": {
+        "PPSA04263": [
+         "rendering",
+         "rendering",
+         "faster"
+        ]
+       }
+      }
+     },
+     "reason": "no outcome or verdict changed"
+    }
+   ]
+  }
+ }
+}

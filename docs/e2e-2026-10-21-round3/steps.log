@@ -1,0 +1,85 @@
+2026-10-21T15:30:52Z moved round 2's /home/charlie/games/title-runs-state/client to client-round2
+2026-10-21T15:30:52Z moved round 2's /home/charlie/games/title-runs-state/jobs/8104-69ac2e155ad0 to 8104-69ac2e155ad0.round2
+2026-10-21T15:30:52Z stand-in at /home/charlie/games/title-runs-r3/standin: #8104 at 69ac2e155 by Celegans12, main d97361bd0, maintainers [CPritch], tool dba0246d4
+2026-10-21T15:30:52Z configs: laptop.toml (round 2's machine and title settings, not onboarded), twin.toml (laptop-2), maintainer.toml
+2026-10-21T15:30:57Z standin-tester entered KZHF-SLNT
+2026-10-21T15:30:57Z walkthrough: walkthrough-1-what.png, walkthrough-2-sandbox.png, walkthrough-3-when.png, walkthrough-4-dumps.png, walkthrough-5-sign-in-code.png, walkthrough-6-signed-in.png, walkthrough-7-registered.png, walkthrough-8-done.png
+2026-10-21T15:30:57Z standin-tester/laptop: pending, issue #1; ready: (False, 'waiting for a maintainer to approve this machine')
+2026-10-21T15:30:57Z workflow run (registration): changed nothing
+2026-10-21T15:30:58Z screen tester-1-queue-not-ready.png
+2026-10-21T15:31:02Z CPritch signed in (device code PWDR-TKQX)
+2026-10-21T15:31:02Z screen maintainer-1-pending.png
+2026-10-21T15:31:02Z maintainer's Overview: pending standin-tester/laptop (##1), Approve enabled: True
+2026-10-21T15:31:14Z CPritch signed in (device code JKHF-MHHR)
+2026-10-21T15:31:14Z screen maintainer-1-pending.png
+2026-10-21T15:31:14Z maintainer's Overview: pending standin-tester/laptop (#1), Approve enabled: True
+2026-10-21T15:31:14Z CPritch pressed Approve: approved: next workflow run
+2026-10-21T15:31:14Z workflow run (approval): changed nothing
+2026-10-21T15:31:14Z screen maintainer-2-approved.png
+2026-10-21T15:31:14Z laptop: approved; ready: (True, '')
+2026-10-21T15:31:18Z CPritch added title-test to #8104
+2026-10-21T15:31:18Z workflow run (label): changed #8104
+2026-10-21T15:31:18Z screen maintainer-3-queued.png
+2026-10-21T15:31:19Z queue: #8104 69ac2e155 approved by CPritch via label, job issue #4
+2026-10-21T15:31:19Z screen tester-2-queue-ready.png
+2026-10-21T15:31:19Z PR comment saved as comments/1-queued.md
+2026-10-21T15:31:24Z laptop: title-runs client --config laptop.toml run-once --ignore-schedule (started)
+2026-10-21T15:32:16Z screen tester-3-running-queue.png
+2026-10-21T15:32:16Z screen tester-3-running-overview.png
+2026-10-21T15:32:16Z screen tester-3-running-pull-requests.png
+2026-10-21T15:32:16Z screen tester-3-running-schedule.png
+2026-10-21T15:32:16Z screen tester-3-running-titles.png
+2026-10-21T15:32:16Z screen tester-3-running-settings.png
+2026-10-21T15:32:16Z screen tester-3-running-trust-dialog.png
+2026-10-21T15:32:16Z screen tester-3-running-tray.png
+2026-10-21T15:44:36Z laptop: run-once exited (exit 0)
+2026-10-21T15:44:44Z workflow run (the laptop's result): changed #8104
+2026-10-21T15:44:44Z screen maintainer-4-one-result.png
+2026-10-21T15:44:44Z PR comment saved as comments/2-laptop-result.md
+2026-10-21T15:44:44Z screen tester-4-reported.png
+2026-10-21T15:46:10Z synthetic: registration issue #5 opened for standin-tester-3/synthetic
+2026-10-21T15:46:10Z standin-tester-3/synthetic (class nvidia/linux) registered: #5
+2026-10-21T15:46:10Z workflow run (synthetic's registration): changed nothing
+2026-10-21T15:46:10Z CPritch approves #5: label added
+2026-10-21T15:46:10Z workflow run (synthetic's approval): changed nothing
+2026-10-21T15:46:10Z synthetic ready: (True, '')
+2026-10-21T15:46:10Z synthetic's score for #8104: 0.20 (normal priority ×2; any hardware ×0.5; any title ×1; a nvidia/linux machine has reported this head ×0.2; waited 0 h ×1.01)
+2026-10-21T15:46:10Z synthetic's numbers (synthetic, not measured: today's laptop numbers, PR p50 -1.5 ms): main p50 [77.749, 77.762], PR p50 [76.233, 76.535]
+2026-10-21T15:46:10Z synthetic: claimed 8104-69ac2e155ad0 on #4
+2026-10-21T15:46:10Z synthetic: reported 8104-69ac2e155ad0 on #4 (done)
+2026-10-21T15:46:10Z synthetic reported: done
+2026-10-21T15:46:10Z workflow run (synthetic's result): changed #8104
+2026-10-21T15:46:10Z screen maintainer-5-synthetic-second.png
+2026-10-21T15:46:10Z PR comment saved as comments/3-synthetic-second.md
+2026-10-21T15:47:09Z fix: claims and coverage now group by the verdict class (GPU model, driver branch, OS), not vendor/OS (8e9f2c8..2518d50); the synthetic machine's score above was computed before it
+2026-10-21T15:47:09Z laptop-2: registration issue #6 opened for standin-tester-2/laptop-2
+2026-10-21T15:47:09Z standin-tester-2/laptop-2 (class nvidia/linux) registered: #6
+2026-10-21T15:47:09Z workflow run (laptop-2's registration): changed nothing
+2026-10-21T15:47:09Z CPritch approves #6: label added
+2026-10-21T15:47:09Z workflow run (laptop-2's approval): changed nothing
+2026-10-21T15:47:09Z laptop-2 ready: (True, '')
+2026-10-21T15:47:09Z laptop-2's score for #8104: 1.01 (normal priority ×2; any hardware ×0.5; any title ×1; RTX 5060 Laptop GPU · NVIDIA 615 · Linux: borderline on 2 machine(s), another wanted ×1; waited 0 h ×1.01)
+2026-10-21T15:47:09Z laptop-2's numbers (the laptop's round-2 run of the same commit 69ac2e155, measured 2026-10-21 12:27 UTC): main p50 [77.979, 77.997], PR p50 [77.583, 77.714]
+2026-10-21T15:47:09Z laptop-2: claimed 8104-69ac2e155ad0 on #4
+2026-10-21T15:47:09Z laptop-2: reported 8104-69ac2e155ad0 on #4 (done)
+2026-10-21T15:47:09Z laptop-2 reported: done
+2026-10-21T15:47:09Z workflow run (laptop-2's result): changed #8104
+2026-10-21T15:47:09Z screen maintainer-6-third.png
+2026-10-21T15:47:09Z PR comment saved as comments/4-third.md
+2026-10-21T15:47:17Z Celegans12 pushed 8118a04e4 to #8104
+2026-10-21T15:47:17Z workflow run (the push): changed #8104
+2026-10-21T15:47:17Z #8104 labels now: []
+2026-10-21T15:47:17Z screen maintainer-7-expired.png
+2026-10-21T15:47:17Z PR comment saved as comments/5-expired.md
+2026-10-21T15:47:17Z screen tester-5-after-push.png
+2026-10-21T15:47:17Z screen tester-6-settings.png
+2026-10-21T15:47:18Z screen tester-7-schedule.png
+2026-10-21T15:49:04Z overview fix committed (1722739)
+2026-10-21T15:49:04Z workflow run (after the overview fix): changed nothing
+2026-10-21T15:49:04Z CPritch added title-test to #8104 again, to queue 8118a04e4
+2026-10-21T15:49:04Z workflow run (the label again): changed #8104
+2026-10-21T15:49:04Z screen maintainer-8-requeued.png
+2026-10-21T15:49:04Z PR comment saved as comments/6-requeued.md
+2026-10-21T15:49:13Z collected the outbox (60 files), relay.log and the results repository's main
+2026-10-21T15:50:10Z collected the outbox (60 files), relay.log, the results repository's main and github.md (every issue, label event and comment in the fake GitHub: the outbox missed the testers' and the maintainer's own-sign-in writes until 5ca01df)
+2026-10-21T15:50:53Z screens maintainer-4/5/6-*-fixed.png: the Overview tab rendered again with the fixed overview (1722739) from the results repository at 542c92f, 9f84c14 and dd0fcc7 (after each result); the originals show 'running on' for machines that had reported
