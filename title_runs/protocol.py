@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import VENDOR, route as routes
+from . import VENDOR, route as routes, verdict as verdicts
 from .game import Game
 
 sys.path.insert(0, str(VENDOR / "gtav_harness"))
@@ -283,8 +283,8 @@ class Protocol:
 
 
 def verdict(runs):
-    """p50/p90/p99/GPU per side over counted runs, the difference, and the rule: a difference counts when it is larger
-    than both sides' spreads (max - min of the side's p50s)."""
+    """p50/p90/p99/GPU per side over counted runs, and the per-machine rule (verdict.machine): a difference counts when
+    it is larger than both sides' spreads and than 1 % of main's p50."""
     sides = {}
     for key in ("A", "B"):
         summaries = [r["summary"] for r in runs if r.get("counts") and r.get("side") == key and r.get("summary")]
@@ -292,14 +292,4 @@ def verdict(runs):
             f = [s["frame_ms"] for s in summaries]
             sides[key] = {"p50": [x["p50"] for x in f], "p90": [x["p90"] for x in f], "p99": [x["p99"] for x in f],
                           "gpu": [s["gpu_busy_ms_per_present"] for s in summaries], "counted": len(summaries)}
-    if len(sides) < 2 or any(v["counted"] < 2 for v in sides.values()):
-        return {"sides": sides, "verdict": "not enough counted runs", "diff": None}
-    a, b = sides["A"], sides["B"]
-    diff = statistics.mean(b["p50"]) - statistics.mean(a["p50"])
-    spread = max(capture.spread(a["p50"]), capture.spread(b["p50"]))
-    if abs(diff) <= spread:
-        kind = "no difference beyond the spread"
-    else:
-        kind = "faster" if diff < 0 else "slower"
-    return {"sides": sides, "diff": diff, "diff_pct": diff / statistics.mean(a["p50"]) * 100, "spread": spread,
-            "gpu_diff": statistics.mean(b["gpu"]) - statistics.mean(a["gpu"]), "verdict": kind}
+    return {"sides": sides, **verdicts.machine(sides)}

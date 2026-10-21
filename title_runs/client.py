@@ -98,7 +98,7 @@ class Client:
         self.trust = trust.TrustStore(self.dir / "trust.json")
         self.status = Status(self.dir / "status.json")
         self.info = info or config.machine_info or platform_info.machine_info()
-        self.machine_class = formats.machine_class(self.info["gpu"], self.info["os"])
+        self.machine_class = formats.machine_class(self.info["gpu"], self.info["os"], self.info.get("driver", ""))
 
     # -- the queue -----------------------------------------------------------------------------------------------------
 

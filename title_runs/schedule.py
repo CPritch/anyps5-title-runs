@@ -7,14 +7,16 @@
 - title match: 1 if the tester has a wanted title (or titles= is empty and the tester has any), 0 otherwise;
 - coverage gap: 0 if this machine has already reported this head, if machines= is met by machines that reported or hold
   a live claim, or if another machine of this class holds a live claim (two testers of one class do not run the same
-  head at once); 0.2 if a machine of this class has reported this head; 1 otherwise. Expired claims count for nothing;
+  head at once); 0.2 if a machine of this class has reported this head; 1 otherwise. Expired claims count for nothing.
+  A class whose combined verdict is borderline (verdict.combine) wants another machine of it until CLASS_MAX have
+  reported: 1 for a machine of that class, even when machines= is met;
 - age: 1 + hours waited / AGE_HOURS, at most AGE_CAP (a low-priority entry waiting two days weighs as a fresh normal
   one).
 """
 
 from dataclasses import dataclass, field
 
-from . import formats
+from . import formats, verdict
 
 AGE_HOURS = 48.0
 AGE_CAP = 2.0
@@ -72,6 +74,11 @@ def coverage_gap(entry, machine, claims, results, at):
     live = {m: c for m, c in (claims.get(job) or {}).items() if not formats.claim_expired(c, at) and m not in reported}
     if machine.name in reported:
         return 0.0, "this machine has reported this head ×0"
+    mine = verdict.class_of(machine.info)
+    for title_id in sorted(machine.titles):
+        combined = verdict.by_class(reported, title_id).get(mine)
+        if combined and combined["borderline"] and combined["n"] < verdict.CLASS_MAX:
+            return 1.0, f"{mine}: borderline on {combined['n']} machine(s), another wanted ×1"
     others = {m: c for m, c in live.items() if m != machine.name}
     if len(reported) + len(others) >= entry["machines"]:
         return 0.0, f"{entry['machines']} machine(s) wanted, {len(reported)} reported and {len(others)} claimed ×0"

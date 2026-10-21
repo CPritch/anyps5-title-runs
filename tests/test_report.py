@@ -37,7 +37,7 @@ class Verdict(unittest.TestCase):
 
     def test_within_the_spread(self):
         v = results("h1", a=(73.4, 73.9), b=(73.5, 73.6))["titles"]["PPSA04263"]["verdict"]
-        self.assertEqual(v["verdict"], "no difference beyond the spread")
+        self.assertEqual(v["verdict"], "no difference")
 
     def test_not_enough_counted_runs(self):
         v = results("h1", counts=False)["titles"]["PPSA04263"]["verdict"]
@@ -93,7 +93,7 @@ class EditOrNew(unittest.TestCase):
     def test_a_verdict_change_is_a_new_comment(self):
         before = report.head_summary(results("h1", a=(73.4, 73.9), b=(73.5, 73.6)))
         now = report.head_summary(results("h2", a=(73.4, 73.4), b=(75.0, 75.1)))
-        self.assertEqual(report.decide(before, now, True), ("new", "PPSA04263: the frame-time verdict went from no difference beyond the spread to slower"))
+        self.assertEqual(report.decide(before, now, True), ("new", "PPSA04263: the frame-time verdict went from no difference to slower"))
 
     def test_back_to_no_difference_edits(self):
         before = report.head_summary(results("h1"))
