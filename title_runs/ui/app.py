@@ -31,11 +31,14 @@ class Engine(QObject):
     def __init__(self, config, listing=None, auto=False):
         super().__init__()
         self.config = config
+        if auto:
+            config.automatic = True
+        self.quitting = False
+        self.thread = None
         self.dir = Path(config.state_dir) / "client"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.client = clients.Client(config, log=lambda text: None)
         self.listing_file = Path(listing) if listing else None
-        self.auto = auto
         self.window = None
         self.ranked, self.queue, self.repository = [], {"entries": []}, ""  # the results repository names it (load)
         self.comments = {"prs": {}}
@@ -97,9 +100,11 @@ class Engine(QObject):
         hours = self.client.stale()
         if hours is None:
             return ""
-        return (f"<b>The results repository's workflow last ran {hours:.0f} h ago.</b> GitHub may have delayed or dropped its scheduled runs, "
-                f"or disabled the schedule after 60 days without activity. A maintainer turns it back on: the repository's Actions tab, "
-                f"relay, Enable workflow, then Run workflow (its README has the steps).")
+        if self.client.maintainer():
+            return (f"<b>The relay workflow last ran {hours:.0f} h ago.</b> GitHub may have delayed or dropped its scheduled runs, or "
+                    f"disabled the schedule after 60 days without activity: the results repository's Actions tab, relay, Enable workflow, "
+                    f"Run workflow (its README has the steps).")
+        return (f"<b>The test list hasn't updated for {hours:.0f} hours</b>, so new tests may show up late. The AnyPS5 team can restart it.")
 
     def ignored_mine(self):
         """The workflow answers nothing it does not use; the tester's own ignored comments are in its public cursors."""
@@ -116,8 +121,8 @@ class Engine(QObject):
         if not mine:
             return ""
         last = mine[-1]
-        return (f"<b>The workflow did not use your comment on #{last['issue']}</b> ({utc_text(last['at'])}): "
-                f"{last.get('detail') or last['reason']}.")
+        detail = f" ({last.get('detail') or last['reason']})" if self.config.view == "advanced" else ""
+        return (f"<b>Your last report wasn't accepted</b> ({utc_text(last['at'])}){detail}. If it happens again, tell the AnyPS5 team.")
 
     def results_repository(self):
         return self.client.repo.read("config.json", {}).get("results_repository", "?")
@@ -139,6 +144,19 @@ class Engine(QObject):
             from PySide6.QtCore import QUrl
             from PySide6.QtGui import QDesktopServices
             QDesktopServices.openUrl(QUrl(url))
+
+    def queue_pr(self, number):
+        """A maintainer queues a pull request: the label on it on GitHub, added with their own sign-in (the same as adding
+        it there). The workflow picks it up on its next run."""
+        if not self.client.maintainer():
+            return "Only the AnyPS5 team can queue tests."
+        try:
+            from .. import auth
+            auth.repo_as_tester(self.client.endpoint, self.repository, self.client.flow()).add_labels(number, [self.label()])
+        except Exception as error:  # noqa: BLE001
+            return f"Could not queue #{number}: {error}"
+        self.log(f"queued #{number} (label added)")
+        return f"Queued #{number}. It shows in the queue after the workflow's next run, within a few minutes."
 
     def decide_registration(self, issue, label):
         """A maintainer's Approve or Decline: the label on the registration issue, added with their own sign-in."""
@@ -212,12 +230,31 @@ class Engine(QObject):
         for title_id, title in self.config.titles.items():
             dump = self.dumps.get(title_id, {})
             rows.append({"on": True, "title_id": title_id, "name": dump.get("name", "?"), "version": dump.get("version", "?"),
-                         "check": "full timing (route)" if title.route else "boot check", "seeds": f"{len(title.seed)} file(s)" if title.seed else "none",
+                         "check": "Full test" if title.route else "Start-up check", "seeds": f"{len(title.seed)} file(s)" if title.seed else "none",
                          "seed_paths": [str(p) for p in title.seed], "path": str(title.dump)})
         return rows
 
     def allowed_now(self):
         return self.client.allowed_now()
+
+    # -- the main screen -----------------------------------------------------------------------------------------------
+
+    def up_next_rows(self):
+        return model.up_next(self.ranked, self.status())
+
+    def recent_rows(self):
+        try:
+            results = self.client.repo.results()
+            rules = verdict.settings(self.client.repo.read("config.json", {}))
+        except Exception:  # noqa: BLE001 (no checkout yet)
+            results, rules = {}, verdict.DEFAULT
+        return model.recent(self.status(), results, self.config.machine, rules)
+
+    def home(self):
+        ready, why, _ = self.readiness()
+        best = next((r for r in self.up_next_rows() if r["score"] > 0), None)
+        allowed, allowed_why = self.allowed_now() if ready else (False, why)
+        return model.header(self.status(), ready, why, self.config.automatic, allowed, allowed_why, best)
 
     def comment_link(self, pr):
         """The App's comment on pr: a GitHub link, or the stand-in's outbox when the results repository is local."""
@@ -239,6 +276,39 @@ class Engine(QObject):
 
     def request_stop(self):
         self.client.status.update(stop_requested=True)
+
+    def running(self):
+        return self.status().get("state") == "running"
+
+    def start_now(self):
+        """Start the next test now, whatever the schedule says (still only once the machine is set up)."""
+        self.client.status.update(paused_until=None, stop_requested=False)
+        self.work.put(("next", None))
+
+    def set_automatic(self, on):
+        self.config.automatic = bool(on)
+        self.save_config()
+        self.work.put(("wake", None))
+
+    def stop(self, quitting=False):
+        """Stop the running test at once: its build or game is ended, its claim taken back, nothing is sent. Automatic
+        testing goes off too, so another test doesn't start a minute later; Start or the switch turns it back on."""
+        self.client.status.update(stop_requested=True)
+        if self.config.automatic and not quitting:
+            self.config.automatic = False
+            self.save_config()
+        ended = platform_info.stop_children()
+        self.log(f"stopped{' (quitting)' if quitting else ''}: {ended} process(es) ended")
+
+    def shutdown(self, wait=20):
+        """Quit: nothing keeps running after the app (DESIGN.md). Ends the test, then waits for the worker to finish."""
+        self.quitting = True
+        if self.running():
+            self.stop(quitting=True)
+        self.work.put(("quit", None))
+        if self.thread is not None:
+            self.thread.join(wait)
+        platform_info.stop_children(grace=1.0)
 
     def run_on_trust(self, row, scope):
         self.client.trust.grant(scope, row["author"], row["number"], row["head"])
@@ -277,36 +347,56 @@ class Engine(QObject):
         net = subprocess.run(sandbox.build_command("bwrap", probe, "/tmp"), capture_output=True)
         home = subprocess.run(sandbox.build_command("bwrap", ["ls", str(Path.home())], "/tmp"), capture_output=True)
         gpu = subprocess.run(sandbox.command("bwrap", ["sh", "-c", "ls /dev/dri /dev/nvidia0 2>/dev/null | head -1"], "/tmp"), capture_output=True, text=True)
-        parts = ["network blocked" if net.returncode != 0 else "NETWORK REACHABLE", "home not visible" if home.returncode != 0 else "HOME VISIBLE",
-                 "GPU visible to runs" if gpu.stdout.strip() else "no GPU device in the run sandbox"]
+        parts = ["no internet" if net.returncode != 0 else "IT CAN REACH THE INTERNET", "your files out of sight" if home.returncode != 0 else "IT CAN SEE YOUR FILES",
+                 "the graphics card available to the game" if gpu.stdout.strip() else "no graphics card inside, so games won't run"]
         ok = net.returncode != 0 and home.returncode != 0
-        return ("Self-test passed: " if ok else "Self-test FAILED: ") + ", ".join(parts) + "."
+        return ("The sandbox works: " if ok else "The sandbox is NOT working: ") + ", ".join(parts) + "."
 
     # -- the worker thread ---------------------------------------------------------------------------------------------
 
     def start(self):
-        threading.Thread(target=self.worker, daemon=True).start()
+        self.thread = threading.Thread(target=self.worker, daemon=True)
+        self.thread.start()
+
+    def run_best(self):
+        """Start (the Start button): the best test for this machine now, schedule or not."""
+        ready, why = self.client.ready()
+        if not ready:
+            return why
+        best = self.client.next_job()
+        if best is None:
+            self.client.status.update(state="idle", line="Idle: nothing in the queue for this machine")
+            return "nothing to do"
+        entry = best.entry
+        self.client.run(entry["pr"], entry["head"], "queue", entry.get("title", ""), entry.get("author", ""))
+        return f"ran {entry['job']}"
 
     def worker(self):
         self.load(sync=True)
-        while True:
+        while not self.quitting:
             try:
-                kind, row = self.work.get(timeout=60)
+                kind, row = self.work.get(timeout=30)
             except queues.Empty:
                 kind, row = None, None
+            if self.quitting or kind == "quit":
+                break
             try:
                 if kind == "tester":
                     self.client.run(row["number"], row["head"], "tester", row["title"], row["author"])
                 elif kind == "listing":
                     self.refresh_listing(force=True)
-                elif self.auto:
+                elif kind == "next":
+                    self.log(self.run_best())
+                elif self.config.automatic:
                     self.log(self.client.run_next())
-                if kind != "listing":
+                if kind != "listing" and not self.quitting:
                     self.refresh_listing()
             except Exception as error:  # noqa: BLE001
-                self.client.status.update(state="error", line=f"Error: {clients.clean(error, 200)}")
+                if not self.quitting:
+                    self.client.status.update(state="error", line=f"Error: {clients.clean(error, 200)}")
                 self.log(f"error: {error}")
-            self.load(sync=True)
+            if not self.quitting:
+                self.load(sync=True)
 
 
 def grab(widget, path):
@@ -332,9 +422,12 @@ def screenshots(engine, out, prefix=""):
     window.show()
     saved = []
     for index, (tab, name) in enumerate(window.pages):
-        window.tabs.setCurrentWidget(tab)
-        tab.refresh()
+        window.show_page(tab)
         saved.append(grab(window, out / f"{prefix}{name.lower().replace(' ', '-')}.png"))
+    if engine.client.maintainer():
+        window.open_maintainer()
+        saved.append(grab(window.maintainer_window, out / f"{prefix}maintainer.png"))
+        window.maintainer_window.close()
     rows = engine.waiting() or engine.sections()[model.SECTIONS[2]]
     if rows:
         row = rows[0]
@@ -373,6 +466,9 @@ def new_config(path, results, github, state_dir=None):
 
 
 def main(argv=None):
+    import os
+    import signal
+    from . import theme
     parser = argparse.ArgumentParser(prog="title-runs ui")
     parser.add_argument("--config", type=Path, default=configs.DEFAULT_CONFIG)
     parser.add_argument("--listing", type=Path)
@@ -384,12 +480,17 @@ def main(argv=None):
     parser.add_argument("--screenshots", type=Path)
     parser.add_argument("--no-sync", action="store_true", help="--screenshots: read the results checkout as it is (a client may be using it)")
     args = parser.parse_args(argv)
+    if sys.platform.startswith("linux") and os.environ.get("DISPLAY") and not os.environ.get("QT_QPA_PLATFORM") and not args.screenshots:
+        # An X11 program on Wayland desktops too (XWayland): the game's window, an X11 window, can then be shown inside the app.
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
+    if not args.config.exists():
+        new_config(args.config, args.results, args.github, args.state)
+    config = configs.load(args.config)
     app = QApplication(sys.argv[:1])
     app.setApplicationName("AnyPS5 title runs")
     app.setQuitOnLastWindowClosed(False)
-    if not args.config.exists():
-        new_config(args.config, args.results, args.github, args.state)
-    engine = Engine(configs.load(args.config), args.listing, args.auto)
+    theme.apply(app, config.text_size)
+    engine = Engine(config, args.listing, args.auto)
     if args.screenshots:
         engine.load(sync=not args.no_sync)
         for path in screenshots(engine, args.screenshots):
@@ -401,19 +502,27 @@ def main(argv=None):
             engine.client.repo.sync()
         if Walkthrough(engine, args.dumps).exec() != Walkthrough.Accepted:
             return 1  # nothing runs before the walkthrough
+    from PySide6.QtWidgets import QSystemTrayIcon
     from .tray import Tray
     from .window import MainWindow
     window = MainWindow(engine)
-    tray = Tray(engine, lambda: (window.refresh(), window.show(), window.raise_(), window.activateWindow()), app.quit)
-    tray.show()
+    tray = None
+    if config.tray and QSystemTrayIcon.isSystemTrayAvailable():
+        tray = Tray(engine, lambda: (window.refresh(), window.show(), window.raise_(), window.activateWindow()), app.quit)
+        tray.show()
+        tray.refresh()
+    app.aboutToQuit.connect(engine.shutdown)  # quitting ends the running test: nothing is left running after the app
+    # Ctrl+C in the terminal quits like the window's close: Qt's event loop does not hand Python the signal by itself.
+    signal.signal(signal.SIGINT, lambda *_: QTimer.singleShot(0, window.close))
+    wake = QTimer()
+    wake.timeout.connect(lambda: None)
+    wake.start(250)
     engine.start()
     timer = QTimer()
-    timer.timeout.connect(lambda: (tray.refresh(), window.isVisible() and window.refresh()))
-    timer.start(3000)
-    tray.refresh()
-    if not tray.icon.isSystemTrayAvailable():
-        window.refresh()
-        window.show()
+    timer.timeout.connect(lambda: (tray.refresh() if tray else None, window.isVisible() and window.refresh()))
+    timer.start(2000)
+    window.refresh()
+    window.show()
     return app.exec()
 
 

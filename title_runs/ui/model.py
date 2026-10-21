@@ -112,3 +112,124 @@ def comment_link(repository, comment_id):
 def first_line(text, limit=90):
     line = re.split(r"[\r\n]", text or "", maxsplit=1)[0]
     return line if len(line) <= limit else line[:limit - 1] + "…"
+
+
+# -- the main screen (ui/home.py), in the words a tester reads ----------------------------------------------------------
+
+SETUP = {"the first-run walkthrough is not done": "Go through the first-run steps.",
+         "no titles are set up": "Add a game you own.",
+         "not signed in": "Sign in with GitHub.",
+         "this machine is not registered": "Register this machine.",
+         "waiting for a maintainer to approve this machine": "The AnyPS5 team still has to approve this machine. Nothing to do but wait.",
+         "a maintainer declined this machine": "The AnyPS5 team turned this machine down."}
+
+STEPS = ("Getting the change", "Building AnyPS5 as it is", "Building AnyPS5 with the change", "Warming up the game",
+         "Run 1 of 4: as it is", "Run 2 of 4: with the change", "Run 3 of 4: as it is", "Run 4 of 4: with the change", "Sending the result")
+
+
+def waiting_for(why):
+    """When the next test may start, for a reason client.allowed_now gave."""
+    found = re.match(r"outside the hours (\d+)-(\d+)", why)
+    if found:
+        return f"between {found.group(1)}:00 and {found.group(2)}:00, the hours you chose"
+    if why == "on battery":
+        return "the computer is plugged in"
+    if why.endswith(" is running"):
+        return f"{why[:-len(' is running')]} has closed"
+    if why.startswith("in use"):
+        return "the computer has been left alone for a while"
+    if why == "paused":
+        return "you resume"
+    if why.startswith("paused until"):
+        return why.replace("paused until", "after")
+    return why
+
+
+def step(progress):
+    """The index in STEPS of what the job is doing, from its progress text (job.run's stages, protocol's runs)."""
+    text = progress or ""
+    found = re.search(r"(main|PR) run \d+, (\d)/4", text)
+    if found:
+        return 3 + int(found.group(2))
+    if "warm-up" in text:
+        return 3
+    if text.startswith("B:"):
+        return 2
+    if text.startswith("A:"):
+        return 1
+    if "result" in text or "report" in text:
+        return 8
+    return 0
+
+
+def header(status, ready, why, automatic, allowed, allowed_why, best):
+    """The main screen's header: {"kind", "headline", "detail"}; kind is running, setup, off, idle, waiting or ready."""
+    job = status.get("job") or {}
+    if status.get("state") == "running" and job:
+        return {"kind": "running", "headline": f"Testing #{job.get('pr')}" + (f": {job['title']}" if job.get("title") else ""),
+                "detail": STEPS[step(status.get("progress"))], "step": step(status.get("progress"))}
+    if not ready:
+        return {"kind": "setup", "headline": "Almost ready", "detail": SETUP.get(why, why)}
+    if status.get("state") == "error":
+        return {"kind": "error", "headline": "The last test went wrong", "detail": first_line(status.get("line", ""), 160)}
+    if best is None:
+        return {"kind": "idle", "headline": "No tests waiting", "detail": "New tests from the AnyPS5 team show up here by themselves."}
+    if not automatic:
+        return {"kind": "off", "headline": "Testing is off", "detail": "Press Start to run the next test now, or turn on automatic testing."}
+    if not allowed:
+        return {"kind": "waiting", "headline": "Waiting", "detail": f"The next test starts by itself {waiting_for(allowed_why)}."}
+    return {"kind": "ready", "headline": "Starting the next test", "detail": "It starts within a minute."}
+
+
+def plain_reason(choice):
+    """Why a queued test is or isn't up next for this machine, from schedule.score's factors."""
+    reasons = " ".join(choice.reasons)
+    if choice.score > 0:
+        return "Next" if choice.factors.get("coverage", 1) >= 1 else "Wanted, after the others"
+    if "this machine has reported" in reasons:
+        return "Already tested on this machine"
+    if "holds a claim" in reasons:
+        return "Another machine like yours is testing it"
+    if "machine(s) wanted" in reasons:
+        return "Enough machines have tested it"
+    if "hardware wanted" in reasons:
+        return "Wants other hardware"
+    if "titles wanted" in reasons:
+        return "Wants a game you haven't added"
+    return "Not for this machine"
+
+
+def up_next(ranked, status):
+    """The tests in the queue for this machine, best first, without the one running."""
+    job = status.get("job") or {}
+    rows = []
+    for choice in ranked:
+        entry = choice.entry
+        if status.get("state") == "running" and job.get("pr") == entry["pr"] and job.get("head") == entry["head"]:
+            continue
+        rows.append({"number": entry["pr"], "title": entry.get("title", ""), "author": entry.get("author", ""), "head": entry["head"],
+                     "queued_by": entry.get("queued_by", ""), "queued_at": entry.get("queued_at", ""), "score": choice.score,
+                     "why": plain_reason(choice), "reasons": choice.reasons})
+    return rows
+
+
+def recent(status, results, machine, rules_):
+    """The tests this machine reported, newest first, with each one's verdict: [{"number", "head", "at", "status",
+    "verdict"}]. results: the results repository's {job: {machine: result}}."""
+    from .. import verdict
+    out = []
+    for row in status.get("recent", []):
+        result = (results.get(formats.job_id(row["pr"], row["head"])) or {}).get(machine)
+        words = row["status"]
+        if result and result.get("status") == "done":
+            parts = []
+            for title_id, entry in sorted(result["titles"].items()):
+                v = verdict.machine(entry.get("sides") or {}, rules_)
+                if v.get("diff") is None:
+                    parts.append(f"{title_id}: not enough runs counted")
+                else:
+                    word = {"faster": "Faster", "slower": "Slower"}.get(v["verdict"], "No difference")
+                    parts.append(f"{word} ({v['diff']:+.2f} ms)" + (", borderline" if v.get("borderline") else ""))
+            words = "; ".join(parts) or words
+        out.append({"number": row["pr"], "head": row["head"], "at": row.get("at", ""), "status": row["status"], "verdict": words})
+    return out

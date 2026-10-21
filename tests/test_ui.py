@@ -194,7 +194,8 @@ class WalkthroughAndOverview(unittest.TestCase):
         issue = self.engine.client.register()
         self.stand.tick()
         self.engine.load(sync=True)
-        window = MainWindow(self.engine)
+        from title_runs.ui.maintainer import MaintainerWindow
+        window = MaintainerWindow(self.engine)
         window.overview.refresh()
         self.assertEqual(window.overview.pending.topLevelItemCount(), 1)
         buttons = window.overview.pending.itemWidget(window.overview.pending.topLevelItem(0), 3)
@@ -226,10 +227,10 @@ class WalkthroughAndOverview(unittest.TestCase):
         other = standin.create(self.root / "moved", ["maintainer2"], history.dir, history.m2, [], {"maintainer2": "admin"},
                                client_id="Iv1.maintainers-app", results="maintainer2/results")
         window = MainWindow(self.engine)
-        window.settings.url.setText(str(other.results_git))
-        window.settings.save()
+        window.settings.account.url.setText(str(other.results_git))
+        window.settings.account.save()
         self.assertEqual(self.engine.client.results_repository(), "maintainer2/results")
-        self.assertIn("Now using maintainer2/results.", window.settings.check_label.text())
+        self.assertIn("Now using maintainer2/results.", window.settings.account.check_label.text())
         self.assertIn(f'url = "{other.results_git}"', self.config_path.read_text())
 
     def test_an_ignored_comment_shows_in_the_overview_and_to_its_tester(self):
@@ -246,10 +247,13 @@ class WalkthroughAndOverview(unittest.TestCase):
         self.engine.client.github().create_comment(trust, formats.payload_body("result", {"machine": "laptop", "job": "x"}, "a result."))
         self.stand.tick()
         self.engine.load(sync=True)
+        from title_runs.ui.maintainer import MaintainerWindow
+        tools = MaintainerWindow(self.engine)
+        tools.refresh()
+        self.assertIn("1 comment from an account without a registered machine", tools.overview.ignored.text())
         window = MainWindow(self.engine)
         window.refresh()
-        self.assertIn("1 comment from an account without a registered machine", window.overview.ignored.text())
-        self.assertIn("The workflow did not use your comment", window.queue.not_ready.text())
+        self.assertIn("Your last report wasn't accepted", window.home.notice.text())
 
     def test_a_new_tester_names_the_results_repository_in_the_walkthrough(self):
         from title_runs import config as configs
@@ -339,7 +343,29 @@ class WalkthroughAndOverview(unittest.TestCase):
                 mock.patch("title_runs.formats.now", return_value=formats.parse_time("2026-10-21T20:00:00Z")):
             self.assertEqual(self.engine.ignored_mine(), "")  # the registration is pending now: the note is history
             stale["ignored"]["recent"][0]["issue"] = issue + 100
-            self.assertIn("did not use your comment", self.engine.ignored_mine())
+            self.assertIn("wasn't accepted", self.engine.ignored_mine())
         with mock.patch.object(self.engine.client.repo, "cursors", return_value=stale), \
                 mock.patch("title_runs.formats.now", return_value=formats.parse_time("2026-10-23T20:00:00Z")):
             self.assertEqual(self.engine.ignored_mine(), "")  # more than a day old
+
+
+class MainScreenModel(unittest.TestCase):
+    """ui/home.py's words (model.header, step, waiting_for): what a tester reads on the main screen."""
+
+    def test_the_step_from_the_jobs_progress(self):
+        for progress, index in (("starting", 0), ("#1: 69ac2e155 merged onto main d97361bd0 as f0a2a25b4", 0), ("A: building d97361bd0", 1),
+                                ("B: built in 29 s", 2), ("PR warm-up", 3), ("main run 1, 1/4", 4), ("PR run 1, 2/4", 5),
+                                ("main run 2, 3/4", 6), ("PR run 2, 4/4", 7)):
+            self.assertEqual(model.step(progress), index, progress)
+
+    def test_header_states(self):
+        best = {"number": 1}
+        running = {"state": "running", "job": {"pr": 1, "title": "perf: x"}, "progress": "PR run 1, 2/4"}
+        self.assertEqual(model.header(running, True, "", True, True, "", best)["detail"], "Run 2 of 4: with the change")
+        self.assertEqual(model.header({}, False, "not signed in", True, True, "", best)["detail"], "Sign in with GitHub.")
+        self.assertEqual(model.header({}, True, "", True, True, "", None)["kind"], "idle")
+        self.assertEqual(model.header({}, True, "", False, True, "", best)["kind"], "off")
+        waiting = model.header({}, True, "", True, False, "outside the hours 01-07", best)
+        self.assertEqual(waiting["detail"], "The next test starts by itself between 01:00 and 07:00, the hours you chose.")
+        self.assertEqual(model.waiting_for("on battery"), "the computer is plugged in")
+        self.assertEqual(model.waiting_for("gtav.elf is running"), "gtav.elf has closed")
