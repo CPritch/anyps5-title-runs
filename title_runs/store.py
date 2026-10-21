@@ -25,6 +25,13 @@ class ResultsRepo:
         return result.stdout.strip()
 
     def sync(self):
+        if (self.dir / ".git").exists() and self.git("remote", "get-url", "origin") != self.url:
+            # The tester pointed the client at another results repository: start that checkout afresh.
+            self.git("remote", "set-url", "origin", self.url)
+            self.git("fetch", "-q", "--depth", "50", "origin", "main")
+            self.git("reset", "-q", "--hard", "origin/main")
+            self.git("clean", "-q", "-fdx")
+            return
         if not (self.dir / ".git").exists():
             self.dir.parent.mkdir(parents=True, exist_ok=True)
             self.git("clone", "-q", "--depth", "50", self.url, str(self.dir), cwd=self.dir.parent)
