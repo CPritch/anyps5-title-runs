@@ -154,8 +154,10 @@ class Registration(unittest.TestCase):
         self.assertIn("registration", stand.issue(issue)["labels"])
         stand.approve_machine(issue, actor="Celegans12")
         stand.poll()
+        stand.poll()  # seen again on every run, counted once
         self.assertEqual(stand.registry()["machines"], {})
-        self.assertIn("counts only from a maintainer", stand.issue_comments(issue)[-1]["body"])
+        self.assertEqual(stand.issue_comments(issue), [])  # no reply
+        self.assertEqual(stand.relay.cursors["ignored"]["counts"], {"label": 1})
         stand.user("CPritch").remove_label(issue, "approved")
         stand.approve_machine(issue)
         stand.poll()
@@ -171,12 +173,14 @@ class Registration(unittest.TestCase):
         stand.poll()
         self.assertIn("CPritch/laptop", stand.registry()["declined"])
 
-    def test_a_registration_for_someone_else_is_refused(self):
+    def test_a_registration_for_someone_else_is_ignored(self):
         stand = Stand()
         issue = stand.register(tester="CPritch", opened_by="mallory")
         stand.poll()
+        stand.poll()
         self.assertEqual(stand.registry()["pending"], {})
-        self.assertEqual(stand.issue(issue)["state"], "closed")
+        self.assertEqual((stand.issue(issue)["state"], stand.issue_comments(issue)), ("open", []))  # no write at all
+        self.assertEqual(stand.relay.cursors["ignored"]["counts"], {"registration": 1})
 
 
 class Reports(unittest.TestCase):
@@ -230,15 +234,29 @@ class Reports(unittest.TestCase):
         self.report(user="mallory", data=result(self.h.A, tester="mallory"))
         self.assertFalse((self.stand.state / "results").exists())
 
-    def test_a_result_after_its_claim_expired_is_refused(self):
+    def test_a_result_after_its_claim_expired_is_ignored(self):
         self.report(at="2026-10-21T15:00:01Z")
         self.assertFalse((self.stand.state / "results").exists())
-        self.assertIn("outside its claim", self.stand.issue_comments(self.issue)[-1]["body"])
+        self.assertEqual(self.stand.relay.cursors["ignored"]["counts"], {"result": 1})
+        self.assertIn("outside its claim", self.stand.relay.cursors["ignored"]["recent"][-1]["detail"])
 
-    def test_a_result_without_a_claim_is_refused(self):
+    def test_a_result_without_a_claim_is_ignored_without_a_reply(self):
         comment(self.stand, "result", result(self.h.A), "CPritch", self.issue)
         self.stand.at("2026-10-21T13:00:00Z").poll()
-        self.assertIn("no claim of laptop", self.stand.issue_comments(self.issue)[-1]["body"])
+        self.assertTrue(all(formats.payload(c["body"])[0] for c in self.stand.issue_comments(self.issue)))  # only the tester's own
+        self.assertIn("no claim of laptop", self.stand.relay.cursors["ignored"]["recent"][-1]["detail"])
+
+    def test_spam_is_counted_in_the_overview_and_answered_by_nothing(self):
+        before = len(self.stand.calls())
+        for user in ("spammer1", "spammer2"):
+            self.stand.user(user).create_comment(self.issue, "buy things")
+        comment(self.stand, "result", result(self.h.A, tester="mallory", machine="box"), "mallory", self.issue)
+        self.stand.at("2026-10-21T13:00:00Z").poll()
+        writes = [c for c in self.stand.calls()[before:] if c["as"] != "spammer1" and c["as"] != "spammer2" and c["as"] != "mallory"]
+        self.assertTrue(all(c["action"] == "edit-issue" for c in writes), writes)  # the overview's edit, nothing else
+        body = self.stand.issue(self.stand.relay.cursors["overview_issue"])["body"]
+        self.assertIn("### Ignored, without a reply", body)
+        self.assertIn("2 without a title-runs payload; 1 from accounts without a registered machine", body)
 
     def test_a_result_for_another_head_is_refused(self):
         self.report(data=result(self.h.B))

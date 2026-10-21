@@ -57,7 +57,19 @@ def view(state, queue, registry, claims, jobs, last_run, rules=verdict.DEFAULT, 
                 last[key] = result["finished"]
     machines = [{"key": key, **m, "last_report": m.get("last_report") or last.get(key, "")} for key, m in sorted(registry["machines"].items())]
     return {"entries": entries, "machines": machines, "pending": [{"key": k, **p} for k, p in sorted(registry["pending"].items())],
-            "expired": queue.get("expired", [])[-10:], "refused": queue.get("refused", [])[-10:], "last_run": last_run}
+            "expired": queue.get("expired", [])[-10:], "refused": queue.get("refused", [])[-10:], "last_run": last_run,
+            "ignored": ignored or {"counts": {}}}
+
+
+def ignored_text(ignored):
+    """"5 comments from accounts without a registered machine, 1 without a title-runs payload; the last 2026-10-21 16:00
+    UTC", or "" when nothing was ignored."""
+    from .relay import IGNORED
+    counts = (ignored or {}).get("counts") or {}
+    if not counts:
+        return ""
+    parts = [f"{n} {IGNORED.get(reason, reason)}" for reason, n in sorted(counts.items(), key=lambda x: -x[1])]
+    return "; ".join(parts) + (f" (the last {utc(ignored['last'])})" if ignored.get("last") else "")
 
 
 def render(data, anyps5, label="title-test"):
@@ -100,4 +112,7 @@ def render(data, anyps5, label="title-test"):
         lines += ["", "Add the label `approved` to a registration issue to approve the machine, or `declined` to turn it down."]
     else:
         lines.append("None.")
+    lines += ["", "### Ignored, without a reply", ""]
+    lines.append((ignored_text(data.get("ignored")) + ". The workflow answers nothing it does not use, so commenting cannot make it write.")
+                 if ignored_text(data.get("ignored")) else "Nothing.")
     return "\n".join(lines) + "\n"

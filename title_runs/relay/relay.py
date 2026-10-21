@@ -10,7 +10,9 @@ on AnyPS5 and as the workflow on the results repository.
    (`declined` turns it down); the workflow then records the machine in registry.json and closes the issue.
 4. Job issues: one per queued job, opened here, closed when the job leaves the queue.
 5. Testers' comments on job issues: claims, withdrawals and results, accepted only from a registered machine's tester,
-   a result only with that tester's live claim for the same head. Accepted results go to results/.
+   a result only with that tester's live claim for the same head. Accepted results go to results/. What is not
+   accepted gets no reply (nobody can make the workflow write by commenting); it is counted by reason in
+   cursors.json's "ignored" and shown in the overview.
 6. The App's comment on each PR that changed, and the overview issue.
 
 Nothing depends on a run happening on time: cursors carry over and a late run catches up. State is written to the
@@ -27,6 +29,11 @@ from .. import formats, gh, verdict
 
 APPROVED, DECLINED, REGISTRATION, JOB, OVERVIEW, TESTER_TRUST = "approved", "declined", "registration", "job", "overview", "tester-trust"
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
+# Why the workflow did not use a comment, a registration or a label: the overview's words for each.
+IGNORED = {"unregistered": "from accounts without a registered machine", "chatter": "without a title-runs payload",
+           "unreadable": "with a payload the workflow cannot read", "elsewhere": "title-runs comments outside a job issue",
+           "claim": "claims that do not match their job", "result": "results without a matching live claim",
+           "registration": "registrations the workflow cannot use", "label": "approved or declined labels from someone not a maintainer"}
 FILES = ("queue", "registry", "claims", "jobs", "comments", "cursors")
 
 
@@ -94,6 +101,20 @@ class Relay:
             self.log(f"#{pr}: not queued: {head[:9]} was pushed at {pushed}, after {by}'s {'label' if labelled else 'command'} at {at}")
             return None
         return head
+
+    def ignore(self, reason, issue, user, detail="", once=None):
+        """Count what the workflow does not use, without a reply. once: a key for what every run sees again (a label, an
+        open issue), so it is counted the first time only."""
+        record = self.cursors.setdefault("ignored", {"counts": {}, "recent": []})
+        if once is not None:
+            seen = record.setdefault("seen", [])
+            if once in seen:
+                return
+            seen.append(once)
+        record["counts"][reason] = record["counts"].get(reason, 0) + 1
+        record["last"] = self.stamp()
+        record["recent"] = (record["recent"] + [{"at": self.stamp(), "issue": issue, "user": user, "reason": reason, "detail": detail[:200]}])[-20:]
+        self.log(f"#{issue}: ignored ({IGNORED[reason]}) from {user}{': ' + detail if detail else ''}")
 
     def close_job(self, job, reason):
         record = self.jobs.get(job)
@@ -251,12 +272,11 @@ class Relay:
             try:
                 formats.check_registration(data)
             except formats.FormatError as error:
-                self.reply_once(issue["number"], f"Not a registration the client can read: {error}")
+                self.ignore("registration", issue["number"], issue["user"], str(error), once=f"issue:{issue['number']}")
                 continue
             key = formats.machine_key(data["tester"], data["machine"])
             if data["tester"] != issue["user"]:
-                self.reply_once(issue["number"], f"Not accepted: the registration names {data['tester']}, but @{issue['user']} opened it.")
-                self.results.edit_issue(issue["number"], state="closed")
+                self.ignore("registration", issue["number"], issue["user"], f"it names {data['tester']}", once=f"issue:{issue['number']}")
                 continue
             record = {"issue": issue["number"], "tester": data["tester"], "machine": data["machine"], "class": data["class"],
                       "titles": data.get("titles", []), "opened": issue["created_at"]}
@@ -275,7 +295,7 @@ class Relay:
                     continue
                 actor = self.results.label_actor(record["issue"], label)
                 if not self.maintainer(actor):
-                    self.reply_once(record["issue"], f"`{label}` counts only from a maintainer ({', '.join('@' + m for m in self.config['maintainers'])}).")
+                    self.ignore("label", record["issue"], actor or "?", label, once=f"label:{record['issue']}:{label}:{actor}")
                     continue
                 del self.registry["pending"][key]
                 if label == APPROVED:
@@ -317,10 +337,6 @@ class Relay:
             self.cursors["tester_trust_issue"] = number
         return number
 
-    def refuse(self, issue, user, reason):
-        self.results.create_comment(issue, f"@{user}: not used: {reason}")
-        self.log(f"#{issue}: {user}'s comment not used: {reason}")
-
     def job_comments(self):
         since, seen = self.cursors.get("results_comments"), set(self.cursors.get("results_comment_ids", []))
         newest, at_newest = since, set()
@@ -333,20 +349,25 @@ class Relay:
                 newest, at_newest = note["created_at"], set()
             at_newest.add(note["id"])
             kind, data = formats.payload(note["body"])
-            if kind not in ("claim", "withdraw", "result") or self.is_bot(note["user"]):
+            if self.is_bot(note["user"]):
+                continue
+            if kind not in ("claim", "withdraw", "result"):
+                if not self.maintainer(note["user"]):
+                    self.ignore("unreadable" if kind else "chatter", note["issue"], note["user"])
                 continue
             if data is None or not isinstance(data, dict):
-                self.refuse(note["issue"], note["user"], "no JSON block the workflow can read")
+                self.ignore("unreadable", note["issue"], note["user"], "no JSON block the workflow can read")
                 continue
             key = formats.machine_key(note["user"], str(data.get("machine")))
             if key not in self.registry["machines"]:
-                self.log(f"#{note['issue']}: {key} is not a registered machine: ignored")
+                self.ignore("unregistered", note["issue"], note["user"], f"{key} is not a registered machine")
                 continue
             if note["issue"] == trust_issue and kind == "result":
                 self.accept_trusted(note, data)
                 continue
             job = by_issue.get(note["issue"])
             if job is None:
+                self.ignore("elsewhere", note["issue"], note["user"], kind)
                 continue
             try:
                 if kind == "claim":
@@ -360,7 +381,7 @@ class Relay:
                 else:
                     self.accept(job, note, data)
             except (formats.FormatError, KeyError, TypeError) as error:
-                self.refuse(note["issue"], note["user"], str(error))
+                self.ignore("claim" if kind == "claim" else "result" if kind == "result" else "unreadable", note["issue"], note["user"], str(error))
         self.cursors["results_comments"] = newest
         self.cursors["results_comment_ids"] = sorted(at_newest | (seen if newest == since else set()))
 
@@ -387,7 +408,7 @@ class Relay:
             if result["head"] not in self.anyps5.commits(result["pr"]):
                 raise formats.FormatError(f"{result['head'][:9]} is not a commit of #{result['pr']}")
         except (formats.FormatError, gh.GitHubError) as error:
-            return self.refuse(note["issue"], note["user"], str(error))
+            return self.ignore("result", note["issue"], note["user"], str(error))
         self.store(path, result, note)
 
     def store(self, path, result, note):
@@ -410,7 +431,7 @@ class Relay:
     def update_overview(self):
         """Edit the overview issue when what it shows changed (compared without its time, so an unchanged overview costs
         no write: edits count against GitHub's content-creation limit)."""
-        data = overview.view(self.state, self.queue, self.registry, self.claims, self.jobs, self.stamp(), self.rules)
+        data = overview.view(self.state, self.queue, self.registry, self.claims, self.jobs, self.stamp(), self.rules, self.cursors.get("ignored"))
         steady = comment.digest(overview.render({**data, "last_run": None}, self.config["repository"], self.label))
         number = self.cursors.get("overview_issue")
         if number is not None and steady == self.cursors.get("overview_sha256"):

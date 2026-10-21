@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QCheckBox, QFormLayout, QGroupBox, QHBoxLayout, Q
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from .. import platform_info, verdict
+from ..relay import overview
 from ..relay.render import utc
 from . import model
 from .trust_dialog import TrustDialog
@@ -106,7 +107,8 @@ class QueueTab(QWidget):
     def refresh(self):
         ready, why, fix = self.engine.readiness()
         stale = self.engine.stale_text()
-        show(self.not_ready, "<br>".join(x for x in ((f"<b>This machine takes no jobs yet</b>: {why}." if not ready else ""), stale) if x))
+        unused = self.engine.ignored_mine()
+        show(self.not_ready, "<br>".join(x for x in ((f"<b>This machine takes no jobs yet</b>: {why}." if not ready else ""), stale, unused) if x))
         self.fix.setText(fix)
         self.fix.setVisible(bool(fix))
         view = self.engine.queue_view()
@@ -166,6 +168,10 @@ class OverviewTab(QWidget):
         layout.addLayout(top)
         self.stale = banner()
         layout.addWidget(self.stale)
+        self.ignored = QLabel("")
+        self.ignored.setWordWrap(True)
+        self.ignored.setStyleSheet("QLabel { color: palette(mid); }")
+        layout.addWidget(self.ignored)
         queue = QGroupBox("Queue: approved heads, what has reported and what is still wanted")
         box = QVBoxLayout(queue)
         self.queue = QTreeWidget()
@@ -208,6 +214,8 @@ class OverviewTab(QWidget):
         self.summary.setTextFormat(Qt.RichText)
         self.open_issue.setEnabled(bool(self.engine.overview_issue()))
         show(self.stale, self.engine.stale_text())
+        ignored = overview.ignored_text(data.get("ignored"))
+        show(self.ignored, f"Ignored without a reply: {ignored}." if ignored else "")
         self.queue.clear()
         for item in data["entries"]:
             e, c = item["entry"], item["coverage"]

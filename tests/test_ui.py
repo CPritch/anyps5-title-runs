@@ -1,6 +1,7 @@
 """The window's model (no Qt), and the trust dialog's rules (offscreen Qt): Run anyway needs a scope, the box ticked and
 the author's name typed exactly; Enter does not accept."""
 
+import json
 import os
 import unittest
 
@@ -198,3 +199,22 @@ class WalkthroughAndOverview(unittest.TestCase):
         self.assertEqual(window.overview.pending.topLevelItemCount(), 0)
         self.assertEqual(window.overview.machines.topLevelItem(0).text(0), "standin-tester/" + self.engine.config.machine)
         self.assertEqual(window.overview.machines.topLevelItem(0).text(3), "@CPritch")
+
+    def test_an_ignored_comment_shows_in_the_overview_and_to_its_tester(self):
+        from title_runs import formats, standin
+        from title_runs.ui.window import MainWindow
+        self.engine.client.finish_onboarding({})
+        flow = self.engine.client.flow()
+        device = flow.start()
+        self.stand.authorize(device["user_code"], "standin-tester")
+        flow.poll(device)
+        self.stand.tick()
+        trust = self.engine.client.repo.cursors().get("tester_trust_issue") or json.loads(
+            standin.git(self.stand.results_git, "show", "main:cursors.json"))["tester_trust_issue"]
+        self.engine.client.github().create_comment(trust, formats.payload_body("result", {"machine": "laptop", "job": "x"}, "a result."))
+        self.stand.tick()
+        self.engine.load(sync=True)
+        window = MainWindow(self.engine)
+        window.refresh()
+        self.assertIn("1 from accounts without a registered machine", window.overview.ignored.text())
+        self.assertIn("The workflow did not use your comment", window.queue.not_ready.text())

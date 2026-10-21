@@ -112,8 +112,9 @@ someone/desk claims 8104-69ac2e155ad0.
 | `result` | a comment on the job's issue, or on the "Runs on testers' own trust" issue for `trust: tester` | the result below |
 
 The workflow uses a comment only when its author has a registered machine of that name; a result only with that
-author's claim for the same job and head, made earlier and not expired when the result came. Anything else gets a
-short reply saying why it was not used. A comment body is at most 60,000 characters here (GitHub refuses more than
+author's claim for the same job and head, made earlier and not expired when the result came. Anything else gets no
+reply: it is counted in `cursors.json`'s `ignored` by reason, with the last 20 (time, issue, account, reason,
+detail), so a tester's client can show its tester why a comment was not used. A comment body is at most 60,000 characters here (GitHub refuses more than
 65,536).
 
 ## results/<job>/<machine>.json
@@ -151,4 +152,6 @@ The workflow's own bookkeeping: `claims.json` `{job: {machine: claim + comment}}
 "head", "state", "reason"}}`; `comments.json` `{"prs": {pr: {"comment_id", "posts": [{"action", "at", "reason",
 "heads", "body_sha256"}]}}}` (a new comment when, for a machine and title, an outcome class changed or the verdict
 changed to faster or slower; otherwise an edit); `cursors.json` the last AnyPS5 event and comment seen, the last
-results-repository comment seen, the overview and tester-trust issue numbers, and `last_run`.
+results-repository comment seen, the overview and tester-trust issue numbers, `last_run`, and `ignored`:
+`{"counts": {reason: n}, "last", "recent": [...], "seen": [...]}` (reasons: `unregistered`, `chatter`, `unreadable`,
+`elsewhere`, `claim`, `result`, `registration`, `label`; `seen` keeps labels and open issues counted once).

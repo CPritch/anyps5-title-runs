@@ -23,6 +23,7 @@ from PySide6.QtWidgets import QApplication
 
 from .. import ROOT, client as clients, config as configs, configfile, formats, platform_info, poller, sandbox, store, verdict
 from ..relay import overview
+from ..relay.render import utc as utc_text
 from . import model
 
 
@@ -98,6 +99,16 @@ class Engine(QObject):
             return ""
         return (f"<b>The results repository's workflow last ran {hours:.0f} h ago.</b> GitHub may have delayed or dropped its scheduled runs, "
                 f"or disabled the schedule after 60 days without activity; a maintainer turns it back on in the repository's Actions tab.")
+
+    def ignored_mine(self):
+        """The workflow answers nothing it does not use; the tester's own ignored comments are in its public cursors."""
+        login = self.client.tester()
+        mine = [r for r in (self.client.repo.cursors().get("ignored") or {}).get("recent", []) if login and r.get("user") == login]
+        if not mine:
+            return ""
+        last = mine[-1]
+        return (f"<b>The workflow did not use your comment on #{last['issue']}</b> ({utc_text(last['at'])}): "
+                f"{last.get('detail') or last['reason']}.")
 
     def results_repository(self):
         return self.client.repo.read("config.json", {}).get("results_repository", "?")
