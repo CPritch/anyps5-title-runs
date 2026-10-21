@@ -2,7 +2,7 @@
 
   title-runs ui [--config FILE] [--listing FILE] [--auto]       the tray and the window
   title-runs ui --setup --config FILE [--dumps DIR] [--results URL]   the first-run setup, then the tray
-  title-runs ui --screenshots DIR [--config FILE] [--listing FILE]    render every screen to DIR (offscreen) and exit
+  title-runs ui --screenshots DIR [--config FILE] [--listing FILE] [--no-sync]   render every screen to DIR (offscreen)
 
 --listing: the PR listing the Pull requests tab shows (default: the state directory's cache/pull-requests.json, which
 `title-runs poll` keeps). --auto: run the queue's jobs when the schedule allows (otherwise only on request).
@@ -253,6 +253,7 @@ def main(argv=None):
     parser.add_argument("--dumps", default="")
     parser.add_argument("--results", default="")
     parser.add_argument("--screenshots", type=Path)
+    parser.add_argument("--no-sync", action="store_true", help="--screenshots: read the results checkout as it is (a client may be using it)")
     args = parser.parse_args(argv)
     app = QApplication(sys.argv[:1])
     app.setApplicationName("AnyPS5 title runs")
@@ -264,7 +265,7 @@ def main(argv=None):
             return 1
     engine = Engine(configs.load(args.config), args.listing, args.auto)
     if args.screenshots:
-        engine.load(sync=True)
+        engine.load(sync=not args.no_sync)
         for path in screenshots(engine, args.screenshots, args.dumps, args.results):
             print(path)
         return 0

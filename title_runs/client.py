@@ -18,6 +18,7 @@ from . import formats, job, platform_info, report, schedule, store, trust
 VERSION = "anyps5-title-runs 0.2"
 RENEW_MINUTES = 45
 UNSAFE = re.compile(r"[<>`|\r\n\x00-\x08\x0b-\x1f]")
+STAGE = re.compile(r"^(?:[AB]: |#\d+: |not built)")  # job.run's stage lines (merge, submodules, builds): shown as progress
 
 
 def clean(text, limit=120):
@@ -162,7 +163,7 @@ class Client:
         claim = formats.make_claim(job_id, self.config.machine, self.config.tester, self.machine_class, set(self.config.titles),
                                    head=head, client=VERSION)
         self.repo.write({formats.claim_path(job_id, self.config.machine): claim}, f"claim {job_id} ({self.config.machine})")
-        self.status.update(state="running", line=f"Running: #{pr} · {', '.join(self.config.titles)} · starting", stop_requested=False,
+        self.status.update(state="running", line=f"Running: #{pr} · {', '.join(self.config.titles)} · starting", progress="starting", stop_requested=False,
                            job={"pr": pr, "head": head, "title": title, "author": author, "trust": trust_mark, "claimed": claim["claimed"]})
         self.log(f"claimed {job_id}")
 
@@ -175,7 +176,12 @@ class Client:
                 self.renew(claim)
             return reason
 
-        results = job.run(self.config, self.config.state_dir, pr, head, lambda text: (self.log(text), progress(text)),
+        def note(text):
+            self.log(text)
+            if STAGE.match(text):
+                progress(text)
+
+        results = job.run(self.config, self.config.state_dir, pr, head, note,
                           recheck=lambda: self.recheck(pr, head, trust_mark), progress=progress, should_stop=should_stop)
         if results["status"] == "superseded" and not results.get("titles"):
             self.repo.sync()

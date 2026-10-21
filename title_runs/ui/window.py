@@ -65,7 +65,8 @@ class QueueTab(QWidget):
         running = view["running"]
         if running:
             trust = "" if running["trust"] == "queue" else " (on your trust)"
-            self.running.setText(f"#{running['number']} {running['head'][:9]}{trust}: {running['line'].replace('Running: ', '')}")
+            titles = ", ".join(self.engine.names.values())
+            self.running.setText(f"#{running['number']} {running['head'][:9]}{trust} · {titles} · {running['progress'] or 'starting'}")
         else:
             self.running.setText(self.engine.status().get("line", "Nothing is running."))
         self.stop.setEnabled(bool(running))

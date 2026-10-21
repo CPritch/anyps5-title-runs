@@ -66,12 +66,14 @@ def waiting_for_you(sections):
 def queue_view(ranked, status, titles):
     """The Queue tab: running, up next (with the score's reasons), waiting for you is filled by the caller, recent."""
     up_next = []
+    job = status.get("job") or {}
     for choice in ranked:
         entry = choice.entry
+        if status.get("state") == "running" and job.get("pr") == entry["pr"] and job.get("head") == entry["head"]:
+            continue
         up_next.append({"number": entry["pr"], "title": entry.get("title", ""), "head": entry["head"], "priority": entry["priority"],
                         "titles": ", ".join(titles.get(t, t) for t in entry["titles"]) or "any", "score": choice.score,
                         "reasons": choice.reasons, "unapproved": [p["sha"] for p in entry.get("unapproved", [])]})
-    job = status.get("job") or {}
     running = None
     if status.get("state") == "running" and job:
         running = {"number": job.get("pr"), "head": job.get("head", ""), "line": status.get("line", ""), "progress": status.get("progress", ""),
