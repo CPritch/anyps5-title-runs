@@ -177,6 +177,8 @@ class Client:
     def register(self):
         """Open the machine's registration issue in the results repository (as the tester)."""
         login = self.tester()
+        if not formats.MACHINE.fullmatch(self.config.machine or ""):
+            raise ValueError(f"the machine name {self.config.machine!r} is not 1 to 32 letters, digits and hyphens, starting with a letter or digit")
         data = {"format": formats.FORMAT, "tester": login, "machine": self.config.machine, "class": self.machine_class,
                 "titles": sorted(self.config.titles)}
         body = formats.payload_body("register", data, f"Registration of {login}/{self.config.machine}: {self.info['gpu']}, "

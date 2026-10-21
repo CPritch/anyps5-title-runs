@@ -144,6 +144,23 @@ class Switching(Setup):
         flow.store(data)
         self.assertIsNone(self.client.tester())
 
+    def test_a_hostname_registers_and_a_bad_name_is_refused_before_github(self):
+        self.client.repo.sync()
+        self.client.finish_onboarding({})
+        flow = self.client.flow()
+        device = flow.start()
+        self.stand.authorize(device["user_code"], "CPritch")
+        flow.poll(device)
+        self.config.machine = "Legion5a laptop"
+        with self.assertRaises(ValueError):
+            self.client.register()
+        self.assertEqual(self.client.registration()[0], "not registered")
+        self.config.machine = "Legion5a-Laptop"
+        self.client.register()
+        self.stand.tick()
+        self.client.repo.sync()
+        self.assertIn("CPritch/Legion5a-Laptop", self.client.repo.registry()["pending"])
+
     def test_slow_down_lengthens_the_wait(self):
         from unittest import mock
         from title_runs import auth

@@ -21,7 +21,7 @@ STATUSES = ("done", "failed", "superseded")
 VERDICTS = ("faster", "slower", "no difference", "not enough counted runs", "no difference beyond the spread")  # the last: round 2's
 SHA = re.compile(r"[0-9a-f]{40}")
 JOB = re.compile(r"(\d+)-([0-9a-f]{12})")
-MACHINE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
+MACHINE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,31}")  # a hostname: Legion5a-Laptop; it goes into paths, comments and tables
 TITLE_ID = re.compile(r"[A-Z]{4}[0-9]{5}")
 LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
 
