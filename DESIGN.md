@@ -106,6 +106,27 @@ score = priority weight                       (high 4, normal 2, low 1)
 
 ## Trust and safety
 
+### Approval is per commit, not per PR
+
+A maintainer approves code they have looked at, so the approval names a commit:
+
+- **The queue pins the head SHA** from the label or comment event itself. Testers fetch that commit by SHA and merge
+  it onto current main locally; they never build `refs/pull/N/merge` or the branch's current head.
+- **The App echoes it**: "Queued 8d4f486 for title runs". `/title-test sha=8d4f486` pins it explicitly, which closes the
+  race of a push landing seconds before the maintainer labels.
+- **A push after approval is not approved.** The PR's comment shows "8f1c2aa pushed after approval: not checked".
+  Testers keep to the approved SHA (or stop once it is superseded) until a maintainer approves the new head; a
+  tester can still opt in through the trust dialog.
+- **Carried over without a maintainer** only when nothing the maintainer looked at changed:
+  - a rebase whose own diff is identical to the approved one (same patch-id per commit, or an empty `git range-diff`
+    apart from the base);
+  - commits pushed by an account whose `author_association` is OWNER, MEMBER or COLLABORATOR (people the maintainers
+    already trust with the repository), not by the PR's author.
+- **The client checks again** just before it builds: the SHA it is about to build must equal the queue entry's, or
+  the job stops.
+
+### Paths
+
 - **Maintainer-queued**: runs per the tester's schedule without asking.
 - **Not checked** (a PR no maintainer has queued): the tester can still run it, from the window, after the trust
   dialog below. The report marks it.
