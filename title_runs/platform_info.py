@@ -1,0 +1,140 @@
+"""What the client asks of the machine: GPU, driver and OS; dumps in a folder; mains power; idle time; whether a game or
+a fullscreen program runs. Linux and Windows implementations side by side, so the UI code calls only these.
+
+Windows paths are written but not yet run on a Windows machine (DESIGN.md: Linux and Windows from the start).
+"""
+
+import ctypes
+import json
+import os
+import platform
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+WINDOWS = platform.system() == "Windows"
+
+
+def _run(*argv):
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def gpu():
+    """(name, driver) of the first GPU, as well as the machine can tell."""
+    if shutil.which("nvidia-smi"):
+        line = _run("nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader").splitlines()
+        if line:
+            name, driver = [part.strip() for part in line[0].split(",", 1)]
+            return name, f"NVIDIA {driver}"
+    if WINDOWS:
+        out = _run("powershell", "-NoProfile", "-Command", "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name,DriverVersion | ConvertTo-Json")
+        try:
+            data = json.loads(out)
+            return data.get("Name", "unknown GPU"), data.get("DriverVersion", "")
+        except json.JSONDecodeError:
+            return "unknown GPU", ""
+    for line in _run("lspci", "-mm").splitlines():
+        fields = re.findall(r'"([^"]*)"', line)
+        if len(fields) >= 3 and ("VGA" in fields[0] or "3D" in fields[0] or "Display" in fields[0]):
+            mesa = re.search(r"Mesa ([0-9.]+)", _run("glxinfo", "-B"))
+            return f"{fields[1]} {fields[2]}", f"Mesa {mesa.group(1)}" if mesa else ""
+    return "unknown GPU", ""
+
+
+def os_name():
+    if WINDOWS:
+        return f"Windows {platform.release()} ({platform.version()})"
+    return f"{platform.system()} {platform.release()}"
+
+
+def machine_info():
+    name, driver = gpu()
+    system = os_name()
+    return {"gpu": name, "driver": driver, "os": system}
+
+
+def find_dumps(folder, depth=3):
+    """Extracted packages under folder (eboot.bin and sce_sys/param.json): [{"title_id", "name", "version", "path"}]."""
+    found = []
+    folder = Path(folder).expanduser()
+    if not folder.is_dir():
+        return found
+    stack = [(folder, 0)]
+    while stack:
+        path, level = stack.pop()
+        param = path / "sce_sys" / "param.json"
+        if (path / "eboot.bin").is_file() and param.is_file():
+            try:
+                data = json.loads(param.read_text(encoding="utf-8", errors="replace"))
+            except json.JSONDecodeError:
+                continue
+            names = data.get("localizedParameters", {})
+            language = names.get("defaultLanguage", "en-US")
+            name = names.get(language, {}).get("titleName") or data.get("titleId", "?")
+            found.append({"title_id": data.get("titleId", "?"), "name": name, "version": data.get("contentVersion", "?"), "path": str(path)})
+            continue
+        if level < depth:
+            try:
+                children = sorted(p for p in path.iterdir() if p.is_dir() and not p.name.startswith("."))
+            except OSError:
+                continue
+            stack += [(child, level + 1) for child in reversed(children)]
+    return sorted(found, key=lambda d: d["title_id"])
+
+
+def on_mains():
+    """True on mains power, False on battery, None when the machine does not say."""
+    if WINDOWS:
+        class Status(ctypes.Structure):
+            _fields_ = [("ACLineStatus", ctypes.c_byte), ("BatteryFlag", ctypes.c_byte), ("BatteryLifePercent", ctypes.c_byte),
+                        ("SystemStatusFlag", ctypes.c_byte), ("BatteryLifeTime", ctypes.c_ulong), ("BatteryFullLifeTime", ctypes.c_ulong)]
+        status = Status()
+        if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status)):
+            return {0: False, 1: True}.get(status.ACLineStatus)
+        return None
+    supplies = Path("/sys/class/power_supply")
+    mains = [p for p in supplies.glob("*") if (p / "type").exists() and (p / "type").read_text().strip() == "Mains"] if supplies.exists() else []
+    if not mains:
+        return None
+    return any((p / "online").read_text().strip() == "1" for p in mains)
+
+
+def idle_seconds():
+    """Seconds since the last keyboard or mouse input, or None when unknown."""
+    if WINDOWS:
+        class LastInput(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_ulong)]
+        info = LastInput(ctypes.sizeof(LastInput), 0)
+        if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
+            return (ctypes.windll.kernel32.GetTickCount() - info.dwTime) / 1000
+        return None
+    session = os.environ.get("XDG_SESSION_ID")
+    out = _run("loginctl", "show-session", *([session] if session else []), "-p", "IdleHint", "-p", "IdleSinceHintMonotonic")
+    values = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+    if values.get("IdleHint") != "yes":
+        return 0.0 if values else None
+    since = int(values.get("IdleSinceHintMonotonic", "0") or 0)
+    if not since:
+        return None
+    uptime = float(Path("/proc/uptime").read_text().split()[0])
+    return max(0.0, uptime - since / 1e6)
+
+
+def running(names):
+    """The process names among names that are running now."""
+    names = {n.lower() for n in names}
+    if WINDOWS:
+        out = _run("tasklist", "/fo", "csv", "/nh")
+        return sorted({line.split(",")[0].strip('"').lower() for line in out.splitlines()} & names)
+    found = set()
+    for status in Path("/proc").glob("[0-9]*/comm"):
+        try:
+            found.add(status.read_text().strip().lower())
+        except OSError:
+            continue
+    return sorted(found & names)
