@@ -131,13 +131,14 @@ score = priority weight                       (high 4, normal 2, low 1)
 
 - **Per machine**: the difference of the mean p50s (PR − main) counts only when it is larger than both sides' spreads
   (max − min of each side's p50s) *and* larger than 1 % of main's mean p50. Otherwise "no difference". A difference
-  that passes one of the two tests but not the other is **borderline**.
+  that passes one of the two tests but not the other is **borderline**. The 1 % is `verdicts.threshold_pct` in the
+  results repository's config.json (default 1).
 - **Per class**: machines with the same GPU model, driver branch (the driver's first version field: NVIDIA 615, Mesa
   24.2) and OS are combined. The per-machine differences are combined, never raw frame times, since machines differ:
   "faster on 3 of 3 RTX 5060 Laptop · NVIDIA 615 · Linux machines, median −0.3 ms (−0.4 %)". A class is faster or
   slower when a majority of its machines are and none goes the other way; "mixed" when both happen; otherwise no
   difference. A class is borderline when its only machine is, or when its machines disagree and fewer than three
-  have reported; the scheduler then asks for another machine of it.
+  have reported (`verdicts.class_max`, default 3); the scheduler then asks for another machine of it.
 - The workflow recomputes every verdict from the p50 lists in the result; a tester's own verdict text is not used.
 
 ## Trust and safety
@@ -148,17 +149,19 @@ A maintainer approves code they have looked at, so the approval names a commit:
 
 - **The queue pins a head SHA.** A polled label event carries no SHA, so the workflow takes the PR's head when it
   sees the label and checks that it was pushed before the label: AnyPS5's own workflow runs for that head (the PR
-  checks every push starts) give its push time and pusher. If the head arrived after the label, nothing is queued and
-  the App says so; the maintainer labels again or names the SHA. Where a head has no run (a repository without PR
-  workflows), the commit's date is the fallback, and the App's echo is what the maintainer checks. Testers fetch the
-  pinned commit by SHA and merge it onto current main locally; they never build `refs/pull/N/merge` or the branch's
-  current head.
+  checks every push starts) give its push time and pusher. If the head arrived after the label, nothing is queued.
+  A head with no workflow run is not approved by a label either: nothing else says when it was pushed (a commit's
+  date is whatever its author wrote), so it needs `/title-test sha=<sha>`. In both cases the App removes the label and
+  posts a new comment saying why and what to do. Testers fetch the pinned commit by SHA and merge it onto current main
+  locally; they never build `refs/pull/N/merge` or the branch's current head.
 - **The App echoes it**: "Queued 8d4f486 for title runs". `/title-test sha=8d4f486` pins it explicitly, which closes the
   race of a push landing just before the maintainer labels.
 - **A push after approval expires the approval.** The App removes `title-test` from the PR (the PR's timeline shows
-  it) and its comment says which commit expired it: "Approval of 69ac2e1 expired: 8118a04 was pushed after it by
-  @someuser and is not checked. Label the PR again to queue it." Running jobs for the old SHA end after their
-  current run; nobody starts a new one. A tester can still opt in to the new head through the trust dialog.
+  it) and posts a new comment, since the maintainer has to act and edits notify nobody: "Approval of 69ac2e1
+  expired: 8118a04 was pushed after it by @someuser and is not checked. Label the PR again to queue it." Once a new
+  head is queued, the notice leaves the top of the comment and stays in its earlier-heads history. Running jobs for
+  the old SHA end after their current run; nobody starts a new one. A tester can still opt in to the new head
+  through the trust dialog. A push whose time can't be told (no workflow run) expires the approval too.
 - **Carried over without a maintainer** only when nothing the maintainer looked at changed:
   - a rebase whose own diff is identical to the approved one (same patch-id per commit, or an empty `git range-diff`
     apart from the base);
@@ -329,9 +332,9 @@ nobody. Runs on a tester's own trust are listed separately, marked as such.
 - **Windows sandbox.** Options: a restricted token / AppContainer for the run with GPU access, or a Windows Sandbox VM
   (vGPU support is limited). Until settled, Windows testers run maintainer-queued PRs only, and the dialog says the
   sandbox is weaker there.
-- **Spam on public issues.** Anyone can comment on the job and registration issues; the workflow ignores them, but
-  they add noise. GitHub's interaction limits (up to six months, prior contributors only) would also block new
-  testers' registrations, so they are left off.
+- **Spam on public issues.** Anyone can comment on the job and registration issues. The workflow ignores what it
+  does not accept, without a reply, and the Overview counts it. GitHub's interaction limits (up to six months, prior
+  contributors only) would also block new testers' registrations, so they are left off.
 - **Routes beyond GTA V.** Routes are per title and per tester's save; a small route recorder (press, wait for a frame
   state, mark) would let testers add their own.
 - **Disk.** Two builds per job and warm caches per build; a cap with least-recently-used eviction.
@@ -386,3 +389,29 @@ What each piece relies on, as GitHub documents it (2026-10-21), and what changed
   repositories and up) but not clearly for personal accounts. No longer needed: testers have no write access, so
   only the workflow and the maintainers write the repository.
 - **Pinning the overview issue.** Maintainers pin it once by hand; the workflow only edits its text.
+
+## Round 4 decisions (Charlie, 2026-10-21)
+
+Charlie's answers to round 3's questions.
+
+1. **Where it lives.** The App and the results repository start on Charlie's account (`title-runs-dev`,
+   `CPritch/anyps5-title-runs-results`, installed on CPritch/AnyPS5) and move to a maintainer once it works. The
+   client has no built-in results repository: it takes it from its config, and switching to another one is one
+   setting (Settings, or `title-runs client use OWNER/NAME`). The client starts afresh for the new repository:
+   its checkout, registration and, when the new repository names another App, its sign-in.
+2. **This repository becomes public** when the App is created, so the workflow can check it out at a pinned commit
+   without a token. Before that, check it for anything that should not be public, and report it rather than
+   rewriting history.
+3. **An expired approval gets a new comment** as well as the label's removal: the maintainer has to act, and edits
+   notify nobody.
+4. **Comments the workflow does not accept get no reply.** They are ignored and counted in the Overview by reason,
+   so nobody can make the workflow write by commenting. The same goes for an `approved` or `declined` label from
+   someone who isn't a maintainer.
+5. **A head with no PR workflow run is not approved by a label.** It needs `/title-test sha=<sha>`. The App removes
+   the label and says so on the PR, in a new comment.
+6. **The expired notice moves** from the top of the App's comment into its earlier-heads history once a new head is
+   queued.
+7. **Settings.** The 1 % threshold and the machines-per-class limit are `verdicts.threshold_pct` and
+   `verdicts.class_max` in config.json, defaulting to 1 and 3.
+8. **A disabled schedule.** The client keeps warning when the workflow hasn't run for an hour. The results
+   repository's README says how to re-enable the schedule (the Actions tab, or `gh workflow enable relay`).
