@@ -79,6 +79,10 @@ class Client:
     def __init__(self, config, log=print, info=None):
         self.config, self.log = config, log
         self.dir = Path(config.state_dir) / "client"
+        token_file = self.dir / "results-token"
+        if config.results_token_env and not os.environ.get(config.results_token_env) and token_file.exists():
+            # The token the setup window saved (mode 0600); git gets it through the credential helper (store.py).
+            os.environ[config.results_token_env] = token_file.read_text().strip()
         self.repo = store.ResultsRepo(config.results_url, self.dir / "results", config.results_token_env, config.state_branch,
                                       author=(config.tester or "tester", f"{config.tester or 'tester'}@users.noreply.github.com"))
         self.trust = trust.TrustStore(self.dir / "trust.json")

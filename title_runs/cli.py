@@ -12,6 +12,7 @@
   title-runs export-results-repo MAIN STATE [OWNER/NAME]   fill a results repository's two branches from results_repo/
   title-runs standin hook|label|command|push|refresh --root DIR ...   the local stand-in for GitHub (standin.py)
   title-runs client [--config FILE] queue|next|run-once|daemon       the tester's client without the window
+  title-runs ui [--config FILE] [--setup] [--screenshots DIR] ...     the tray and the window (title_runs/ui/app.py)
 """
 
 import argparse
@@ -206,6 +207,9 @@ def main(argv=None):
     if argv[:1] == ["relay"]:
         from .relay.__main__ import main as relay
         return relay(argv[1:])
+    if argv[:1] == ["ui"]:
+        from .ui.app import main as ui
+        return ui(argv[1:])
     if argv[:1] == ["standin"]:
         return standin_command(argv[1:])
     if argv[:1] == ["client"]:
