@@ -1,17 +1,24 @@
 # The results repository's files
 
 The results repository (maintainer-owned; see DESIGN.md) holds the queue, the testers' claims and results, and the
-state of the App's comments. Every file is JSON, UTF-8, with `"format": 1`. `title_runs/formats.py` reads and checks
-them on both sides: the client and the workflows (`results_repo/relay/` carries a copy of it).
+state of the App's comments, on two branches. Every file is JSON, UTF-8, with `"format": 1`. `title_runs/formats.py`
+reads and checks them on both sides: the client and the workflows.
 
 ```
-config.json                         maintainers' settings (maintainers, testers, the AnyPS5 repository)
-queue.json                          written by the queue workflow only
-claims/<job>/<machine>.json         written by a tester's client
-results/<job>/<machine>.json        written by a tester's client
-comments.json                       written by the queue and publish workflows
-.github/workflows/queue.yml, publish.yml, relay/
+branch state (only the workflows and the maintainers push to it)
+  config.json                       maintainers' settings (maintainers, testers, the AnyPS5 repository)
+  queue.json                        written by the queue workflow
+  comments.json                     written by the queue and publish workflows
+branch main (the default; testers' tokens push to it)
+  claims/<job>/<machine>.json       written by a tester's client
+  results/<job>/<machine>.json      written by a tester's client
+  .github/workflows/queue.yml, publish.yml, README.md
 ```
+
+A tester's token can write to the whole repository, so what decides what runs and what is posted (the queue, the
+configuration, the record of accepted results) lives on `state`, which a repository rule must protect; the workflows
+never read those files from `main`. No code lives in the results repository either: the workflows run the tool from
+its own repository at a commit pinned in a repository variable.
 
 A **job** is one approved commit of one PR: `<pr>-<the first 12 digits of the SHA>`, e.g. `8104-69ac2e155ad0`.
 
@@ -166,10 +173,17 @@ Written by the queue and publish workflows: the App's comment on each PR, and wh
 {
   "format": 1,
   "prs": {
-    "8104": {"comment_id": 123456, "posts": [{"action": "new", "at": "2026-10-21T12:00:10Z", "reason": "queued", "heads": {}}]}
+    "8104": {"comment_id": 123456, "posts": [{"action": "new", "at": "2026-10-21T12:00:10Z", "reason": "the first comment on this PR",
+                                              "heads": {}, "body_sha256": "…"}]}
+  },
+  "accepted": {
+    "results/8104-69ac2e155ad0/laptop.json": {"pr": 8104, "sha256": "…", "at": "2026-10-21T12:56:00Z", "by": "CPritch"}
   }
 }
 ```
+
+- `accepted`: the result files the publish workflow accepted, with the SHA-256 of the content it checked. The
+  comment shows only these; a file changed later is left out until a new push of it is accepted.
 
 - One comment per PR. It is edited as heads and machines report; a new comment is posted instead when, for a machine
   and title, an outcome class changed or the verdict changed to faster or slower (edits notify nobody). `posts`

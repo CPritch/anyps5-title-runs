@@ -303,4 +303,4 @@ def check_config(data):
 
 
 def empty_comments():
-    return {"format": FORMAT, "prs": {}}
+    return {"format": FORMAT, "prs": {}, "accepted": {}}
