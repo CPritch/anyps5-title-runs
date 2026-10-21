@@ -1,36 +1,64 @@
-# Status: round 2 (2026-10-21), for Charlie's review
+# Status: round 3 (2026-10-21), for Charlie's review
 
-Built toward DESIGN.md (f1b2b3c, with e2c25ff's per-commit approval) against a local stand-in for GitHub and the results
-repository. Nothing has been posted to GitHub and nothing has run on GitHub Actions.
+Round 3 builds Charlie's four decisions (DESIGN.md, "Round 3 decisions"): one App, one public repository and one secret;
+verdicts across machines of a class; a first-run walkthrough; self-service for testers and an overview for maintainers.
+It was built and proved against the local stand-in only. Nothing has been created on GitHub, nothing posted, and
+nothing has run on GitHub Actions.
 
 ## Works on the laptop
 
-- The queue and scheduling (formats.py, schedule.py; FORMATS.md): queue.json pins the approved SHA, claims with expiry,
-  results, the score per DESIGN.md.
-- The workflows' logic (relay/), tested against webhook-shaped fixture events and a fake GitHub: labels and
-  /title-test commands from maintainers only, per-commit approval with patch-id and collaborator carry-over, pushes
-  after approval kept "not checked", publish checks against claim, pusher and approved heads, one comment per PR with
-  the new-or-edit rule. The workflow files (results_repo/) parse and run the tool from a pinned commit.
-- Builds in the build sandbox (no network, GPU or display); a build that reaches for the network fails.
-- The client: claim, fetch the approved SHA and main, merge locally, check again, build, run, push, withdraw the claim
-  when the queue moved on.
-- The tray, the window, the trust dialog and the first-run setup (PySide6); screenshots in docs/screens/.
-- End to end with the stand-in (docs/e2e-2026-10-21/): label -> claim -> sandboxed build and A/B on GTA V -> result ->
-  comment; a push after approval shown as not checked; a maintainer's sha= approval; the second head's run edits the
-  comment with the first head under Earlier heads.
-- 117 tests.
+- **GitHub behind one interface** (`gh.py`): the REST calls the workflow and the client make, and a fake of both
+  repositories with accounts, permissions, workflow runs and the device flow. The stand-in and the tests use the fake.
+- **The relay workflow** (`relay/`, `results_repo/`), one scheduled workflow with one secret:
+  - It polls labels, commands and new heads, and pins a label to the head pushed before it, using the PR's workflow
+    runs.
+  - A push after approval carries the approval over or expires it. On expiry the App removes the label and says on
+    the PR which commit expired it.
+  - It handles registration issues approved by a label, job issues, and results from comments. A result is accepted
+    only from a registered machine with a live claim.
+  - It edits the App's comment on the PR and the Overview issue.
+- **Verdicts** (`verdict.py`): the 1 % rule per machine, classes combined by their differences, and a borderline
+  class asking the scheduler for one more machine of it.
+- **The client** (`client.py`, `auth.py`, `store.py`): device-flow sign-in, registration, and claims, withdrawals and
+  results as comments. It reads only the public checkout of the results repository. A machine's result ends its
+  claim. Nothing runs before the walkthrough is done, the tester is signed in and the machine is approved.
+- **The window**:
+  - the walkthrough (7 pages);
+  - the Queue tab, with a banner saying why the machine takes no jobs;
+  - the Overview tab, with Approve and Decline for maintainers;
+  - Settings, with the account and the registration;
+  - Schedule, with idle detection shown as not available on this laptop, and the fullscreen pause through hyprctl.
+- **End to end on the laptop** (docs/e2e-2026-10-21-round3/), against the stand-in:
+  - A new tester went through the walkthrough, signed in and registered, and CPritch approved the machine from the
+    Overview tab.
+  - A label queued #8104 at 69ac2e155.
+  - The laptop ran it for real: main 77.7/77.8 ms, PR 77.7/78.0 ms, "no difference". The result showed on the PR and
+    in the overview.
+  - A synthetic second machine of the class made it borderline. The scheduler then asked for a third machine of the
+    class (laptop-2, with round 2's real numbers for the same commit), and that settled it at "No difference on 2 of
+    3 … machines, median -0.34 ms".
+  - The author's push of 8118a04e4 expired the approval. The App removed `title-test` and named the commit on the
+    PR, and the label queued the new head again.
+- **Tests:** 138.
 
 ## Not done or stubbed
 
-- Nothing has talked to GitHub: GitHubForge (the App's REST calls), the https results repository with a tester token,
-  and the workflows on Actions are written, not run.
-- The App's webhook has nowhere to go: the queue workflow takes events as repository_dispatch, which needs a small
-  forwarder (or GitHub's webhook redelivery into Actions some other way). Without it only the 10-minute refresh runs,
-  which follows pushes to queued PRs but does not see new labels or commands.
-- Idle detection on Linux reads logind's IdleHint; on this laptop nothing sets it (no idle daemon), so "only when
-  idle" never lets a job start. The end-to-end runs used `client run-once --ignore-schedule`.
-- The Titles tab's on/off and seed saves, and the Schedule tab's disk and longest-job limits, are shown and saved but
-  not acted on. "Also a screenshot" is saved; no screenshot is uploaded.
-- The trust dialog path is tested with a fake job (tests/test_client.py), not run end to end with a real build.
-- Windows: platform_info's Windows paths are written, not run; no Windows sandbox (DESIGN.md, "Open").
-- The Stop button and a superseded head take effect between runs, not inside one. Claim renewal is written, not tested.
+- Nothing has talked to GitHub. `gh.GitHubRepo`, the device flow against github.com and `relay.yml` on Actions are
+  written, not run. The App and the results repository don't exist yet.
+- Only the laptop's run in the end-to-end test was measured today. The other two machines are real clients, each
+  with its own sign-in, registration, claim and result comment, but `job.run` was replaced:
+  - `synthetic` carries today's laptop numbers with the PR's p50 lowered by 1.5 ms (made up, to make the class
+    disagree);
+  - `laptop-2` carries the laptop's real round-2 run of the same commit.
+- The relay's replies to comments it does not accept (not registered, no claim) are written. Nothing limits how many
+  replies one account can draw ("Open" below).
+- The walkthrough checks that an AnyPS5 clone exists but doesn't make one. A new tester needs a clone with its
+  submodules, and on this laptop an unpacked ffmpeg package (`source.cmake_args`), set up by hand.
+- A new config needs `--results URL`: no default results repository is built in.
+- These are shown and saved but not acted on:
+  - the Titles tab's on/off and seed saves;
+  - the Schedule tab's disk and longest-job limits;
+  - "Also a screenshot": no screenshot is uploaded.
+- Windows: platform_info's Windows paths (idle, fullscreen, power) are written but have not been run. There is no
+  Windows sandbox.
+- The Stop button and a superseded head take effect between runs, not inside one.
