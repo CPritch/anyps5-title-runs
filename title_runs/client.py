@@ -15,7 +15,7 @@ import re
 import time
 from pathlib import Path
 
-from . import auth, formats, gh, job, platform_info, report, schedule, store, trust
+from . import auth, formats, gh, job, platform_info, report, schedule, store, trust, verdict
 
 VERSION = "anyps5-title-runs 0.3"
 STALE_HOURS = 1  # the relay workflow last ran longer ago than this: warn
@@ -268,13 +268,13 @@ class Client:
             issue = entry.get("issue")
             if not issue:
                 raise RuntimeError(f"not claimed: the workflow has not opened #{pr}'s job issue yet")
-            key = formats.class_key(self.machine_class)
-            rivals = {m: c for m, c in self.live_claims(issue).items() if m != self.config.machine and formats.class_key(c["class"]) == key}
+            key = verdict.class_of(self.machine_class)
+            rivals = {m: c for m, c in self.live_claims(issue).items() if m != self.config.machine and verdict.class_of(c["class"]) == key}
             if rivals:
                 raise RuntimeError(f"not claimed: {', '.join(rivals)} ({key}) claimed it first")
             claim = formats.make_claim(job_id, self.config.machine, login, self.machine_class, set(self.config.titles), head=head, client=VERSION)
             mine = self.github().create_comment(issue, formats.payload_body("claim", claim, f"{login}/{self.config.machine} claims {job_id}."))
-            first = sorted((c for m, c in self.live_claims(issue).items() if formats.class_key(c["class"]) == key), key=lambda c: (c["at"], c["comment"]))
+            first = sorted((c for m, c in self.live_claims(issue).items() if verdict.class_of(c["class"]) == key), key=lambda c: (c["at"], c["comment"]))
             if first and first[0]["comment"] != mine:
                 self.withdraw(issue, claim, f"{first[0]['machine']} claimed it first")
                 raise RuntimeError(f"not claimed: {first[0]['machine']} claimed it first")

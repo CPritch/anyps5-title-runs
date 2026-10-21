@@ -6,6 +6,7 @@ from title_runs import formats, schedule
 
 NVIDIA_LINUX = formats.machine_class("NVIDIA GeForce RTX 5060 Laptop GPU", "Linux 7.2.8")
 NVIDIA_LINUX_2 = formats.machine_class("NVIDIA GeForce RTX 4060", "Linux 6.17")
+NVIDIA_LINUX_TWIN = formats.machine_class("NVIDIA GeForce RTX 5060 Laptop GPU", "Linux 6.17")  # the laptop's class: GPU, driver branch, OS
 AMD_WINDOWS = formats.machine_class("AMD Radeon RX 6700 XT", "Windows 11")
 NOW = at("2026-10-21T12:00:00")
 HEAD = "69ac2e155ad018ed1fb9028d2028d15999a8571e"
@@ -72,7 +73,10 @@ class Coverage(unittest.TestCase):
         self.assertEqual(self.gap(), 1)
 
     def test_same_class_reported_once(self):
-        self.assertEqual(self.gap(results={self.job: {"desktop": result(self.job, "desktop", NVIDIA_LINUX_2)}}), schedule.COVERED_ONCE)
+        self.assertEqual(self.gap(results={self.job: {"twin": result(self.job, "twin", NVIDIA_LINUX_TWIN)}}), schedule.COVERED_ONCE)
+
+    def test_another_gpu_of_the_vendor_is_another_class(self):
+        self.assertEqual(self.gap(results={self.job: {"desktop": result(self.job, "desktop", NVIDIA_LINUX_2)}}), 1)
 
     def test_other_class_reported(self):
         self.assertEqual(self.gap(results={self.job: {"amdbox": result(self.job, "amdbox", AMD_WINDOWS)}}), 1)
@@ -94,7 +98,11 @@ class Coverage(unittest.TestCase):
 
     def test_same_class_live_claim_blocks(self):
         self.e["machines"] = 3
-        self.assertEqual(self.gap(claims={self.job: {"desktop": claim(self.job, "desktop", NVIDIA_LINUX_2)}}), 0)
+        self.assertEqual(self.gap(claims={self.job: {"twin": claim(self.job, "twin", NVIDIA_LINUX_TWIN)}}), 0)
+
+    def test_another_gpu_of_the_vendor_does_not_block(self):
+        self.e["machines"] = 3
+        self.assertEqual(self.gap(claims={self.job: {"desktop": claim(self.job, "desktop", NVIDIA_LINUX_2)}}), 1)
 
     def test_other_class_live_claim_does_not_block(self):
         self.e["machines"] = 3

@@ -82,12 +82,12 @@ def coverage_gap(entry, machine, claims, results, at):
     others = {m: c for m, c in live.items() if m != machine.name}
     if len(reported) + len(others) >= entry["machines"]:
         return 0.0, f"{entry['machines']} machine(s) wanted, {len(reported)} reported and {len(others)} claimed ×0"
-    key = formats.class_key(machine.info)
-    if any(formats.class_key(c["class"]) == key for c in others.values()):
-        return 0.0, f"another {key} machine holds a claim ×0"
-    if any(formats.class_key(r["class"]) == key for r in reported.values()):
-        return COVERED_ONCE, f"a {key} machine has reported this head ×{COVERED_ONCE}"
-    return 1.0, f"no {key} report yet ×1"
+    # The class verdicts are combined in (GPU model, driver branch, OS), not the vendor and OS that hw= matches.
+    if any(verdict.class_of(c["class"]) == mine for c in others.values()):
+        return 0.0, f"another {mine} machine holds a claim ×0"
+    if any(verdict.class_of(r["class"]) == mine for r in reported.values()):
+        return COVERED_ONCE, f"a {mine} machine has reported this head ×{COVERED_ONCE}"
+    return 1.0, f"no {mine} report yet ×1"
 
 
 def age(entry, at):
