@@ -317,3 +317,14 @@ class Trust(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BusyCheckout(Setup):
+    def test_a_lock_held_by_another_process_is_waited_for(self):
+        import threading
+        self.client.repo.sync()
+        lock = self.client.repo.dir / ".git" / "index.lock"
+        lock.write_text("")
+        threading.Timer(1.0, lock.unlink).start()  # another git finishes a second later
+        self.client.repo.sync()  # resets the index: would fail on the lock
+        self.assertFalse(lock.exists())

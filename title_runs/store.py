@@ -5,6 +5,7 @@ own sign-in (auth.py, client.py)."""
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 from . import formats
@@ -18,11 +19,18 @@ class ResultsRepo:
     def __init__(self, url, workdir):
         self.url, self.dir = url, Path(workdir)
 
-    def git(self, *args, cwd=None):
-        result = subprocess.run(["git", "-C", str(cwd or self.dir), *args], capture_output=True, text=True, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
-        if result.returncode != 0:
-            raise StoreError(f"git {' '.join(args[:3])}: {result.stderr.strip()[:300]}")
-        return result.stdout.strip()
+    def git(self, *args, cwd=None, attempts=20, wait=0.5):
+        """git in the checkout. The app's worker and a command-line job can use one checkout at once: a git that finds
+        the other's lock (index.lock, a ref's .lock) waits and tries again, for up to attempts × wait seconds."""
+        for attempt in range(attempts):
+            result = subprocess.run(["git", "-C", str(cwd or self.dir), *args], capture_output=True, text=True,
+                                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+            if result.returncode == 0:
+                return result.stdout.strip()
+            if ".lock" not in result.stderr or attempt == attempts - 1:
+                break
+            time.sleep(wait)
+        raise StoreError(f"git {' '.join(args[:3])}: {result.stderr.strip()[:300]}")
 
     def sync(self):
         if (self.dir / ".git").exists() and self.git("remote", "get-url", "origin") != self.url:
