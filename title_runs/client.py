@@ -115,6 +115,9 @@ class Client:
     def tester(self):
         return self.flow().login()
 
+    def maintainer(self):
+        return bool(self.tester()) and self.tester() in self.repo.read("config.json", {}).get("maintainers", [])
+
     def github(self):
         """The results repository as the signed-in tester."""
         return auth.repo_as_tester(self.endpoint, self.repo.config()["results_repository"], self.flow())
@@ -157,6 +160,8 @@ class Client:
         """(True, "") once the tester has been through the walkthrough, is signed in and the machine is approved."""
         if not self.onboarded():
             return False, "the first-run walkthrough is not done"
+        if not self.config.titles:
+            return False, "no titles are set up"
         if not self.tester():
             return False, "not signed in"
         state, _ = self.registration()

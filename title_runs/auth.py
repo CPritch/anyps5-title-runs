@@ -80,7 +80,8 @@ class DeviceFlow:
         """{"device_code", "user_code", "verification_uri", "interval", "expires_in"}."""
         if self.endpoint.startswith("standin:"):
             fake = gh.FakeGitHub(self.endpoint.split(":", 1)[1])
-            code = f"{secrets.randbelow(10000):04d}-{secrets.randbelow(10000):04d}"
+            letters = "BCDFGHJKLMNPQRSTVWXZ"  # GitHub's codes look like WDJB-MJHT
+            code = "-".join("".join(secrets.choice(letters) for _ in range(4)) for _ in range(2))
             device = secrets.token_hex(8)
             fake.data.setdefault("device", {})[device] = {"user_code": code, "client_id": self.client_id, "login": None}
             fake.save()

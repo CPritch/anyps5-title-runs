@@ -1,8 +1,8 @@
 """The client's application: the engine (client.Client on a worker thread), the tray and the window.
 
-  title-runs ui [--config FILE] [--listing FILE] [--auto]       the tray and the window
-  title-runs ui --setup --config FILE [--dumps DIR] [--results URL]   the first-run setup, then the tray
-  title-runs ui --screenshots DIR [--config FILE] [--listing FILE] [--no-sync]   render every screen to DIR (offscreen)
+  title-runs ui [--config FILE] [--listing FILE] [--auto]       the tray and the window; the walkthrough on first open
+  title-runs ui --config NEW --results URL [--github standin:FILE] [--dumps DIR]   a new config, then the walkthrough
+  title-runs ui --screenshots DIR [--config FILE] [--listing FILE] [--no-sync]   render the window's screens to DIR (offscreen)
 
 --listing: the PR listing the Pull requests tab shows (default: the state directory's cache/pull-requests.json, which
 `title-runs poll` keeps). --auto: run the queue's jobs when the schedule allows (otherwise only on request).
@@ -21,7 +21,8 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QApplication
 
-from .. import ROOT, client as clients, config as configs, configfile, formats, platform_info, poller, sandbox
+from .. import ROOT, client as clients, config as configs, configfile, formats, platform_info, poller, sandbox, store
+from ..relay import overview
 from . import model
 
 
@@ -73,8 +74,61 @@ class Engine(QObject):
             self.queue = self.client.repo.queue()
             self.repository = self.client.repo.config()["repository"]
             self.comments = self.client.repo.comments()
+            repo = self.client.repo
+            self.overview_data = overview.view(repo.dir, self.queue, repo.registry(), repo.claims(), repo.jobs(), repo.cursors().get("last_run"))
         except Exception as error:  # noqa: BLE001 (shown in the tray)
             self.log(f"could not read the results repository: {error}")
+
+    def overview(self):
+        return getattr(self, "overview_data", None) or {"entries": [], "machines": [], "pending": [], "expired": [], "refused": [], "last_run": None}
+
+    def readiness(self):
+        """(ready, why, the button that fixes it or "")."""
+        ready, why = self.client.ready()
+        if ready:
+            return True, "", ""
+        fix = {"the first-run walkthrough is not done": "Finish the walkthrough", "no titles are set up": "Finish the walkthrough",
+               "not signed in": "Sign in…", "this machine is not registered": "Register this machine"}.get(why, "")
+        return False, why, fix
+
+    def stale_text(self):
+        hours = self.client.stale()
+        if hours is None:
+            return ""
+        return (f"<b>The results repository's workflow last ran {hours:.0f} h ago.</b> GitHub may have delayed or dropped its scheduled runs, "
+                f"or disabled the schedule after 60 days without activity; a maintainer turns it back on in the repository's Actions tab.")
+
+    def results_repository(self):
+        return self.client.repo.read("config.json", {}).get("results_repository", "?")
+
+    def label(self):
+        return self.client.repo.read("config.json", {}).get("label", "title-test")
+
+    def overview_issue(self):
+        return self.client.repo.cursors().get("overview_issue")
+
+    def issue_url(self, number):
+        return f"https://github.com/{self.results_repository()}/issues/{number}" if number else ""
+
+    def pull_url(self, number):
+        return f"https://github.com/{self.repository}/pull/{number}"
+
+    def open_url(self, url):
+        if url.startswith("https://") and self.config.results_url.startswith(("https://", "git@", "ssh://")):
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl(url))
+
+    def decide_registration(self, issue, label):
+        """A maintainer's Approve or Decline: the label on the registration issue, added with their own sign-in."""
+        if not self.client.maintainer():
+            return "Only a maintainer can approve or decline machines."
+        try:
+            self.client.github().add_labels(issue, [label])
+        except Exception as error:  # noqa: BLE001
+            return f"Could not add the label {label} to #{issue}: {error}"
+        self.log(f"added {label} to registration #{issue}")
+        return ""
 
     def listing(self):
         if not self.listing_path.exists():
@@ -93,6 +147,12 @@ class Engine(QObject):
     def tray_view(self):
         waiting = self.waiting()
         state, lines = model.tray_view(self.status(), self.queue_view(), waiting, self.status().get("paused_until"))
+        ready, why, _ = self.readiness()
+        if not ready:
+            lines = [f"Takes no jobs yet: {why}"] + [line for line in lines[1:]]
+            state = "waiting" if state == "idle" else state
+        if self.client.stale() is not None:
+            lines.append(f"The results workflow last ran {self.client.stale():.0f} h ago")
         return state, lines, waiting
 
     def titles(self):
@@ -137,12 +197,16 @@ class Engine(QObject):
         configfile.save(self.config)
         self.log(f"saved {self.config.path}")
 
-    def check_connection(self, url, token_env):
+    def check_connection(self, url):
         try:
-            entries = clients.store.ResultsRepo(url, self.dir / "connection-check", token_env or None).can_read_and_write(self.config.machine)
-            return f"Connected: read the queue ({entries} entries) and wrote a claim."
+            repo = store.ResultsRepo(url, self.dir / "connection-check")
+            repo.sync()
+            config, registry = repo.config(), repo.registry()
+            last = repo.cursors().get("last_run")
+            return (f"Read {config['results_repository']}: {len(repo.queue()['entries'])} queued, {len(registry['machines'])} machine(s), "
+                    f"the workflow last ran {formats.parse_time(last).astimezone():%Y-%m-%d %H:%M}." if last else "the workflow has not run yet.")
         except Exception as error:  # noqa: BLE001
-            return f"Not connected: {error}"
+            return f"Could not read it: {error}"
 
     def sandbox_self_test(self):
         if self.config.sandbox != "bwrap":
@@ -179,14 +243,18 @@ class Engine(QObject):
             self.load(sync=True)
 
 
-def screenshots(engine, out, setup_folder="", setup_url=""):
-    """Every screen of the client, rendered offscreen into out/: the five tabs, the trust dialog (as it opens and ready to
-    run), the setup pages, and the tray's menu with its four dots."""
+def grab(widget, path):
+    QApplication.processEvents()
+    widget.grab().save(str(path))
+    return Path(path)
+
+
+def screenshots(engine, out, prefix=""):
+    """The window's tabs, the trust dialog and the tray's menu with its four dots, rendered offscreen into out/."""
     from PySide6.QtCore import QPoint
     from PySide6.QtGui import QPainter, QPixmap
     from PySide6.QtWidgets import QWidget
 
-    from .setup import SetupWizard
     from .tray import COLOURS, Tray, dot
     from .trust_dialog import TrustDialog
     from .window import MainWindow
@@ -195,30 +263,18 @@ def screenshots(engine, out, setup_folder="", setup_url=""):
     out.mkdir(parents=True, exist_ok=True)
     window = MainWindow(engine)
     window.refresh()
-    window.prs.tree.topLevelItem(2).setExpanded(True)
     window.show()
     saved = []
-    for index, name in enumerate(("queue", "pull-requests", "schedule", "titles", "settings")):
-        if name == "settings":
-            window.settings.self_test()
-        window.tabs.setCurrentIndex(index)
-        QApplication.processEvents()
-        path = out / f"{index + 1}-{name}.png"
-        window.grab().save(str(path))
-        saved.append(path)
+    for index, (tab, name) in enumerate(window.pages):
+        window.tabs.setCurrentWidget(tab)
+        tab.refresh()
+        saved.append(grab(window, out / f"{prefix}{name.lower().replace(' ', '-')}.png"))
     rows = engine.waiting() or engine.sections()[model.SECTIONS[2]]
     if rows:
         row = rows[0]
         dialog = TrustDialog(row["number"], row["title"], row["author"], window)
         dialog.show()
-        QApplication.processEvents()
-        dialog.grab().save(str(out / "6-trust-dialog.png"))
-        dialog.group.button(1).setChecked(True)
-        dialog.understood.setChecked(True)
-        dialog.typed.setText(row["author"])
-        QApplication.processEvents()
-        dialog.grab().save(str(out / "7-trust-dialog-ready.png"))
-        saved += [out / "6-trust-dialog.png", out / "7-trust-dialog-ready.png"]
+        saved.append(grab(dialog, out / f"{prefix}trust-dialog.png"))
         dialog.close()
     tray = Tray(engine, lambda: None, lambda: None)
     tray.refresh()
@@ -234,24 +290,17 @@ def screenshots(engine, out, setup_folder="", setup_url=""):
         painter.drawPixmap(20 + i * 120, menu.height() + 40, dot(state, 32))
         painter.drawText(58 + i * 120, menu.height() + 62, state)
     painter.end()
-    strip.save(str(out / "8-tray.png"))
-    saved.append(out / "8-tray.png")
-    wizard = SetupWizard(engine.dir / "setup-preview.toml", setup_folder, setup_url, engine.client.info)
-    wizard.machine.tester.setText(engine.config.tester)
-    wizard.machine.machine.setText(engine.config.machine)
-    wizard.show()
-    for i, name in enumerate(("dumps", "machine", "results", "schedule")):
-        if name == "results" and setup_url:
-            wizard.results.check()
-        QApplication.processEvents()
-        path = out / f"{9 + i}-setup-{name}.png"
-        wizard.grab().save(str(path))
-        saved.append(path)
-        if i < 3:
-            wizard.next()
-    wizard.close()
+    strip.save(str(out / f"{prefix}tray.png"))
+    saved.append(out / f"{prefix}tray.png")
     window.close()
     return saved
+
+
+def new_config(path, results, github, state_dir=None):
+    """A starting config for the walkthrough to fill: the results repository, the stand-in or GitHub, the state directory."""
+    data = {"state_dir": str(state_dir or ROOT / "state"), "results": {"url": results, "github": github},
+            "schedule": dict(configs.SCHEDULE), "sandbox": {"mode": "bwrap"}}
+    Path(path).write_text("# anyps5-title-runs: written by the title-runs window. config.example.toml explains every key.\n\n" + configfile.dumps(data))
 
 
 def main(argv=None):
@@ -259,26 +308,31 @@ def main(argv=None):
     parser.add_argument("--config", type=Path, default=ROOT / "config.toml")
     parser.add_argument("--listing", type=Path)
     parser.add_argument("--auto", action="store_true")
-    parser.add_argument("--setup", action="store_true")
-    parser.add_argument("--dumps", default="")
-    parser.add_argument("--results", default="")
+    parser.add_argument("--dumps", default="", help="the walkthrough's dumps folder to start from")
+    parser.add_argument("--results", default="", help="a new config: the results repository's URL")
+    parser.add_argument("--github", default="github", help='a new config: "github", or "standin:<github.json>" for the local stand-in')
+    parser.add_argument("--state", type=Path, help="a new config: the state directory")
     parser.add_argument("--screenshots", type=Path)
     parser.add_argument("--no-sync", action="store_true", help="--screenshots: read the results checkout as it is (a client may be using it)")
     args = parser.parse_args(argv)
     app = QApplication(sys.argv[:1])
     app.setApplicationName("AnyPS5 title runs")
     app.setQuitOnLastWindowClosed(False)
-    if args.setup:
-        from .setup import SetupWizard
-        wizard = SetupWizard(args.config, args.dumps, args.results)
-        if wizard.exec() != SetupWizard.Accepted:
-            return 1
+    if not args.config.exists():
+        if not args.results:
+            raise SystemExit(f"{args.config} does not exist: pass --results URL to start a new one")
+        new_config(args.config, args.results, args.github, args.state)
     engine = Engine(configs.load(args.config), args.listing, args.auto)
     if args.screenshots:
         engine.load(sync=not args.no_sync)
-        for path in screenshots(engine, args.screenshots, args.dumps, args.results):
+        for path in screenshots(engine, args.screenshots):
             print(path)
         return 0
+    if not engine.client.onboarded():
+        from .walkthrough import Walkthrough
+        engine.client.repo.sync()
+        if Walkthrough(engine, args.dumps).exec() != Walkthrough.Accepted:
+            return 1  # nothing runs before the walkthrough
     from .tray import Tray
     from .window import MainWindow
     window = MainWindow(engine)

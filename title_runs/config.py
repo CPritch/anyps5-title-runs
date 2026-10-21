@@ -109,8 +109,6 @@ def load(path):
         titles[title_id] = Title(title_id, _path(entry["dump"]), route_path, [_path(p) for p in entry.get("seed", [])],
                                  list(entry.get("app0_skip", [])), dict(entry.get("env", {})), entry.get("graphics_mode", ""),
                                  int(entry["boot_seconds"]) if "boot_seconds" in entry else None)
-    if not titles:
-        raise ConfigError("no [titles.<ID>] section")
     for number in follow.get("prs", []):
         if not isinstance(number, int) or number < 1:
             raise ConfigError(f"follow.prs: {number!r} is not a PR number")
