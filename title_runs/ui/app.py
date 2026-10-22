@@ -331,9 +331,10 @@ class Engine(QObject):
 
     def local_base(self):
         """What local tests are measured against now, in words."""
-        pinned = self.local.read().get("pinned") or {}
+        pinned = self.local.pinned() or {}
         if not pinned.get("main"):
-            return "main as it is when the next test starts"
+            fixes = "".join(f" + #{n}" for n in self.config.local_fixes)
+            return f"main as it is when the next test starts{fixes}"
         words_ = f"main {pinned['main'][:9]}" + "".join(f" + #{f['pr']}" for f in pinned.get("fixes", []))
         if pinned.get("in_main"):
             words_ += f" (main already has {', '.join('#' + str(n) for n in pinned['in_main'])})"

@@ -274,14 +274,22 @@ class LocalTests:
             data.pop("paused", None)
         self.change(edit)
 
+    def pinned(self, now=None):
+        """The pin the next local test uses, or None when it will pin main afresh (none yet, too old, fixes changed)."""
+        pinned = self.read().get("pinned")
+        if (pinned and pinned.get("fix_numbers", []) == sorted(self.config.local_fixes)
+                and (now or formats.now()) - formats.parse_time(pinned["at"]) < datetime.timedelta(hours=PIN_HOURS)):
+            return pinned
+        return None
+
     def pin(self, now=None):
         """The base local tests are measured against: main with the fixes to carry merged onto it, pinned at the first
         test and kept for PIN_HOURS or until the fixes change. Returns the base; raises Hold when a fix can't be used."""
         now = now or formats.now()
         data = self.read()
-        pinned = data.get("pinned")
         wanted = sorted(self.config.local_fixes)
-        if pinned and pinned.get("fix_numbers", []) == wanted and now - formats.parse_time(pinned["at"]) < datetime.timedelta(hours=PIN_HOURS):
+        pinned = self.pinned(now)
+        if pinned:
             return pinned.get("base") or pinned["main"]
         heads = []
         for number in wanted:
