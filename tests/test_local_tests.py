@@ -129,8 +129,15 @@ class Run(unittest.TestCase):
         data = self.night.read()
         self.assertEqual(data["entries"][0]["status"], "queued")  # not this change's fault
         self.assertEqual(data["paused"]["reason"], "sceVoiceSetThreadsParams: worker priority and affinity are not implemented")
-        self.assertEqual(self.client.status.read()["paused_until"], "indefinitely")
+        self.assertEqual(self.night.held()["main"], "d" * 40)
+        self.assertNotIn("paused_until", self.client.status.read())  # the queue's tests, on their own main, go on
         self.assertIn("**Paused**", (self.config.state_dir / "local-tests" / "2026-10-21.md").read_text())
+        with mock.patch("title_runs.sources.main_tip", return_value="e" * 40):
+            self.assertIsNotNone(self.night.held(formats.now() + datetime.timedelta(hours=11)))
+            self.assertIsNone(self.night.held(formats.now() + datetime.timedelta(hours=13)))  # a new pin is due: try again
+            self.night.unpin()
+            self.assertIsNone(self.night.held())
+            self.assertEqual(self.night.pin(), "e" * 40)
 
     def test_a_change_that_crashes_the_game_is_failed_with_the_crash(self):
         with mock.patch("title_runs.job.run", return_value=self.crashed("B")):

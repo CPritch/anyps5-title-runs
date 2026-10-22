@@ -113,8 +113,8 @@ class Engine(QObject):
 
     def local_notice(self):
         """Local tests paused because their main doesn't start the game: what the tester should know."""
-        paused = self.local.read().get("paused") if self.local.enabled() else None
-        if not paused or not self.status().get("paused_until"):
+        paused = self.local.held() if self.local.enabled() else None
+        if not paused:
             return ""
         return (f"<b>Local tests are paused</b>: AnyPS5's main ({paused['main'][:9]}) crashes the game before it starts, so every change "
                 f"on it would fail. The game said: {paused['reason'][:200]}")
@@ -394,7 +394,7 @@ class Engine(QObject):
         if not self.local.enabled():
             return None
         queued = self.local.queued()
-        if not queued:
+        if not queued or self.local.held():
             return None
         result = self.local.run(queued[0], self.client)
         return f"tested #{queued[0]['pr']} (a local test)" if result else f"stopped #{queued[0]['pr']}"

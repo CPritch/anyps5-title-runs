@@ -106,6 +106,25 @@ class LocalTests:
     def queued(self):
         return [e for e in self.read()["entries"] if e["status"] == "queued"]
 
+    def held(self, now=None):
+        """Why local tests wait although some are queued: the pinned main didn't start the game, so every change on it
+        would fail the same way. {"at", "main", "reason"} while that main is still the pinned one, else None. A new pin
+        (PIN_HOURS on, or unpin) ends it."""
+        data = self.read()
+        paused, pinned = data.get("paused"), data.get("pinned")
+        if not paused or not pinned or paused.get("main") != pinned.get("main"):
+            return None
+        if (now or formats.now()) - formats.parse_time(pinned["at"]) >= datetime.timedelta(hours=PIN_HOURS):
+            return None
+        return paused
+
+    def unpin(self):
+        """Measure the next local test against main as it is then (and try again after a main that didn't start)."""
+        data = self.read()
+        data["pinned"] = None
+        data.pop("paused", None)
+        self.write(data)
+
     def pin(self, now=None):
         """The main local tests are measured against: pinned at the first test, kept for PIN_HOURS."""
         now = now or formats.now()
@@ -115,6 +134,7 @@ class LocalTests:
             return pinned["main"]
         main = sources.main_tip(self.remote())
         data["pinned"] = {"main": main, "at": formats.iso(now), "night": night_of(now)}
+        data.pop("paused", None)
         self.write(data)
         self.log(f"local tests: main pinned at {main[:9]} for the night of {night_of(now)}")
         return main
@@ -146,12 +166,12 @@ class LocalTests:
         side, reason = failure(results)
         if side == "A":
             # The pinned main itself doesn't start the game: not this PR's fault, and every other PR would fail the same way.
+            # Local tests hold (held) until main is pinned again; the queue's tests, on their own main, go on.
             record.update(status="queued")
             data["paused"] = {"at": formats.iso(formats.now()), "main": main, "reason": reason}
             self.write(data)
             self.log(f"local tests: paused: main {main[:9]} doesn't start the game: {reason}")
-            client.status.update(state="idle", line=f"Paused: the pinned main doesn't start the game ({reason[:120]})", job={}, progress="",
-                                 paused_until="indefinitely")
+            client.status.update(state="idle", line=f"Local tests paused: main doesn't start the game ({reason[:120]})", job={}, progress="")
             self.write_summary()
             return None
         result = report_result(results, head, client)
