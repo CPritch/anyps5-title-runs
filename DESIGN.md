@@ -239,46 +239,29 @@ Nothing runs until the tester has been through it once. One page each:
    Next: #7922 · GTA V (high)
    1 PR waiting for you
    ─────────────────────────────────────
-   Pause for 1 hour
-   Pause until I resume
+   Testing: Off
+ ✓ Testing: On schedule
+   Testing: Now
+   ─────────────────────────────────────
    Open…
    Quit
 ```
 
 Dot: grey idle, green running, amber waiting for you, red error. A desktop notification when a job needs approval or
-fails to build.
+fails to build. The tray is optional (Settings, This app): without it, closing the window quits and stops the test.
 
 ### The window
 
-Tabs:
+A sidebar with four pages, and Maintainer tools in its own window for maintainers:
 
-- **Queue**: running (with a progress line and a Stop button), up next (the score's reasons on hover), waiting for
-  you, recently posted (with links to the comments).
-- **Pull requests**: for choosing work outside the queue.
-
-  ```
-  ┌ Pull requests ─────────────────────────────────────── [ search… ] ┐
-  │ ▼ Queued by maintainers (3)                                          │
-  │   #7922  span single-wave wave64 compute…   high   GTA V   ✓ queued  │
-  │   #8104  stage written elements…            normal any     ✓ queued  │
-  │ ▼ Mentions your titles (2)                                           │
-  │   #6488  run waterfall loops over per-lane… Unblocks PPSA04264       │
-  │         ⚠ not checked                                    [ Run… ]    │
-  │ ▶ Labelled perf, agc or shader (41)                                  │
-  │ ▶ Everything else (512)                                              │
-  └──────────────────────────────────────────────────────────────────────┘
-  ```
-
-  `Run…` on a not-checked PR opens the trust dialog.
-- **Schedule**: when work may run (idle only; hours per day; mains power only); pause while a fullscreen app or a game
-  is running; limits (disk for builds and caches, longest job).
-- **Titles**: detected dumps; route or boot check; seed saves; per title on or off.
-- **Overview**: the maintainers' view (also useful to testers): the queue with approved SHAs, coverage per PR by
-  hardware class and title, combined verdicts, registered machines and their last report, pending registrations with
-  Approve and Decline (for maintainers), expired approvals.
-- **Settings**: account (signed in as, sign out), machine and its registration, the results repository, sandbox
-  status (with a self-test), what is posted (screenshots on or off), trusted authors (revoke), logs, the walkthrough
-  again.
+- **Home**: what this machine is doing in one line; the testing switch, **Off · On schedule · Now**, with what the
+  chosen position means; Stop this test while one runs; the steps of the running test and the game itself, shown
+  inside the window; Up next; Results (a local test's with its report).
+- **Local tests**: below.
+- **All pull requests** (the advanced view): the project's open PRs in four sections (queued by maintainers, mentions
+  your titles, labelled perf/agc/shader, everything else); `Run…` on a not-checked PR opens the trust dialog.
+- **Settings**: you and this machine (account, registration, the testing link), when to test, your games, the app
+  (text size, the simple or advanced view, the tray), and in the advanced view the people you trusted and the logs.
 
 ## The report on the PR
 
@@ -416,3 +399,26 @@ Charlie's answers to round 3's questions.
    `verdicts.class_max` in config.json, defaulting to 1 and 3.
 8. **A disabled schedule.** The client keeps warning when the workflow hasn't run for an hour. The results
    repository's README says how to re-enable the schedule (the Actions tab, or `gh workflow enable relay`).
+
+## Local tests and the testing switch (Charlie, 2026-10-22)
+
+After the first night of local tests (17 upstream PRs, 2026-10-21).
+
+1. **The testing switch** replaces Start, the automatic box and the tray's Pause: **Off** (no test starts), **On
+   schedule** (tests start by themselves within When to test), **Now** (one test after another whatever the schedule
+   says, until switched back). Switching doesn't end a running test; **Stop this test** does, and sets the switch to
+   Off so nothing starts a minute later. A Pause from before the switch reads as Off.
+2. **Local tests are a page of their own**, not a list in the config: add a PR by number or link, follow people (their
+   open PRs), test again, remove (a followed person's PR then stays off). Each PR shows its newest result, and its
+   earlier ones in the report window.
+3. **Fixes on both sides.** PRs merged onto main for both sides, for a main that can't run the tester's games without
+   them (main aborted GTA V at boot from fe4016f61 until #9730). A fix main already has is left out; a fix that
+   doesn't merge, or whose head its author didn't push, holds local tests and says why.
+4. **A main that doesn't start the game holds local tests only**, until main is pinned again (12 hours, or Use the
+   latest main) or the fixes change. The queue's tests, on their own main, go on.
+5. **The report is the project's own form**, as reviewers asked for it on #4287 and #7516: what ran where, main against
+   main + the PR in A B A B order, p50, GPU busy and p99 per run, what wasn't tested, and the summary lines as AnyPS5
+   wrote them. Nothing mentions anyone.
+6. **Posting is the tester's, by hand.** The report window gives the PR's link first, the text (editable) with Copy,
+   and **Mark as posted**. Nothing in the client posts a local result. A result not posted goes **stale** when the PR
+   gets a newer head, closes or merges, or after 48 hours (main has moved on); a posted one never does.
