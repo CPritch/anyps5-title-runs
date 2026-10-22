@@ -178,6 +178,15 @@ vocabulary is in `title_runs/route.py`. `routes/PPSA04263.json` is GTA V's: titl
 presses to the Story tab, Resume Story, then until the Story has loaded. Timed runs stop the route after the
 Resume Story press (`timed_stop_after`) and wait for the window.
 
+## Scenes
+
+A route on its own times wherever it goes: for GTA V with no story save, the prologue. A scene (`scenes/<ID>/<id>.json`,
+`title_runs/scenes.py`) adds a save that the same route loads, a button pressed every few seconds to keep the title's
+idle camera from turning, and the scene's colours, which each run is checked against. The save is downloaded from its
+source and checked against its sha256, never stored in this repository. A title is set to one scene (`scene = "<id>"`
+in its section, or the Titles page); `scenes/PPSA04263/franklins-house.json` is GTA V's first: Franklin at his front
+door in Vinewood Hills, from Apollo's PS4 100% save.
+
 ## The trust model
 
 A followed PR's code runs on the tester's machine. What stands between that code and the machine:

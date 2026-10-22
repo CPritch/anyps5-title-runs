@@ -45,8 +45,12 @@ shutdown_wait = 900
 [titles.PPSA04263]
 dump = "/path/to/PPSA04263-app0"
 route = "routes/PPSA04263.json"
-# GTA V's route resumes a Story save, so it needs your save data, copied into the title's game folder before its
-# first run.
+# GTA V's route needs your profile save (_sd, with the Graphics Mode setting) and save-data memory (_sd_mem), copied
+# into the title's game folder before its first run.
 # seed = ["/path/to/save/_sd", "/path/to/save/_sd_mem"]
+# Where the title is timed. Without a scene, where the route goes: for GTA V with no story save, the prologue (Resume
+# Story starts a new game). A scene of scenes/<ID>/, by its file name, loads a save there first: the tool downloads it,
+# checks its sha256 and copies it in over the seed. The Titles page lists a title's scenes.
+# scene = "franklins-house"
 # The Graphics Mode your save selects, for the report.
 # graphics_mode = "Performance"
