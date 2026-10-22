@@ -356,7 +356,7 @@ class LocalTests:
                 return None
             counted = side is None and result["status"] == "done" and all((t.get("sides") or {}) for t in result["titles"].values())
             entry_now.update(status="done" if counted else "failed", at=formats.iso(formats.now()), main=main, fixes=fixes, base=base,
-                             display=sandbox.game_display(), job=f"{pr}-{head[:12]}",
+                             display=sandbox.game_display(), job=results.get("job") or f"{pr}-{head[:12]}",
                              verdict=summary_words(result, verdict.DEFAULT) if side is None else f"the change doesn't start the game: {reason}")
             return entry_now
 

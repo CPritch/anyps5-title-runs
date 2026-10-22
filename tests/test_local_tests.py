@@ -113,6 +113,12 @@ class Run(unittest.TestCase):
         self.assertIn("#8104 `aaaaaaaaa` perf(agc): stage (Celegans12): No difference", summary)
         self.assertTrue(self.client.status.read()["recent"][0]["local"])
 
+    def test_the_result_names_the_jobs_own_folder(self):
+        results = dict(fake_results(8104, A), job=f"8104-{A[:12]}-franklins-house")  # a job in a scenario has its own folder
+        with mock.patch("title_runs.job.run", return_value=results):
+            self.night.run(self.night.queued()[0], self.client)
+        self.assertEqual(self.night.read()["entries"][0]["job"], f"8104-{A[:12]}-franklins-house")
+
     def crashed(self, side):
         runs = self.config.state_dir / "runs" / "PPSA04263"
         (runs / f"{side}-warm").mkdir(parents=True)
