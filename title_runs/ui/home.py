@@ -28,6 +28,7 @@ class RowList(QListWidget):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollMode(QListWidget.ScrollPerPixel)
         self.rows = None
+        self.on_link = None  # links go here instead of the browser when set
 
     def set_rows(self, rows):
         if rows == self.rows:  # unchanged: no rebuild, so no flicker on the two-second refresh
@@ -37,6 +38,9 @@ class RowList(QListWidget):
         for html in rows:
             item = QListWidgetItem()
             label = rich(html)
+            if self.on_link is not None:
+                label.setOpenExternalLinks(False)
+                label.linkActivated.connect(self.on_link)
             label.setContentsMargins(8, 6, 8, 6)
             self.addItem(item)
             self.setItemWidget(item, label)
@@ -139,6 +143,7 @@ class HomePage(QWidget):
         done, box = card()
         box.addWidget(theme.mark(QLabel("Results"), role="heading"))
         self.recent = RowList()
+        self.recent.on_link = self.link_clicked
         box.addWidget(self.recent)
         lists.addWidget(done, 1)
         layout.addLayout(lists, 2)
@@ -192,6 +197,14 @@ class HomePage(QWidget):
         self.fill_upcoming()
         self.fill_recent()
 
+    def link_clicked(self, href):
+        if href.startswith("report:"):
+            self.engine.window.open_report(int(href.split(":", 1)[1]))
+        elif href.startswith("https://"):
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl(href))
+
     def fill_upcoming(self):
         rows = self.engine.up_next_rows()
         if not rows:
@@ -213,8 +226,9 @@ class HomePage(QWidget):
         out = []
         for row in rows:
             if row.get("local"):
-                draft = row.get("draft", "")
-                where = (f" · kept on this computer · <a href='file://{draft}'>the draft comment</a>" if draft else " · kept on this computer")
+                report = row.get("report", "")
+                state = "<b style='color:#a36a00'>Stale</b>" if report.startswith("Stale") else report
+                where = f" · on this computer · {state} · <a href='report:{row['number']}'>Report</a>"
             else:
                 link = self.engine.comment_link(row["number"])
                 where = f" · <a href='{link}'>see it on GitHub</a>" if link.startswith("https://") else ""

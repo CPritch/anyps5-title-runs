@@ -205,11 +205,11 @@ class LocalTests:
             return latest["head"]
         return self.change(edit)
 
-    def mark_posted(self, number, head, posted=True):
-        """The tester posted (or took back) the report of the PR's latest result for head."""
+    def mark_posted(self, number, head, posted=True, at=None):
+        """The tester posted (or took back) the report of a result: the PR's latest for head, or the one tested at at."""
         def edit(data):
             for entry in reversed(data["entries"]):
-                if entry["pr"] == number and entry["head"] == head and entry["status"] in ("done", "failed"):
+                if entry["pr"] == number and entry["head"] == head and entry["status"] in ("done", "failed") and at in (None, entry.get("at")):
                     if posted:
                         entry["posted"] = {"at": formats.iso(formats.now())}
                     else:
@@ -492,7 +492,9 @@ def report_text(results, entry, graphics=None):
         env = first.get("env") or {}
         window = (first.get("window") or {}).get("spec", "")
         warm = ab.get("warm") or {}
-        quiet = all((warm.get(k) or {}).get("quiet", "").startswith("quiet: yes") for k in ("A", "B")) and all("no pipeline builds" in r.get("capture", "") for r in runs)
+        # warm: this run's warm-up went quiet, or the build was warmed until quiet before ("already", per built commit)
+        quiet = (all((warm.get(k) or {}).get("warm") == "already" or (warm.get(k) or {}).get("quiet", "").startswith("quiet: yes") for k in ("A", "B"))
+                 and all("no pipeline builds" in r.get("capture", "") for r in runs))
         pa, pb = [r["summary"]["frame_ms"]["p50"] for r in a], [r["summary"]["frame_ms"]["p50"] for r in b]
         ga, gb = [r["summary"].get("gpu_busy_ms_per_present") for r in a], [r["summary"].get("gpu_busy_ms_per_present") for r in b]
         qa, qb = [r["summary"]["frame_ms"].get("p99") for r in a], [r["summary"]["frame_ms"].get("p99") for r in b]

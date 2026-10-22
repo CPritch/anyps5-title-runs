@@ -171,10 +171,11 @@ class Report(unittest.TestCase):
         runs = [("A1", "A", summary("c49fa17ee046", 79.112, 104.717, 62.912)), ("B1", "B", summary("08a87661ab9a", 73.822, 107.245, 58.883)),
                 ("A2", "A", summary("c49fa17ee046", 79.046, 113.019, 62.574)), ("B2", "B", summary("08a87661ab9a", 74.042, 113.053, 58.572))]
         quiet = "quiet: yes, no pipeline phase in the last 6 summaries"
+        self.warm = {"A": {"warm": "already"}, "B": {"quiet": quiet}}  # main warmed by an earlier test of the same build
         return {"pr": 4287, "head": "7aea3fe29ff7b0c4240363ab722e12265439bb1f", "base": "c" * 40,
                 "titles": {"PPSA04263": {"name": "Grand Theft Auto V", "version": "01.010.002", "scene": "Story Mode, Resume Story: the loaded scene (the bank)",
                                          "runs_dir": str(runs_dir),
-                                         "ab": {"warm": {"A": {"quiet": quiet}, "B": {"quiet": quiet}},
+                                         "ab": {"warm": self.warm,
                                                 "runs": [{"run": run, "side": side, "counts": True, "summary": data,
                                                           "capture": "capture: frames 3300:700; counts; no pipeline builds"} for run, side, data in runs]}}}}
 

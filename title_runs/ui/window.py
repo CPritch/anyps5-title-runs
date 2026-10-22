@@ -1,6 +1,6 @@
-"""The tester's window: a sidebar with Home (ui/home.py), All pull requests (the advanced view only) and Settings, the
-simple or advanced view, and the maintainers' window (ui/maintainer.py) for maintainers. Data comes from the engine
-(app.Engine) through ui/model.py; nothing here is platform-specific."""
+"""The tester's window: a sidebar with Home (ui/home.py), Local tests (ui/local.py), All pull requests (the advanced view
+only) and Settings, the simple or advanced view, and the maintainers' window (ui/maintainer.py) for maintainers. Data
+comes from the engine (app.Engine) through ui/model.py; nothing here is platform-specific."""
 
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QFont
@@ -15,6 +15,7 @@ from ..relay import overview
 from ..relay.render import utc
 from . import model, theme, words
 from .home import HomePage
+from .local import LocalTestsPage, ReportDialog
 from .trust_dialog import TrustDialog
 
 
@@ -398,56 +399,6 @@ class SettingsTab(QWidget):
         self.engine.save_config()
 
 
-class LocalTestsTab(QWidget):
-    """Local tests: pull requests of a project you follow, tested on this computer with nothing posted (local_tests.py)."""
-
-    def __init__(self, engine):
-        super().__init__()
-        self.engine = engine
-        config = engine.config
-        form = QFormLayout(self)
-        form.addRow(theme.mark(QLabel("Changes you pick, tested in your hours. Nothing is posted: each result stays on this computer, with a draft "
-                                      "comment you can post yourself."), role="muted"))
-        self.repository = QLineEdit(config.local_repository)
-        self.repository.setPlaceholderText("the project on GitHub, OWNER/NAME")
-        form.addRow("Project", self.repository)
-        self.prs = QLineEdit(", ".join(str(n) for n in config.local_prs))
-        self.prs.setPlaceholderText("pull request numbers, separated by commas")
-        form.addRow("Pull requests", self.prs)
-        self.authors = QLineEdit(", ".join(config.local_people))
-        self.authors.setPlaceholderText("GitHub names: their open pull requests too (optional)")
-        form.addRow("People", self.authors)
-        row = QHBoxLayout()
-        self.state = QLabel("")
-        self.state.setWordWrap(True)
-        row.addWidget(self.state, 1)
-        check = QPushButton("Check now")
-        check.clicked.connect(lambda: (self.save(), engine.work.put(("local", None))))
-        row.addWidget(check)
-        save = QPushButton("Save")
-        save.clicked.connect(self.save)
-        row.addWidget(save)
-        form.addRow(row)
-
-    def refresh(self):
-        if not self.engine.local.enabled():
-            self.state.setText("Empty: add a project and some pull requests.")
-            return
-        data = self.engine.local.read()
-        count = {s: sum(1 for e in data["entries"] if e["status"] == s) for s in ("queued", "done", "failed", "skipped")}
-        pinned = (data.get("pinned") or {}).get("main")
-        self.state.setText(f"{count['queued']} waiting, {count['done']} tested, {count['failed']} didn't run, {count['skipped']} skipped"
-                           + (f" · against main {pinned[:9]}" if pinned else ""))
-
-    def save(self):
-        config = self.engine.config
-        config.local_repository = self.repository.text().strip()
-        config.local_prs = sorted({int(x) for x in self.prs.text().replace("#", "").replace(",", " ").split() if x.isdigit()})
-        config.local_people = [a for a in self.authors.text().replace(",", " ").split() if a]
-        self.engine.save_config()
-        self.refresh()
-
-
 class AppTab(QWidget):
     """How the app looks and behaves: text size, the simple or advanced view, and whether closing the window quits."""
 
@@ -505,9 +456,7 @@ class SettingsPage(QScrollArea):
         self.engine = engine
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.account, self.schedule, self.titles, self.app = SettingsTab(engine), ScheduleTab(engine), TitlesTab(engine), AppTab(engine)
-        self.local = LocalTestsTab(engine)
-        for title, widget in (("", self.account), ("When to test", self.schedule), ("Local tests", self.local), ("Your games", self.titles),
-                              ("This app", self.app)):
+        for title, widget in (("", self.account), ("When to test", self.schedule), ("Your games", self.titles), ("This app", self.app)):
             if title:
                 layout.addWidget(theme.mark(QLabel(title), role="heading"))
             layout.addWidget(widget)
@@ -518,7 +467,7 @@ class SettingsPage(QScrollArea):
         advanced = self.engine.config.view == "advanced"
         self.account.trusted_group.setVisible(advanced)  # the simple view keeps to what a tester sets
         self.account.logs_group.setVisible(advanced)
-        for part in (self.account, self.schedule, self.local, self.titles, self.app):
+        for part in (self.account, self.schedule, self.titles, self.app):
             part.refresh()
 
 
@@ -528,7 +477,7 @@ class MainWindow(QMainWindow):
         self.engine = engine
         engine.window = self
         self.setWindowTitle("AnyPS5 title runs")
-        self.home, self.prs, self.settings = HomePage(engine), PullRequestsTab(engine), SettingsPage(engine)
+        self.home, self.local, self.prs, self.settings = HomePage(engine), LocalTestsPage(engine), PullRequestsTab(engine), SettingsPage(engine)
         self.stack = QStackedWidget()
         side = theme.mark(QWidget(), objectName="sidebar")
         side.setObjectName("sidebar")
@@ -539,7 +488,8 @@ class MainWindow(QMainWindow):
         nav.addSpacing(8)
         self.group = QButtonGroup(self)
         self.buttons = {}
-        for key, name, page in (("home", "Home", self.home), ("prs", "All pull requests", self.prs), ("settings", "Settings", self.settings)):
+        for key, name, page in (("home", "Home", self.home), ("local", "Local tests", self.local), ("prs", "All pull requests", self.prs),
+                                ("settings", "Settings", self.settings)):
             button = theme.mark(QPushButton(name), nav="true")
             button.setCheckable(True)
             button.clicked.connect(lambda _=False, p=page: self.show_page(p))
@@ -569,7 +519,7 @@ class MainWindow(QMainWindow):
 
     @property
     def pages(self):
-        return ((self.home, "Home"), (self.prs, "All pull requests"), (self.settings, "Settings"))
+        return ((self.home, "Home"), (self.local, "Local tests"), (self.prs, "All pull requests"), (self.settings, "Settings"))
 
     def show_page(self, page):
         self.stack.setCurrentWidget(page)
@@ -621,6 +571,11 @@ class MainWindow(QMainWindow):
             self.settings.account.register_machine()
         else:
             self.walkthrough({"Finish the walkthrough": "what", "Sign in…": "sign-in"}.get(fix, "what"))
+
+    def open_report(self, number):
+        """A local test's report: the PR's link first, the text to copy, Mark as posted. Nothing is posted from here."""
+        ReportDialog(self.engine, number, self).exec()
+        self.refresh()
 
     def run_unchecked(self, row):
         """Run… on a PR no maintainer queued: the trust dialog, then the job on the tester's trust."""

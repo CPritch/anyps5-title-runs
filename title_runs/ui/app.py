@@ -273,10 +273,71 @@ class Engine(QObject):
         posted = {**status, "recent": [r for r in status.get("recent", []) if not r.get("local")]}
         rows = model.recent(posted, results, self.config.machine, rules)
         if self.local.enabled():
-            done = [e for e in self.local.read()["entries"] if e["status"] in ("done", "failed")]
+            data = self.local.read()
+            done = [e for e in data["entries"] if e["status"] in ("done", "failed")]
             rows = [{"number": e["pr"], "head": e["head"], "at": e.get("at", ""), "status": e["status"], "verdict": e.get("verdict", e["status"]),
-                     "draft": e.get("draft", ""), "local": True} for e in reversed(done)] + rows
+                     "report": report_state(e, data), "local": True} for e in reversed(done)] + rows
         return rows
+
+    # -- local tests (ui/local.py) ---------------------------------------------------------------------------------------
+
+    def local_rows(self):
+        data = self.local.read()
+        rows = self.local.rows()
+        for row in rows:
+            row["report"] = report_state(row["entry"], data) if row["entry"]["status"] in ("done", "failed") else ""
+        return rows
+
+    def local_results(self, number):
+        """The PR's results, newest first, each {"entry", "text" (its report), "stale", "link"}."""
+        data = self.local.read()
+        done = [e for e in reversed(data["entries"]) if e["pr"] == number and e["status"] in ("done", "failed")]
+        from ..local_tests import stale
+        return [{"entry": e, "text": self.local.report(e), "stale": stale(e, data), "link": self.local.pull_url(number)} for e in done]
+
+    def local_add(self, text):
+        number, why = self.local.parse(text)
+        if number is None:
+            return why
+        if number not in self.config.local_prs:
+            self.config.local_prs.append(number)
+            self.save_config()
+        self.local.added(number)
+        self.work.put(("local", None))
+        return f"Added #{number}. It's read from GitHub within a minute."
+
+    def local_remove(self, number):
+        if number in self.config.local_prs:
+            self.config.local_prs.remove(number)
+            self.save_config()
+        self.local.remove(number)
+
+    def local_again(self, number):
+        head = self.local.again(number)
+        self.work.put(("wake", None))
+        return head
+
+    def local_posted(self, number, head, posted=True, at=None):
+        return self.local.mark_posted(number, head, posted, at)
+
+    def local_save(self, repository, people, fixes):
+        self.config.local_repository, self.config.local_people, self.config.local_fixes = repository, people, fixes
+        self.save_config()
+        self.work.put(("local", None))
+
+    def local_unpin(self):
+        self.local.unpin()
+        self.work.put(("wake", None))
+
+    def local_base(self):
+        """What local tests are measured against now, in words."""
+        pinned = self.local.read().get("pinned") or {}
+        if not pinned.get("main"):
+            return "main as it is when the next test starts"
+        words_ = f"main {pinned['main'][:9]}" + "".join(f" + #{f['pr']}" for f in pinned.get("fixes", []))
+        if pinned.get("in_main"):
+            words_ += f" (main already has {', '.join('#' + str(n) for n in pinned['in_main'])})"
+        return f"{words_}, since {utc_text(pinned['at'])}"
 
     def home(self):
         ready, why, _ = self.readiness()
@@ -485,11 +546,14 @@ class Engine(QObject):
                     self.client.run(row["number"], row["head"], "tester", row["title"], row["author"])
                 elif kind == "listing":
                     self.refresh_listing(force=True)
-                elif self.config.testing != "off":
-                    self.log(self.next_test())
+                else:
+                    if kind == "local":  # the list changed: read it from GitHub before anything starts
+                        self.refresh_local(force=True)
+                    if self.config.testing != "off":
+                        self.log(self.next_test())
                 if kind != "listing" and not self.quitting:
                     self.refresh_listing()
-                    self.refresh_local(force=kind == "local")
+                    self.refresh_local()
             except Exception as error:  # noqa: BLE001
                 if not self.quitting:
                     self.client.status.update(state="error", line=f"Error: {clients.clean(error, 200)}")
@@ -502,6 +566,15 @@ class Engine(QObject):
                     self.log(f"relay check: {error}")
 
 
+def report_state(entry, data):
+    """A result's report: Posted, Stale (why) or Not posted."""
+    from ..local_tests import stale
+    if entry.get("posted"):
+        return "Posted"
+    why = stale(entry, data)
+    return f"Stale: {why}" if why else "Not posted"
+
+
 def grab(widget, path):
     QApplication.processEvents()
     widget.grab().save(str(path))
@@ -509,7 +582,7 @@ def grab(widget, path):
 
 
 def screenshots(engine, out, prefix=""):
-    """The window's tabs, the trust dialog and the tray's menu with its four dots, rendered offscreen into out/."""
+    """The window's tabs, a local test's report, the trust dialog and the tray's menu with its four dots, rendered offscreen into out/."""
     from PySide6.QtCore import QPoint
     from PySide6.QtGui import QPainter, QPixmap
     from PySide6.QtWidgets import QWidget
@@ -527,6 +600,13 @@ def screenshots(engine, out, prefix=""):
     for index, (tab, name) in enumerate(window.pages):
         window.show_page(tab)
         saved.append(grab(window, out / f"{prefix}{name.lower().replace(' ', '-')}.png"))
+    reported = next((r["pr"] for r in engine.local_rows() if r["entry"]["status"] in ("done", "failed")), None) if engine.local.enabled() else None
+    if reported is not None:
+        from .local import ReportDialog
+        dialog = ReportDialog(engine, reported, window)
+        dialog.show()
+        saved.append(grab(dialog, out / f"{prefix}report.png"))
+        dialog.close()
     if engine.client.maintainer():
         window.open_maintainer()
         saved.append(grab(window.maintainer_window, out / f"{prefix}maintainer.png"))
