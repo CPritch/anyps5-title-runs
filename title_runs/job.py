@@ -74,7 +74,7 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
     recheck() -> a reason or None, called after the trees are ready and just before anything is built: the client asks
     the queue again whether this SHA is still the approved one. progress(text) and should_stop() go to the A/B protocol:
     a job whose head is superseded ends after the run it is in. remote: where the head and main come from (default the
-    config's); main: a main SHA pinned in advance (the overnight list's), instead of main's tip now."""
+    config's); main: a main SHA pinned in advance (local tests'), instead of main's tip now."""
     state_dir = Path(state_dir)
     job_dir = state_dir / "jobs" / f"{number}-{head[:12]}"
     job_dir.mkdir(parents=True, exist_ok=True)

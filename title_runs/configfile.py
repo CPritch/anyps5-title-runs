@@ -76,7 +76,7 @@ def config_data(config):
         "sandbox": {"mode": config.sandbox, "shutdown_wait": config.shutdown_wait},
         "run": {"allocator": config.allocator},
         "titles": titles,
-        "overnight": {"repository": config.overnight_repository, "prs": list(config.overnight_prs), "authors": list(config.overnight_authors)},
+        "local": {"repository": config.local_repository, "prs": list(config.local_prs), "people": list(config.local_people)},
         "poster": {"enabled": config.poster_enabled, "token_env": config.poster_token_env},
     }
 

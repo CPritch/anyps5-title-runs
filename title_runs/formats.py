@@ -15,7 +15,7 @@ VENDORS = ("amd", "intel", "nvidia")
 SYSTEMS = ("linux", "windows")
 CLAIM_HOURS = 3
 DEFAULT_MACHINES = 2
-TRUST = ("queue", "tester", "overnight")  # overnight: kept on the tester's machine (overnight.py); the relay accepts it nowhere
+TRUST = ("queue", "tester", "local")  # local: kept on the tester's machine (local_tests.py); the relay accepts it nowhere
 STATUSES = ("done", "failed", "superseded")
 # protocol.verdict's verdicts.
 VERDICTS = ("faster", "slower", "no difference", "not enough counted runs", "no difference beyond the spread")  # the last: round 2's

@@ -153,7 +153,7 @@ class HomePage(QWidget):
         state = self.engine.home()
         self.headline.setText(state["headline"])
         self.detail.setText(state["detail"])
-        notes = [n for n in (self.engine.overnight_notice(), self.engine.stale_text(), self.engine.ignored_mine()) if n]
+        notes = [n for n in (self.engine.local_notice(), self.engine.stale_text(), self.engine.ignored_mine()) if n]
         self.notice.setText("<br>".join(notes))
         self.notice.setVisible(bool(notes))
         running = state["kind"] == "running"
@@ -195,7 +195,7 @@ class HomePage(QWidget):
     def fill_recent(self):
         rows = self.engine.recent_rows()
         if not rows:
-            self.recent.set_rows(["No results yet. A queued test sends its result to the change on GitHub; one from tonight's list stays on this computer."])
+            self.recent.set_rows(["No results yet. A queued test sends its result to the change on GitHub; a local test's stays on this computer."])
             return
         out = []
         for row in rows:

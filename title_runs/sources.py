@@ -47,7 +47,7 @@ def fetch_approved(repo_dir, remote, head, main_branch="main"):
 
 
 def fetch_pinned(repo_dir, remote, head, main):
-    """fetch_approved for a main fixed in advance (an overnight list pins main for the whole night): the head and that
+    """fetch_approved for a main fixed in advance (local tests pin main for a while): the head and that
     main, both by SHA. Returns main."""
     for sha in (main, head):
         if subprocess.run(["git", "-C", str(repo_dir), "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode != 0:

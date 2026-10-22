@@ -1,4 +1,4 @@
-"""Tonight's list (overnight.py): heads of the listed pull requests and of the listed people's, each tested once, only
+"""Local tests (local_tests.py): heads of the listed pull requests and of the listed people's, each tested once, only
 when the author pushed it; main pinned for the night; the result kept here with a draft comment and a summary; Stop
 puts the head back on the list. Nothing is posted: GitHub is only read."""
 
@@ -11,7 +11,7 @@ import helpers  # noqa: F401
 from helpers import make_config
 from test_client import INFO, fake_results
 
-from title_runs import client, formats, overnight
+from title_runs import client, config as configs, configfile, formats, local_tests
 
 A, B = "a" * 40, "b" * 40
 
@@ -22,8 +22,8 @@ def pull(number, head, author="Celegans12", state="open", title="perf(agc): a ch
 
 class List(unittest.TestCase):
     def setUp(self):
-        self.config = make_config(machine="laptop", overnight_repository="boykopovar/AnyPS5", overnight_prs=[8104, 9289], overnight_authors=[])
-        self.night = overnight.Overnight(self.config, log=lambda *_: None)
+        self.config = make_config(machine="laptop", local_repository="boykopovar/AnyPS5", local_prs=[8104, 9289], local_people=[])
+        self.night = local_tests.LocalTests(self.config, log=lambda *_: None)
         self.heads = {8104: pull(8104, A), 9289: pull(9289, B, author="Celegans12")}
         self.pushers = {A: "Celegans12", B: "somebody-else"}
 
@@ -54,13 +54,29 @@ class List(unittest.TestCase):
         self.assertEqual(heads, [("a", "replaced"), ("c", "queued")])
 
     def test_the_listed_peoples_open_prs(self):
-        self.config.overnight_prs, self.config.overnight_authors = [], ["celegans12"]
+        self.config.local_prs, self.config.local_people = [], ["celegans12"]
         with self.github() as github:
             github.return_value.pages.return_value = [{"number": 8104, "user": {"login": "Celegans12"}, "draft": False},
                                                       {"number": 1, "user": {"login": "someone"}, "draft": False},
                                                       {"number": 9289, "user": {"login": "Celegans12"}, "draft": True}]
             self.night.refresh("token")
         self.assertEqual([e["pr"] for e in self.night.read()["entries"]], [8104])
+
+    def test_the_list_and_results_of_tonights_list_move_to_local_tests(self):
+        (self.config.state_dir / "client").mkdir(parents=True, exist_ok=True)
+        (self.config.state_dir / "client" / "overnight.json").write_text('{"repository": "boykopovar/AnyPS5", "entries": [{"pr": 1}]}')
+        (self.config.state_dir / "overnight" / "drafts").mkdir(parents=True)
+        moved = local_tests.LocalTests(self.config, log=lambda *_: None)
+        self.assertEqual(moved.read()["entries"], [{"pr": 1}])
+        self.assertTrue((self.config.state_dir / "local-tests" / "drafts").is_dir())
+
+    def test_a_config_with_the_old_section_name_still_reads(self):
+        self.config.state_dir.mkdir(parents=True, exist_ok=True)
+        path = self.config.state_dir / "old.toml"
+        path.write_text(f'state_dir = "{self.config.state_dir}"\n[overnight]\nrepository = "boykopovar/AnyPS5"\nprs = [8104]\nauthors = ["Celegans12"]\n')
+        old = configs.load(path)
+        self.assertEqual((old.local_repository, old.local_prs, old.local_people), ("boykopovar/AnyPS5", [8104], ["Celegans12"]))
+        self.assertEqual(configfile.config_data(old)["local"], {"repository": "boykopovar/AnyPS5", "prs": [8104], "people": ["Celegans12"]})
 
     def test_main_is_pinned_for_the_night(self):
         now = formats.parse_time("2026-10-22T00:30:00Z")
@@ -72,8 +88,8 @@ class List(unittest.TestCase):
 
 class Run(unittest.TestCase):
     def setUp(self):
-        self.config = make_config(machine="laptop", overnight_repository="boykopovar/AnyPS5", overnight_prs=[8104])
-        self.night = overnight.Overnight(self.config, log=lambda *_: None)
+        self.config = make_config(machine="laptop", local_repository="boykopovar/AnyPS5", local_prs=[8104])
+        self.night = local_tests.LocalTests(self.config, log=lambda *_: None)
         self.night.write({"repository": "boykopovar/AnyPS5", "pinned": {"main": "d" * 40, "at": formats.iso(formats.now()), "night": "2026-10-21"},
                           "entries": [{"pr": 8104, "head": A, "title": "perf(agc): stage", "author": "Celegans12", "added": "x", "status": "queued"}]})
         status = client.Status(self.config.state_dir / "client" / "status.json")
@@ -88,10 +104,10 @@ class Run(unittest.TestCase):
         entry = self.night.read()["entries"][0]
         self.assertEqual(entry["status"], "done")
         self.assertTrue(entry["verdict"].startswith("No difference ("))
-        draft = (self.config.state_dir / "overnight" / "drafts" / f"8104-{A[:12]}.md").read_text()
+        draft = (self.config.state_dir / "local-tests" / "drafts" / f"8104-{A[:12]}.md").read_text()
         self.assertIn("merged onto main `ddddddddd`", draft)
         self.assertNotIn("@", draft)  # a draft mentions nobody
-        summary = (self.config.state_dir / "overnight" / "2026-10-21.md").read_text()
+        summary = (self.config.state_dir / "local-tests" / "2026-10-21.md").read_text()
         self.assertIn("#8104 `aaaaaaaaa` perf(agc): stage (Celegans12): No difference", summary)
         self.assertTrue(self.client.status.read()["recent"][0]["local"])
 
@@ -114,7 +130,7 @@ class Run(unittest.TestCase):
         self.assertEqual(data["entries"][0]["status"], "queued")  # not this change's fault
         self.assertEqual(data["paused"]["reason"], "sceVoiceSetThreadsParams: worker priority and affinity are not implemented")
         self.assertEqual(self.client.status.read()["paused_until"], "indefinitely")
-        self.assertIn("**Paused**", (self.config.state_dir / "overnight" / "2026-10-21.md").read_text())
+        self.assertIn("**Paused**", (self.config.state_dir / "local-tests" / "2026-10-21.md").read_text())
 
     def test_a_change_that_crashes_the_game_is_failed_with_the_crash(self):
         with mock.patch("title_runs.job.run", return_value=self.crashed("B")):

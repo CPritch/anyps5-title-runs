@@ -1,15 +1,15 @@
-"""Overnight testing on the tester's own terms (the [overnight] config): a list of pull requests on a repository the
-tester doesn't run (upstream AnyPS5), and optionally the open pull requests of people the tester trusts, each head
-tested at most once, within the tester's hours, with nothing posted anywhere. Results stay on this machine: a summary
-per night and a draft comment per pull request, which the tester may post themselves.
+"""Local tests: pull requests the tester picks on a project they don't run tests for (upstream AnyPS5), and optionally
+the open pull requests of people they follow, each head tested once against the project's main, within the tester's
+testing (the Off, On schedule, Now switch), with nothing posted anywhere. Results stay on this computer, each with a
+report in the project's own form that the tester may post themselves.
 
 Trust is the tester's: a head runs only when the PR's own author pushed it (the PR's earliest workflow run for that
-head names its pusher), and every test builds and runs in the sandbox as a queued one does. Main is pinned once per
-night, so every PR of the night is measured against the same main and that side builds and warms up once.
+head names its pusher), and every test builds and runs in the sandbox as a queued one does. Main is pinned for
+PIN_HOURS, so the PRs tested together are measured against the same main and that side builds and warms up once.
 
-  state/client/overnight.json     the list: {"repository", "pinned": {"main", "at"}, "entries": [...]}
-  state/overnight/<night>.md       the night's summary
-  state/overnight/drafts/<pr>-<head>.md   a draft comment per tested head
+  state/client/local-tests.json          the list: {"repository", "pinned": {"main", "at"}, "entries": [...]}
+  state/local-tests/<night>.md           a summary per night
+  state/local-tests/drafts/<pr>-<head>.md   the report per tested head
 """
 
 import datetime
@@ -28,25 +28,28 @@ def night_of(at):
     return (local - datetime.timedelta(hours=12)).date().isoformat()
 
 
-class Overnight:
+class LocalTests:
     def __init__(self, config, log=print):
         self.config, self.log = config, log
         self.dir = Path(config.state_dir)
-        self.path = self.dir / "client" / "overnight.json"
-        self.out = self.dir / "overnight"
+        self.path = self.dir / "client" / "local-tests.json"
+        self.out = self.dir / "local-tests"
+        for old, new in ((self.dir / "client" / "overnight.json", self.path), (self.dir / "overnight", self.out)):
+            if old.exists() and not new.exists():  # first named "tonight's list"
+                old.rename(new)
 
     # -- the list ------------------------------------------------------------------------------------------------------
 
     def enabled(self):
-        return bool(self.config.overnight_repository and (self.config.overnight_prs or self.config.overnight_authors))
+        return bool(self.config.local_repository and (self.config.local_prs or self.config.local_people))
 
     def read(self):
         try:
             data = json.loads(self.path.read_text())
         except (OSError, ValueError):
             data = {}
-        if data.get("repository") != self.config.overnight_repository:
-            data = {"repository": self.config.overnight_repository, "pinned": None, "entries": []}
+        if data.get("repository") != self.config.local_repository:
+            data = {"repository": self.config.local_repository, "pinned": None, "entries": []}
         return data
 
     def write(self, data):
@@ -56,16 +59,16 @@ class Overnight:
         temporary.replace(self.path)
 
     def remote(self):
-        return f"https://github.com/{self.config.overnight_repository}.git"
+        return f"https://github.com/{self.config.local_repository}.git"
 
     def refresh(self, token):
         """Bring the list up to date from GitHub (read only): each listed PR's head, and the open PRs of the listed people.
         A head not yet on the list is added if its author pushed it; one the list has tested is left alone."""
         if not self.enabled():
             return []
-        repo = gh.GitHubRepo(self.config.overnight_repository, token=token)
-        numbers = set(self.config.overnight_prs)
-        authors = {a.lower() for a in self.config.overnight_authors}
+        repo = gh.GitHubRepo(self.config.local_repository, token=token)
+        numbers = set(self.config.local_prs)
+        authors = {a.lower() for a in self.config.local_people}
         if authors:
             for issue in repo.pages(f"/repos/{repo.repository}/pulls", {"state": "open"}, limit=10):
                 if (issue.get("user") or {}).get("login", "").lower() in authors and not issue.get("draft"):
@@ -76,7 +79,7 @@ class Overnight:
             try:
                 pull = repo.pull(number)
             except gh.GitHubError as error:
-                self.log(f"overnight: #{number}: {error}")
+                self.log(f"local tests: #{number}: {error}")
                 continue
             if pull["state"] != "open":
                 continue
@@ -96,7 +99,7 @@ class Overnight:
                     old.update(status="replaced", reason=f"{pull['head'][:9]} was pushed")
             data["entries"].append(entry)
             added.append(entry)
-            self.log(f"overnight: #{number} {pull['head'][:9]} by {pull['author']}: {entry['status']}{' (' + entry.get('reason', '') + ')' if entry.get('reason') else ''}")
+            self.log(f"local tests: #{number} {pull['head'][:9]} by {pull['author']}: {entry['status']}{' (' + entry.get('reason', '') + ')' if entry.get('reason') else ''}")
         self.write(data)
         return added
 
@@ -104,7 +107,7 @@ class Overnight:
         return [e for e in self.read()["entries"] if e["status"] == "queued"]
 
     def pin(self, now=None):
-        """main for tonight: pinned at the night's first test, kept for PIN_HOURS."""
+        """The main local tests are measured against: pinned at the first test, kept for PIN_HOURS."""
         now = now or formats.now()
         data = self.read()
         pinned = data.get("pinned")
@@ -113,17 +116,17 @@ class Overnight:
         main = sources.main_tip(self.remote())
         data["pinned"] = {"main": main, "at": formats.iso(now), "night": night_of(now)}
         self.write(data)
-        self.log(f"overnight: main pinned at {main[:9]} for the night of {night_of(now)}")
+        self.log(f"local tests: main pinned at {main[:9]} for the night of {night_of(now)}")
         return main
 
     # -- a test --------------------------------------------------------------------------------------------------------
 
     def run(self, entry, client):
-        """Build and run one head against tonight's main, with the client's sandbox, status and Stop. Nothing is posted."""
+        """Build and run one head against the pinned main, with the client's sandbox, status and Stop. Nothing is posted."""
         main = self.pin()
         pr, head = entry["pr"], entry["head"]
-        client.status.update(state="running", line=f"Testing #{pr} (tonight's list)", progress="starting", stop_requested=False,
-                             job={"pr": pr, "head": head, "title": entry["title"], "author": entry["author"], "trust": "overnight"})
+        client.status.update(state="running", line=f"Testing #{pr} (a local test)", progress="starting", stop_requested=False,
+                             job={"pr": pr, "head": head, "title": entry["title"], "author": entry["author"], "trust": "local"})
 
         def stopped():
             return "stopped by the tester" if client.status.read().get("stop_requested") else None
@@ -136,18 +139,18 @@ class Overnight:
         data = self.read()
         record = next((e for e in data["entries"] if e["pr"] == pr and e["head"] == head), entry)
         if client.status.read().get("stop_requested"):
-            record.update(status="queued")  # Stop: tried again later tonight
+            record.update(status="queued")  # Stop: tried again later
             client.status.update(state="idle", line=f"Stopped #{pr}", job={}, progress="")
             self.write(data)
             return None
         side, reason = failure(results)
         if side == "A":
-            # Tonight's main itself doesn't start the game: not this PR's fault, and every other PR would fail the same way.
+            # The pinned main itself doesn't start the game: not this PR's fault, and every other PR would fail the same way.
             record.update(status="queued")
             data["paused"] = {"at": formats.iso(formats.now()), "main": main, "reason": reason}
             self.write(data)
-            self.log(f"overnight: paused: main {main[:9]} doesn't start the game: {reason}")
-            client.status.update(state="idle", line=f"Paused: tonight's main doesn't start the game ({reason[:120]})", job={}, progress="",
+            self.log(f"local tests: paused: main {main[:9]} doesn't start the game: {reason}")
+            client.status.update(state="idle", line=f"Paused: the pinned main doesn't start the game ({reason[:120]})", job={}, progress="",
                                  paused_until="indefinitely")
             self.write_summary()
             return None
@@ -188,7 +191,7 @@ class Overnight:
         data = self.read()
         night = (data.get("pinned") or {}).get("night") or night_of(formats.now())
         self.out.mkdir(parents=True, exist_ok=True)
-        lines = [f"# Overnight, the night of {night}", "", f"{data['repository']}, main `{((data.get('pinned') or {}).get('main') or '?')[:9]}`.", ""]
+        lines = [f"# Local tests, the night of {night}", "", f"{data['repository']}, main `{((data.get('pinned') or {}).get('main') or '?')[:9]}`.", ""]
         for e in data["entries"]:
             if e["status"] in ("done", "failed"):
                 shown = " (the game ran as X11)" if e.get("display") == "x11" else ""  # whether the app took it in is the app's, not the job's
@@ -234,7 +237,7 @@ def failure(results):
 
 def report_result(results, head, client):
     from .client import to_result
-    return to_result(results, head, client.config.machine, client.tester() or client.config.tester or "tester", client.machine_class, "overnight")
+    return to_result(results, head, client.config.machine, client.tester() or client.config.tester or "tester", client.machine_class, "local")
 
 
 def summary_words(result, rules):
