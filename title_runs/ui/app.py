@@ -599,6 +599,7 @@ def screenshots(engine, out, prefix=""):
     window.show()
     saved = []
     for index, (tab, name) in enumerate(window.pages):
+        list(window.buttons.values())[index].setChecked(True)  # the sidebar names the page shown
         window.show_page(tab)
         saved.append(grab(window, out / f"{prefix}{name.lower().replace(' ', '-')}.png"))
     reported = next((r["pr"] for r in engine.local_rows() if r["entry"]["status"] in ("done", "failed")), None) if engine.local.enabled() else None
