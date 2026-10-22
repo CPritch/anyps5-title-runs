@@ -164,6 +164,20 @@ class Elsewhere(unittest.TestCase):
         self.assertEqual(scenes.runs_name("PPSA04263", None), "PPSA04263")
         self.assertEqual(scenes.runs_name("PPSA04263", {"id": "house"}), "PPSA04263-house")
 
+    def test_machines_are_combined_only_within_a_scene(self):
+        info = {"gpu": "NVIDIA GeForce RTX 5060 Laptop GPU", "os": "Linux 7.2.8", "driver": "NVIDIA 615.71.09"}
+        sides = {"A": {"p50": [79.1, 79.0]}, "B": {"p50": [73.8, 74.0]}}
+        results = {"one": {"status": "done", "class": info, "titles": {"PPSA04263": {"sides": sides}}},
+                   "two": {"status": "done", "class": info, "titles": {"PPSA04263": {"sides": sides, "scene_id": "house"}}}}
+        keys = sorted(verdict.by_class(results, "PPSA04263"))
+        self.assertEqual(len(keys), 2)
+        self.assertTrue(keys[1].endswith(" in house"))
+        self.assertEqual({c["n"] for c in verdict.by_class(results, "PPSA04263").values()}, {1})
+
+    def test_the_result_format_takes_a_scene_id(self):
+        self.assertTrue(formats.SCENE_ID.fullmatch("vinewood-house"))
+        self.assertFalse(formats.SCENE_ID.fullmatch("Vinewood house"))
+
     def test_the_config_file_keeps_the_scene(self):
         config = helpers.make_config()
         config.titles["PPSA04263"].scene = "house"

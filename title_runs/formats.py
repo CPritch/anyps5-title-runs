@@ -23,6 +23,7 @@ SHA = re.compile(r"[0-9a-f]{40}")
 JOB = re.compile(r"(\d+)-([0-9a-f]{12})")
 MACHINE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,31}")  # a hostname: Legion5a-Laptop; it goes into paths, comments and tables
 TITLE_ID = re.compile(r"[A-Z]{4}[0-9]{5}")
+SCENE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")  # scenes.py: a scene file's name
 LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
 
 
@@ -266,6 +267,7 @@ def check_result(data, path=None):
             raise FormatError(f"{tw}: not a title ID")
         for key, limit in (("name", 80), ("version", 20), ("scene", 120)):
             _string(entry, key, tw, TEXT, limit, required=False)
+        _string(entry, "scene_id", tw, SCENE_ID, 40, required=False)
         outcome = _need(entry, "outcome", dict, tw)
         for side in ("A", "B"):
             _string(outcome, side, f"{tw} outcome", TEXT, 120)
