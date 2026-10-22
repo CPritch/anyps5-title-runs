@@ -1,0 +1,12 @@
+{
+  "title_id": "PPSA04263",
+  "name": "The prologue (a new game, no save)",
+  "scene": "the Story prologue's bank, a new game (Resume Story with no story save)",
+  "route": "routes/PPSA04263.json",
+  "default": true,
+  "frame": {
+    "colours": [0.7251, 0.0176, 0.0, 0.0, 0.0208, 0.0251, 0.0002, 0.0, 0.0, 0.0001, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0218, 0.0013, 0.0, 0.0, 0.0202, 0.1189, 0.0033, 0.0, 0.0, 0.0039, 0.0036, 0.0004, 0.0, 0.0, 0.0, 0.0001, 0.0002, 0.0001, 0.0, 0.0, 0.0005, 0.0015, 0.0, 0.0, 0.0018, 0.0019, 0.0194, 0.0006, 0.0, 0.0, 0.0005, 0.0012, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0002, 0.0, 0.0, 0.0, 0.0002, 0.0094],
+    "max_distance": 0.33,
+    "from": "the last frames of 125 prologue runs (2026-10-21 and 22): 0.01 typically, 0.25 at most for the timed runs (the mission's camera cuts); Franklin's house is 0.41 away"
+  }
+}

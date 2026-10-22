@@ -1,7 +1,7 @@
 {
   "title_id": "PPSA04263",
-  "name": "Franklin's house, Vinewood Hills (100% save)",
-  "scene": "Franklin at the front door inside his Vinewood Hills house, loaded by Resume Story from a 100% save",
+  "name": "Franklin's front door (100% save)",
+  "scene": "Franklin at his front door in Vinewood Hills, from a 100% save",
   "route": "routes/PPSA04263.json",
   "source": "first loaded on 2026-10-22 (main c49fa17ee, Performance mode): Resume Story loads the save's autosave, '(Autosave) A Starlet In Vinewood (100.0%)'",
   "save": {

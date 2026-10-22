@@ -122,14 +122,14 @@ def combine(name, verdicts, rules=DEFAULT):
 
 def by_class(results, title_id, rules=DEFAULT):
     """{class: combine()} for one title over results ({machine: result file}), done results only. Each verdict is
-    recomputed from the result's sides. Results timed in a scene (scenes.py) are combined only with the same scene's:
-    their class reads "<class> in <scene id>"."""
+    recomputed from the result's sides. Results timed in a scenario (scenarios.py) are combined only with the same
+    scenario's: their class reads "<class> in <scenario id>"."""
     groups = {}
     for name, result in results.items():
         if result.get("status") != "done" or title_id not in result.get("titles", {}):
             continue
         info = result.get("class") or {}
         entry = result["titles"][title_id]
-        key = class_of(info) + (f" in {entry['scene_id']}" if entry.get("scene_id") else "")
+        key = class_of(info) + (f" in {entry['scenario']}" if entry.get("scenario") else "")
         groups.setdefault(key, {})[name] = machine(entry.get("sides") or {}, rules)
     return {key: combine(key, verdicts, rules) for key, verdicts in sorted(groups.items())}

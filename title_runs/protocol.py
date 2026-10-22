@@ -27,7 +27,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import VENDOR, platform_info, route as routes, sandbox, scenes, verdict as verdicts
+from . import VENDOR, platform_info, route as routes, sandbox, scenarios, verdict as verdicts
 from .game import Game
 
 sys.path.insert(0, str(VENDOR / "gtav_harness"))
@@ -63,8 +63,8 @@ class Side:
 
 
 class Protocol:
-    def __init__(self, config, title, route, runs_dir, sides, log, base_line="", scene=None):
-        self.config, self.title, self.route, self.scene = config, title, route, scene
+    def __init__(self, config, title, route, runs_dir, sides, log, base_line="", scenario=None):
+        self.config, self.title, self.route, self.scenario = config, title, route, scenario
         self.machine_id = platform_info.machine_id()  # warm-ups belong to the computer, not to the name the tester gave it
         self.runs_dir, self.sides, self.log_line, self.base_line = Path(runs_dir), sides, log, base_line
         self.runs_dir.mkdir(parents=True, exist_ok=True)
@@ -182,10 +182,10 @@ class Protocol:
         return result
 
     def keep_still(self, side, run, game, driver):
-        """The scene's still button (scenes.py), pressed every few seconds from the route's resume mark (the load
+        """The scenario's still button (scenarios.py), pressed every few seconds from the route's resume mark (the load
         starting; warm-ups and timed runs alike) until the run stops, on a thread of its own. Returns the Event that
         stops it, or None."""
-        still = (self.scene or {}).get("still")
+        still = (self.scenario or {}).get("still")
         if not still:
             return None
         stop = threading.Event()
@@ -195,7 +195,7 @@ class Protocol:
             while "resume" not in driver.marks:
                 if stop.wait(1) or not game.alive():
                     return
-            self.log(run, f"pressing {still['press']} every {still['every']} s ({still.get('why', 'the scene asks for it')})")
+            self.log(run, f"pressing {still['press']} every {still['every']} s ({still.get('why', 'the scenario asks for it')})")
             while not stop.wait(still["every"]) and game.alive():
                 subprocess.run([sys.executable, "-I", str(side.tools / "pad_input.py"), str(side.work / "pad-input"), still["press"], "--hold-ms", "100"],
                                capture_output=True)
@@ -203,14 +203,14 @@ class Protocol:
         return stop
 
     def in_scene(self, side, run, frame):
-        """Raises RouteFailed when the frame isn't the scene's (scenes.check); records the check in meta."""
-        if not self.scene:
+        """Raises RouteFailed when the frame isn't the scenario's scene (scenarios.check); records the check in meta."""
+        if not self.scenario:
             return
-        found, words = scenes.check(self.scene, frame)
-        self.meta(run, f"scene={self.scene['id']} scene_check={'yes' if found else 'unknown' if found is None else 'no'}: {words}")
-        self.log(run, f"scene {self.scene['id']}: {'reached' if found else 'not checked' if found is None else 'NOT reached'} ({words})")
+        found, words = scenarios.check(self.scenario, frame)
+        self.meta(run, f"scenario={self.scenario['id']} scene_check={'yes' if found else 'unknown' if found is None else 'no'}: {words}")
+        self.log(run, f"scenario {self.scenario['id']}: {'in the scene' if found else 'not checked' if found is None else 'NOT in the scene'} ({words})")
         if found is False:
-            raise routes.RouteFailed(f"{words}; the save may not have loaded")
+            raise routes.RouteFailed(f"not the scene of {self.scenario['name']}: {words}")
 
     def keep_last_frame(self, side, run):
         frames = sorted(side.work.glob("frame_*.bmp"), key=lambda p: p.stat().st_mtime)

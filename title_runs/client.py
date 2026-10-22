@@ -67,8 +67,8 @@ def to_result(results, head, machine, tester, info, trust_mark):
             "summary_lines": {key: [json.dumps(r["summary"], separators=(",", ":")).replace("```", "'''") for r in counted if r["side"] == key]
                               for key in ("A", "B")},
             "not_counted": [clean(f"{r['run']}: {r.get('capture', '')}", 300) for r in ab.get("runs", []) if not r.get("counts")]}
-        if entry.get("scene_id"):
-            titles[title_id]["scene_id"] = entry["scene_id"]
+        if entry.get("scenario"):
+            titles[title_id]["scenario"] = entry["scenario"]
     data = {"format": formats.FORMAT, "job": formats.job_id(results["pr"], head), "pr": results["pr"], "head": head,
             "base": results.get("base", ""), "merge": results.get("merge", ""), "machine": machine, "tester": tester, "class": info,
             "machine_line": clean(report.machine_line(results) if titles else f"{info['gpu']}, {info['os']}", 160), "trust": trust_mark,

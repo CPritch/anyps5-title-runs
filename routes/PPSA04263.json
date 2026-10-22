@@ -1,6 +1,5 @@
 {
   "title_id": "PPSA04263",
-  "name": "The prologue (a new game, no save)",
   "scene": "Story Mode, Resume Story: the loaded scene (the bank)",
   "source": "CPritch/gtav-harness nav.sh nav_to_resume and nav_wait_loaded (ef6636d); frame states from frame_state.py",
   "dump_every": 30,

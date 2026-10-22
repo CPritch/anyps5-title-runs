@@ -4,7 +4,7 @@ The layout is #7264's: title_run.prepare() unwraps the package's SELFs, relinks 
 tools/titles.json), hard-links app0 and the build's libraries. What title_run does not do is added here, after it:
   - app0_skip: entries of the package left out of app0 (GTA V's dump has a fakelib/ directory the harness skips);
   - seed: files copied into the game directory before the first run (GTA V's save data with the Graphics Mode
-    setting, _sd/ and _sd_mem/, and anyps5-entitlements.ini), then the scene's save over them (scenes.py);
+    setting, _sd/ and _sd_mem/, and anyps5-entitlements.ini), then the scenario's save over them (scenarios.py);
   - caches outside the game directory (ANYPS5_SHADER_CACHE_DIR and the NVIDIA and Mesa caches), because prepare()
     removes the game directory, and the warm caches must outlive it.
 """
@@ -32,7 +32,7 @@ def title_entry(title_id):
 
 def prepare(title, build_dir, work, files=()):
     """title_run.prepare plus our additions. files: [(source, path in the game directory)] copied in after the seeds (a
-    scene's save, scenes.files()). Returns the relinked executable (work/<TITLE ID>)."""
+    scenario's save, scenarios.files()). Returns the relinked executable (work/<TITLE ID>)."""
     work = Path(work)
     found = title_run.discover([title.dump])
     if title.title_id not in found:

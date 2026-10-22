@@ -61,7 +61,7 @@ class Title:
     env: dict = field(default_factory=dict)
     graphics_mode: str = ""
     boot_seconds: int | None = None
-    scene: str = ""  # a scene of scenes/<TITLE ID>/ by id, or a scene file's path: the save that takes the route there (scenes.py)
+    scenario: str = ""  # a scenario of scenarios/<TITLE ID>/ by id, or a scenario file's path; empty: the title's default (scenarios.py)
 
 
 @dataclass
@@ -155,7 +155,7 @@ def load(path):
         route_path = (ROOT / route).resolve() if route and not os.path.isabs(os.path.expanduser(route)) else _path(route)
         titles[title_id] = Title(title_id, _path(entry["dump"]), route_path, [_path(p) for p in entry.get("seed", [])],
                                  list(entry.get("app0_skip", [])), dict(entry.get("env", {})), entry.get("graphics_mode", ""),
-                                 int(entry["boot_seconds"]) if "boot_seconds" in entry else None, str(entry.get("scene", "")))
+                                 int(entry["boot_seconds"]) if "boot_seconds" in entry else None, str(entry.get("scenario", "")))
     for number in follow.get("prs", []):
         if not isinstance(number, int) or number < 1:
             raise ConfigError(f"follow.prs: {number!r} is not a PR number")
