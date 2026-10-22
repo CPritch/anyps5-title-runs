@@ -1,7 +1,9 @@
 """The game inside the app. A test's game window (an X11 window: AnyPS5 opens it through SDL, under XWayland on a
 Wayland desktop) is taken into the app's own window, so a run is never a stray window on the desktop and the app shows
-what is running. Clicks go to the app, not the game (the game window gets an empty input shape), so nothing the tester
-does can reach a run. It needs the app to be an X11 program too (app.main sets QT_QPA_PLATFORM=xcb on Linux); where
+what is running. The game's window is known by its X11 class, which AnyPS5 sets to the title ID (PPSA04263): a list of
+windows taken when the view starts watching is no use, as the game's window may already be open by then, and XWayland
+gives each run's window the same ID. Clicks go to the app, not the game (the game window gets an empty input shape), so
+nothing the tester does can reach a run. It needs the app to be an X11 program too (app.main sets QT_QPA_PLATFORM=xcb on Linux); where
 that is not so, the game keeps its own window and the view says so."""
 
 import ctypes
@@ -14,8 +16,12 @@ from PySide6.QtWidgets import QLabel, QSizePolicy, QStackedLayout, QWidget
 from . import theme
 
 
+class ClassHint(ctypes.Structure):
+    _fields_ = [("res_name", ctypes.c_void_p), ("res_class", ctypes.c_void_p)]
+
+
 class X11:
-    """Just enough Xlib: the top-level windows, their names, whether one still exists, and an empty input shape."""
+    """Just enough Xlib: the top-level windows, their names and classes, whether one still exists, and an empty input shape."""
 
     def __init__(self):
         self.x11 = ctypes.cdll.LoadLibrary(ctypes.util.find_library("X11") or "libX11.so.6")
@@ -32,6 +38,7 @@ class X11:
         x.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
         x.XFlush.argtypes = [ctypes.c_void_p]
         x.XGetWindowAttributes.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_char_p]
+        x.XGetClassHint.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ClassHint)]
         self.ext.XShapeCombineRectangles.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_int, ctypes.c_int,
                                                      ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int]
         # Xlib's default error handler ends the whole program; a window that has gone between two calls is normal here.
@@ -58,6 +65,18 @@ class X11:
             return value.value.decode(errors="replace")
         return ""
 
+    def classes(self, window):
+        """The window's WM_CLASS: its instance and class names, lower case."""
+        hint = ClassHint()
+        if not self.x11.XGetClassHint(self.display, window, ctypes.byref(hint)):
+            return set()
+        out = set()
+        for pointer in (hint.res_name, hint.res_class):
+            if pointer:
+                out.add(ctypes.string_at(pointer).decode(errors="replace").lower())
+                self.x11.XFree(pointer)
+        return out
+
     def exists(self, window):
         attributes = ctypes.create_string_buffer(256)  # XWindowAttributes is smaller than this on every platform
         return bool(self.x11.XGetWindowAttributes(self.display, window, attributes))
@@ -73,12 +92,12 @@ def embeddable():
 
 
 class GameView(QWidget):
-    """Shows a placeholder until a game window that matches one of names() appears, then the game itself. watch() while
-    a test runs, unwatch() after."""
+    """Shows a placeholder until a game window appears, then the game itself: a window whose class is one of title_ids(),
+    or failing that a new window named like one of names(). watch() while a test runs, unwatch() after."""
 
-    def __init__(self, names, log=lambda text: None, parent=None):
+    def __init__(self, names, log=lambda text: None, parent=None, title_ids=lambda: []):
         super().__init__(parent)
-        self.names, self.log = names, log
+        self.names, self.log, self.title_ids = names, log, title_ids
         self.layout_ = QStackedLayout(self)
         self.placeholder = theme.mark(QLabel(""), role="muted")
         self.placeholder.setAlignment(Qt.AlignCenter)
@@ -132,7 +151,11 @@ class GameView(QWidget):
                 self.placeholder.setText("Between runs…")
                 self.before = set(self.x11.children())
             return
+        ids = {i.lower() for i in self.title_ids() if i}
         for window in self.x11.children():
+            if ids & self.x11.classes(window):
+                self.embed(window, self.x11.name(window))
+                return
             if window in self.before:
                 continue
             name = self.x11.name(window)

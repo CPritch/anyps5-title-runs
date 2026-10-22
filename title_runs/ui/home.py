@@ -111,7 +111,8 @@ class HomePage(QWidget):
 
         self.game_card, game = card()
         game.addWidget(theme.mark(QLabel("The test, running here in the sandbox"), role="heading"))
-        self.game = GameView(lambda: list(self.engine.names.values()) + [d.get("name", "") for d in self.engine.dumps.values()], engine.log)
+        self.game = GameView(lambda: list(self.engine.names.values()) + [d.get("name", "") for d in self.engine.dumps.values()], engine.log,
+                             title_ids=lambda: list(self.engine.names))
         game.addWidget(self.game, 1)
         game.addWidget(rich("Stop ends it at once. Nothing you click here reaches the game.", role="muted"))
         layout.addWidget(self.game_card, 3)

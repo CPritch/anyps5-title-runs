@@ -424,3 +424,62 @@ class MainScreenModel(unittest.TestCase):
         self.assertEqual(waiting["detail"], "The next test starts by itself between 01:00 and 07:00, the hours you chose.")
         self.assertEqual(model.waiting_for("on battery"), "the computer is plugged in")
         self.assertEqual(model.waiting_for("gtav.elf is running"), "gtav.elf has closed")
+
+
+@unittest.skipIf(QApplication is None, "needs PySide6")
+class GameViewFinding(unittest.TestCase):
+    """The game's window is found by its class (the title ID), whenever it opened: on 2026-10-22 the view missed every
+    run of a test because the window opened before the view took its list of windows, and XWayland gave each later
+    run's window the same ID."""
+
+    class FakeX11:
+        def __init__(self):
+            self.windows = {}  # id: (name, classes)
+
+        def children(self, window=None):
+            return list(self.windows)
+
+        def name(self, window):
+            return self.windows.get(window, ("", set()))[0]
+
+        def classes(self, window):
+            return self.windows.get(window, ("", set()))[1]
+
+        def exists(self, window):
+            return window in self.windows
+
+    def view(self):
+        from title_runs.ui.gameview import GameView
+        self.app = QApplication.instance() or QApplication([])
+        view = GameView(lambda: ["GTA V"], title_ids=lambda: ["PPSA04263"])
+        view.x11 = self.FakeX11()
+        view.embed = lambda window, name: setattr(view, "embedded", window)
+        return view
+
+    def test_a_game_window_open_before_watching_is_taken(self):
+        view = self.view()
+        view.x11.windows = {0x1400002: ("AnyPS5 title runs", {"anyps5 title runs"}),
+                            0x2000002: ("Grand Theft Auto V | FPS: 30", {"ppsa04263"})}
+        view.watch()
+        view.tick()
+        self.assertEqual(view.embedded, 0x2000002)
+
+    def test_the_next_run_with_the_same_window_id_is_taken(self):
+        view = self.view()
+        view.watch()
+        view.x11.windows = {0x2000002: ("Grand Theft Auto V", {"ppsa04263"})}
+        view.tick()
+        del view.x11.windows[0x2000002]
+        view.tick()  # the run ended
+        self.assertIsNone(view.embedded)
+        view.x11.windows = {0x2000002: ("Grand Theft Auto V", {"ppsa04263"})}
+        view.tick()
+        self.assertEqual(view.embedded, 0x2000002)
+
+    def test_other_windows_are_left_alone(self):
+        view = self.view()
+        view.watch()
+        view.x11.windows = {0x3000001: ("Grand Theft Auto V - YouTube", {"google-chrome"})}
+        view.before = {0x3000001}
+        view.tick()
+        self.assertIsNone(view.embedded)
