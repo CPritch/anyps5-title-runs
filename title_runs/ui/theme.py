@@ -67,6 +67,12 @@ def apply(app, size="normal"):
         QPushButton[primary="true"] {{ background: {ACCENT}; color: white; border: none; font-weight: 600;
                                       padding: {pixels // 2}px {round(pixels * 1.5)}px; }}
         QPushButton[primary="true"]:disabled {{ background: {c['mid']}; color: {c['muted']}; }}
+        QPushButton[segment="left"], QPushButton[segment="middle"], QPushButton[segment="right"] {{ border-radius: 0;
+                                      padding: {pixels // 2}px {round(pixels * 1.2)}px; }}
+        QPushButton[segment="left"] {{ border-top-left-radius: 8px; border-bottom-left-radius: 8px; }}
+        QPushButton[segment="right"] {{ border-top-right-radius: 8px; border-bottom-right-radius: 8px; }}
+        QPushButton[segment="left"]:checked, QPushButton[segment="middle"]:checked, QPushButton[segment="right"]:checked {{
+                                      background: {ACCENT}; color: white; border-color: {ACCENT}; font-weight: 600; }}
         QPushButton[danger="true"] {{ background: #c8423b; color: white; border: none; font-weight: 600;
                                      padding: {pixels // 2}px {round(pixels * 1.5)}px; }}
         QLineEdit, QSpinBox, QComboBox {{ padding: {pixels // 4}px {pixels // 2}px; border: 1px solid {c['mid']}; border-radius: 6px;
@@ -79,7 +85,7 @@ def apply(app, size="normal"):
 
 
 def mark(widget, **properties):
-    """Set the stylesheet properties (role, card, primary, nav) on a widget and return it."""
+    """Set the stylesheet properties (role, card, primary, danger, nav, segment) on a widget and return it."""
     for key, value in properties.items():
         widget.setProperty(key, value)
     return widget

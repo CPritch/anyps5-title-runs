@@ -48,11 +48,12 @@ class Model(unittest.TestCase):
 
     def test_tray_states(self):
         view = {"running": None, "up_next": [], "recent": []}
-        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, view, [], None)[0], "idle")
-        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, view, [{"number": 1}], None), ("waiting", ["Idle", "1 PR waiting for you"]))
-        self.assertEqual(model.tray_view({"state": "error", "line": "Error: build failed"}, view, [], None)[0], "error")
+        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, view, [], "schedule")[0], "idle")
+        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, view, [{"number": 1}], "schedule"), ("waiting", ["Idle", "1 PR waiting for you"]))
+        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, view, [], "off")[1], ["Idle", "Testing is off: no test starts."])
+        self.assertEqual(model.tray_view({"state": "error", "line": "Error: build failed"}, view, [], "schedule")[0], "error")
         running = {"running": {"number": 8104}, "up_next": [{"number": 7922, "score": 4, "titles": "GTA V", "priority": "high"}], "recent": []}
-        state, lines = model.tray_view({"state": "running", "line": "Running: #8104 · PPSA04263 · main run 2/4"}, running, [], None)
+        state, lines = model.tray_view({"state": "running", "line": "Running: #8104 · PPSA04263 · main run 2/4"}, running, [], "schedule")
         self.assertEqual((state, lines), ("running", ["Running: #8104 · PPSA04263 · main run 2/4", "Next: #7922 · GTA V (high)"]))
 
 
@@ -185,6 +186,39 @@ class WalkthroughAndOverview(unittest.TestCase):
             page.poll()
         self.assertEqual(page.timer.interval(), 11000)
         self.assertTrue(page.timer.isActive())
+
+    def test_the_testing_switch(self):
+        import types
+        from unittest import mock
+        from title_runs import config as configs
+        engine = self.engine
+        job = types.SimpleNamespace(entry={"pr": 8104, "head": HEAD, "title": "t", "author": "a", "job": "8104-x"})
+        with mock.patch.object(engine.client, "ready", return_value=(True, "")), \
+                mock.patch.object(engine.client, "allowed_now", return_value=(False, "outside the hours 01-07")), \
+                mock.patch.object(engine.client, "run") as run:
+            engine.config.testing = "schedule"
+            with mock.patch.object(engine.client, "next_job", return_value=job):
+                self.assertEqual(engine.next_test(), "outside the hours 01-07")
+                run.assert_not_called()
+                engine.set_testing("now")  # whatever the hours
+                self.assertEqual(engine.next_test(), "ran 8104-x")
+                run.assert_called_once()
+            with mock.patch.object(engine.client, "next_job", return_value=None):
+                self.assertEqual(engine.next_test(), "nothing to test")
+        with mock.patch("title_runs.platform_info.stop_children", return_value=0):
+            engine.stop()  # ends the test and switches testing off
+        self.assertEqual(configs.load(self.config_path).testing, "off")
+        with self.assertRaises(ValueError):
+            engine.set_testing("sometimes")
+        engine.client.status.update(paused_until="indefinitely")  # the tray's Pause before the switch
+        engine.set_testing("schedule")
+        engine.adopt_old_pause()
+        self.assertEqual((engine.config.testing, engine.status().get("paused_until")), ("off", None))
+        old = self.root / "old.toml"
+        old.write_text(f'state_dir = "{self.root / "state"}"\n[client]\nautomatic = false\n')
+        self.assertEqual(configs.load(old).testing, "off")
+        old.write_text(f'state_dir = "{self.root / "state"}"\n')
+        self.assertEqual(configs.load(old).testing, "schedule")
 
     def test_overview_approve_is_for_maintainers(self):
         from title_runs.ui.window import MainWindow
@@ -393,6 +427,12 @@ class RowListFill(unittest.TestCase):
 class MainScreenModel(unittest.TestCase):
     """ui/home.py's words (model.header, step, waiting_for): what a tester reads on the main screen."""
 
+    def test_the_schedule_in_words(self):
+        rules = {"hours": [1, 7], "idle_only": True, "idle_minutes": 10, "mains_only": True, "pause_fullscreen": True}
+        self.assertEqual(model.schedule_words(rules, idle_detectable=False),
+                         "between 01:00 and 07:00, when it's plugged in, not while something is fullscreen")
+        self.assertEqual(model.schedule_words({"hours": [0, 24], "idle_only": False, "mains_only": False, "pause_fullscreen": False}), "at any time")
+
     def test_the_step_from_the_jobs_progress(self):
         for progress, index in (("starting", 0), ("#1: 69ac2e155 merged onto main d97361bd0 as f0a2a25b4", 0), ("A: building d97361bd0", 1),
                                 ("B: built in 29 s", 2), ("PR warm-up", 3), ("main run 1, 1/4", 4), ("PR run 1, 2/4", 5),
@@ -403,7 +443,7 @@ class MainScreenModel(unittest.TestCase):
         from title_runs.ui import words
         try:
             words.set_team("CPritch")
-            self.assertEqual(model.header({}, True, "", True, True, "", None)["detail"], "New tests from CPritch show up here by themselves.")
+            self.assertEqual(model.header({}, True, "", "schedule", True, "", None)["detail"], "New tests from CPritch show up here by themselves.")
             self.assertEqual(model.setup_text("waiting for a maintainer to approve this machine"),
                              "CPritch still has to approve this machine. Nothing to do but wait.")
             words.set_team("the AnyPS5 team")
@@ -416,12 +456,14 @@ class MainScreenModel(unittest.TestCase):
     def test_header_states(self):
         best = {"number": 1}
         running = {"state": "running", "job": {"pr": 1, "title": "perf: x"}, "progress": "PR run 1, 2/4"}
-        self.assertEqual(model.header(running, True, "", True, True, "", best)["detail"], "Run 2 of 4: with the change")
-        self.assertEqual(model.header({}, False, "not signed in", True, True, "", best)["detail"], "Sign in with GitHub.")
-        self.assertEqual(model.header({}, True, "", True, True, "", None)["kind"], "idle")
-        self.assertEqual(model.header({}, True, "", False, True, "", best)["kind"], "off")
-        waiting = model.header({}, True, "", True, False, "outside the hours 01-07", best)
+        self.assertEqual(model.header(running, True, "", "schedule", True, "", best)["detail"], "Run 2 of 4: with the change")
+        self.assertEqual(model.header(running, True, "", "off", True, "", best)["kind"], "running")  # Off starts nothing; Stop ends a test
+        self.assertEqual(model.header({}, False, "not signed in", "schedule", True, "", best)["detail"], "Sign in with GitHub.")
+        self.assertEqual(model.header({}, True, "", "schedule", True, "", None)["kind"], "idle")
+        self.assertEqual(model.header({}, True, "", "off", True, "", best)["kind"], "off")
+        waiting = model.header({}, True, "", "schedule", False, "outside the hours 01-07", best)
         self.assertEqual(waiting["detail"], "The next test starts by itself between 01:00 and 07:00, the hours you chose.")
+        self.assertEqual(model.header({}, True, "", "now", False, "outside the hours 01-07", best)["kind"], "ready")  # Now: whatever the hours
         self.assertEqual(model.waiting_for("on battery"), "the computer is plugged in")
         self.assertEqual(model.waiting_for("gtav.elf is running"), "gtav.elf has closed")
 

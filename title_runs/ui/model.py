@@ -82,7 +82,7 @@ def queue_view(ranked, status, titles):
     return {"running": running, "up_next": up_next, "recent": status.get("recent", [])}
 
 
-def tray_view(status, view, waiting, paused):
+def tray_view(status, view, waiting, testing):
     """(state, [lines]) for the tray: grey idle, green running, amber waiting for you, red error."""
     lines = []
     state = status.get("state", "idle")
@@ -95,8 +95,8 @@ def tray_view(status, view, waiting, paused):
         lines.append(f"Next: #{nxt['number']} · {nxt['titles']} ({nxt['priority']})")
     if waiting:
         lines.append(f"{len(waiting)} PR{'s' if len(waiting) > 1 else ''} waiting for you")
-    if paused:
-        lines.append(f"Paused{'' if paused == 'indefinitely' else ' until ' + formats.parse_time(paused).astimezone().strftime('%H:%M')}")
+    if testing != "schedule":
+        lines.append(TESTING[testing][1])
     if state not in STATES:
         state = "idle"
     if state == "idle" and waiting:
@@ -165,7 +165,27 @@ def step(progress):
     return 0
 
 
-def header(status, ready, why, automatic, allowed, allowed_why, best):
+TESTING = {"off": ("Off", "Testing is off: no test starts."),
+           "schedule": ("On schedule", "Tests start by themselves at the times you chose."),
+           "now": ("Now", "Testing now: one test after another, whatever the time, until you switch back.")}
+
+
+def schedule_words(rules, idle_detectable=True):
+    """The schedule in a sentence: "between 01:00 and 07:00, when the computer is plugged in"."""
+    parts = []
+    first, last = rules.get("hours", [0, 24])
+    if (first, last) != (0, 24):
+        parts.append(f"between {first:02d}:00 and {last:02d}:00")
+    if rules.get("idle_only", True) and idle_detectable:
+        parts.append(f"after {rules.get('idle_minutes', 10)} minutes away from the computer")
+    if rules.get("mains_only", True):
+        parts.append("when it's plugged in")
+    if rules.get("pause_fullscreen", True):
+        parts.append("not while something is fullscreen")
+    return ", ".join(parts) or "at any time"
+
+
+def header(status, ready, why, testing, allowed, allowed_why, best):
     """The main screen's header: {"kind", "headline", "detail"}; kind is running, setup, off, idle, waiting or ready."""
     job = status.get("job") or {}
     if status.get("state") == "running" and job:
@@ -177,8 +197,10 @@ def header(status, ready, why, automatic, allowed, allowed_why, best):
         return {"kind": "error", "headline": "The last test went wrong", "detail": first_line(status.get("line", ""), 160)}
     if best is None:
         return {"kind": "idle", "headline": "No tests waiting", "detail": f"New tests from {words.team()} show up here by themselves."}
-    if not automatic:
-        return {"kind": "off", "headline": "Testing is off", "detail": "Press Start to run the next test now, or turn on automatic testing."}
+    if testing == "off":
+        return {"kind": "off", "headline": "Testing is off", "detail": "Choose On schedule or Now to start testing."}
+    if testing == "now":
+        return {"kind": "ready", "headline": "Starting the next test", "detail": "Testing now, whatever the time. It starts within a minute."}
     if not allowed:
         return {"kind": "waiting", "headline": "Waiting", "detail": f"The next test starts by itself {waiting_for(allowed_why)}."}
     return {"kind": "ready", "headline": "Starting the next test", "detail": "It starts within a minute."}

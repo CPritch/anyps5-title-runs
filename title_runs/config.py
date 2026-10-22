@@ -93,7 +93,7 @@ class Config:
     results_github: str = "github"
     schedule: dict = field(default_factory=lambda: dict(SCHEDULE))
     screenshots: bool = False
-    automatic: bool = True  # start tests by itself whenever the schedule allows, while the app is open
+    testing: str = "schedule"  # the main screen's switch: off, schedule (within [schedule], while the app is open) or now (whatever it says)
     tray: bool = False  # keep running in the system tray when the window is closed (otherwise closing quits)
     text_size: str = "normal"
     view: str = "simple"
@@ -109,6 +109,17 @@ class Config:
     @property
     def name(self):
         return self.repo.split("/", 1)[1]
+
+
+TESTING = ("off", "schedule", "now")
+
+
+def testing_mode(client):
+    """The switch from [client]: testing, or the older automatic (true: On schedule)."""
+    mode = client.get("testing")
+    if mode in TESTING:
+        return mode
+    return "schedule" if client.get("automatic", True) else "off"
 
 
 def load(path):
@@ -175,7 +186,7 @@ def load(path):
         results_github=data.get("results", {}).get("github", "github"),
         schedule={**SCHEDULE, **data.get("schedule", {})},
         screenshots=bool(data.get("client", {}).get("screenshots", False)),
-        automatic=bool(data.get("client", {}).get("automatic", True)),
+        testing=testing_mode(data.get("client", {})),
         tray=bool(data.get("client", {}).get("tray", False)),
         text_size=str(data.get("client", {}).get("text_size", "normal")),
         view=str(data.get("client", {}).get("view", "simple")),

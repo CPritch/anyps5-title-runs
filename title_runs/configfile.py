@@ -66,7 +66,7 @@ def config_data(config):
         "machine": dict(config.machine_info),
         "results": {"url": config.results_url, "github": config.results_github},
         "schedule": dict(config.schedule),
-        "client": {"screenshots": config.screenshots, "automatic": config.automatic, "tray": config.tray, "text_size": config.text_size,
+        "client": {"screenshots": config.screenshots, "testing": config.testing, "tray": config.tray, "text_size": config.text_size,
                    "view": config.view},
         "follow": {"prs": list(config.follow_prs), "auto_unblocks": config.auto_unblocks, "labels": list(config.follow_labels),
                    "include_drafts": config.include_drafts},

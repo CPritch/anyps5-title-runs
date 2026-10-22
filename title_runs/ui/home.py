@@ -1,9 +1,9 @@
-"""The main screen: what this machine is doing in one line, Start and Stop, automatic testing on or off, the test's
-progress and the game itself while it runs, the tests coming up and the results sent. Data from app.Engine through
+"""The main screen: what this machine is doing in one line, the testing switch (Off, On schedule, Now) and Stop, the
+test's progress and the game itself while it runs, the tests coming up and the results. Data from app.Engine through
 ui/model.py; the words are a tester's, not the workflow's."""
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import (QCheckBox, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QProgressBar, QPushButton,
+from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QProgressBar, QPushButton,
                                QSizePolicy, QVBoxLayout, QWidget)
 
 from ..relay.render import utc
@@ -88,10 +88,8 @@ class HomePage(QWidget):
         words.addWidget(self.notice)
         row.addLayout(words, 1)
         buttons = QVBoxLayout()
-        self.start = theme.mark(QPushButton("Start"), primary="true")
-        self.start.clicked.connect(self.start_clicked)
-        buttons.addWidget(self.start)
-        self.stop = theme.mark(QPushButton("Stop"), danger="true")
+        self.stop = theme.mark(QPushButton("Stop this test"), danger="true")
+        self.stop.setToolTip("Ends the test now and switches testing to Off")
         self.stop.clicked.connect(self.stop_clicked)
         buttons.addWidget(self.stop)
         self.fix = theme.mark(QPushButton("Finish setting up"), primary="true")
@@ -99,10 +97,24 @@ class HomePage(QWidget):
         buttons.addWidget(self.fix)
         row.addLayout(buttons)
         box.addLayout(row)
-        self.automatic = QCheckBox("Test automatically when the computer is free")
-        self.automatic.setToolTip("Tests start by themselves while this app is open, within the times set in Settings, When to test")
-        self.automatic.toggled.connect(self.automatic_toggled)
-        box.addWidget(self.automatic)
+        switch = QHBoxLayout()
+        switch.setSpacing(0)
+        switch.addWidget(theme.mark(QLabel("Testing"), role="heading"))
+        switch.addSpacing(14)
+        self.testing = QButtonGroup(self)
+        self.testing.setExclusive(True)
+        self.modes = {}
+        for mode, end in (("off", "left"), ("schedule", "middle"), ("now", "right")):
+            button = theme.mark(QPushButton(model.TESTING[mode][0]), segment=end)
+            button.setCheckable(True)
+            button.clicked.connect(lambda _=False, m=mode: self.testing_clicked(m))
+            self.testing.addButton(button)
+            switch.addWidget(button)
+            self.modes[mode] = button
+        switch.addSpacing(14)
+        self.testing_note = rich("", role="muted")
+        switch.addWidget(self.testing_note, 1)
+        box.addLayout(switch)
         self.progress = QProgressBar()
         self.progress.setRange(0, len(model.STEPS))
         self.progress.setTextVisible(True)
@@ -131,23 +143,29 @@ class HomePage(QWidget):
         lists.addWidget(done, 1)
         layout.addLayout(lists, 2)
         self.state = None
+        self.idle_detectable = None
 
     def advanced(self):
         return self.engine.config.view == "advanced"
 
-    def start_clicked(self):
-        self.engine.start_now()
-        self.headline.setText("Starting the next test")
-        self.detail.setText("Getting the change…")
-
     def stop_clicked(self):
         self.engine.stop()
         self.headline.setText("Stopping")
-        self.detail.setText("Ending the test and taking back its claim. Nothing is sent.")
+        self.detail.setText("Ending the test. Nothing is sent, and testing is now Off.")
 
-    def automatic_toggled(self, on):
-        if on != self.engine.config.automatic:
-            self.engine.set_automatic(on)
+    def testing_clicked(self, mode):
+        if mode != self.engine.config.testing:
+            self.engine.set_testing(mode)
+        self.refresh()
+
+    def testing_words(self):
+        mode = self.engine.config.testing
+        if mode == "schedule":
+            if self.idle_detectable is None:  # asked once: it asks the desktop
+                from .. import platform_info
+                self.idle_detectable = platform_info.idle_detection()[0]
+            return "Tests start by themselves " + model.schedule_words(self.engine.config.schedule, self.idle_detectable) + "."
+        return model.TESTING[mode][1]
 
     def refresh(self):
         state = self.engine.home()
@@ -159,13 +177,8 @@ class HomePage(QWidget):
         running = state["kind"] == "running"
         self.stop.setVisible(running)
         self.fix.setVisible(state["kind"] == "setup" and bool(self.engine.readiness()[2]))
-        self.start.setVisible(not running and state["kind"] != "setup")
-        self.start.setEnabled(state["kind"] in ("off", "waiting", "ready", "error") and bool(self.engine.up_next_rows()) and
-                              any(r["score"] > 0 for r in self.engine.up_next_rows()))
-        self.start.setText("Start now" if state["kind"] == "waiting" else "Start")
-        self.automatic.blockSignals(True)
-        self.automatic.setChecked(self.engine.config.automatic)
-        self.automatic.blockSignals(False)
+        self.modes[self.engine.config.testing].setChecked(True)
+        self.testing_note.setText(self.testing_words())
         self.progress.setVisible(running)
         if running:
             self.progress.setValue(state["step"] + 1)

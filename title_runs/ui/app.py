@@ -5,7 +5,7 @@
   title-runs ui --screenshots DIR [--config FILE] [--listing FILE] [--no-sync]   render the window's screens to DIR (offscreen)
 
 --listing: the PR listing the Pull requests tab shows (default: the listing of the repository the results repository
-names, kept in the state directory's cache and refreshed with the tester's sign-in every 15 minutes or on request). --auto: run the queue's jobs when the schedule allows (otherwise only on request).
+names, kept in the state directory's cache and refreshed with the tester's sign-in every 15 minutes or on request). --auto: the switch On schedule.
 All git and build work happens on the engine's worker thread; the UI reads the status file and cached data.
 """
 
@@ -32,7 +32,7 @@ class Engine(QObject):
         super().__init__()
         self.config = config
         if auto:
-            config.automatic = True
+            config.testing = "schedule"
         self.quitting = False
         self.thread = None
         self.dir = Path(config.state_dir) / "client"
@@ -229,7 +229,7 @@ class Engine(QObject):
 
     def tray_view(self):
         waiting = self.waiting()
-        state, lines = model.tray_view(self.status(), self.queue_view(), waiting, self.status().get("paused_until"))
+        state, lines = model.tray_view(self.status(), self.queue_view(), waiting, self.config.testing)
         ready, why, _ = self.readiness()
         if not ready:
             lines = [f"Takes no jobs yet: {why}"] + [line for line in lines[1:]]
@@ -282,7 +282,7 @@ class Engine(QObject):
         ready, why, _ = self.readiness()
         best = next((r for r in self.up_next_rows() if r["score"] > 0), None)
         allowed, allowed_why = self.allowed_now() if ready else (False, why)
-        return model.header(self.status(), ready, why, self.config.automatic, allowed, allowed_why, best)
+        return model.header(self.status(), ready, why, self.config.testing, allowed, allowed_why, best)
 
     def comment_link(self, pr):
         """The App's comment on pr: a GitHub link, or the stand-in's outbox when the results repository is local."""
@@ -295,35 +295,28 @@ class Engine(QObject):
 
     # -- requests from the UI ------------------------------------------------------------------------------------------
 
-    def pause(self, hours=None):
-        until = "indefinitely" if hours is None else formats.iso(formats.now() + datetime.timedelta(hours=hours))
-        self.client.status.update(paused_until=until)
-
-    def resume(self):
-        self.client.status.update(paused_until=None)
-
     def request_stop(self):
         self.client.status.update(stop_requested=True)
 
     def running(self):
         return self.status().get("state") == "running"
 
-    def start_now(self):
-        """Start the next test now, whatever the schedule says (still only once the machine is set up)."""
-        self.client.status.update(paused_until=None, stop_requested=False)
-        self.work.put(("next", None))
-
-    def set_automatic(self, on):
-        self.config.automatic = bool(on)
+    def set_testing(self, mode):
+        """The switch: off (no test starts), schedule (tests start within the schedule) or now (one after another,
+        whatever the schedule says, until switched back). A running test goes on; Stop ends it."""
+        if mode not in configs.TESTING:
+            raise ValueError(f"testing must be one of {', '.join(configs.TESTING)}, not {mode!r}")
+        self.config.testing = mode
         self.save_config()
+        self.log(f"testing: {mode}")
         self.work.put(("wake", None))
 
     def stop(self, quitting=False):
-        """Stop the running test at once: its build or game is ended, its claim taken back, nothing is sent. Automatic
-        testing goes off too, so another test doesn't start a minute later; Start or the switch turns it back on."""
+        """Stop the running test at once: its build or game is ended, its claim taken back, nothing is sent. The switch
+        goes to Off, so another test doesn't start a minute later."""
         self.client.status.update(stop_requested=True)
-        if self.config.automatic and not quitting:
-            self.config.automatic = False
+        if self.config.testing != "off" and not quitting:
+            self.config.testing = "off"
             self.save_config()
         ended = platform_info.stop_children()
         self.log(f"stopped{' (quitting)' if quitting else ''}: {ended} process(es) ended")
@@ -445,21 +438,38 @@ class Engine(QObject):
 
     # -- the worker thread ---------------------------------------------------------------------------------------------
 
+    def adopt_old_pause(self):
+        """The tray's Pause, from before the switch, is Off now."""
+        if self.status().get("paused_until"):
+            self.client.status.update(paused_until=None)
+            self.config.testing = "off"
+            self.save_config()
+
     def start(self):
+        self.adopt_old_pause()
         self.thread = threading.Thread(target=self.worker, daemon=True)
         self.thread.start()
 
-    def run_best(self):
-        """Start (the Start button): the best test for this machine now, schedule or not: the queue's, then local tests."""
+    def next_test(self):
+        """The next test, if the switch lets one start now: On schedule within the schedule, Now whatever it says. The
+        queue's tests first (a registered machine), then local tests. Returns what was done."""
+        now = self.config.testing == "now"
         ready, why = self.client.ready()
-        if not ready and not (self.local.enabled() and self.client.onboarded()):
-            return why
-        best = self.client.next_job() if ready else None
-        if best is None:
-            return self.run_local() or "nothing to do"
-        entry = best.entry
-        self.client.run(entry["pr"], entry["head"], "queue", entry.get("title", ""), entry.get("author", ""))
-        return f"ran {entry['job']}"
+        if ready:
+            allowed, why = (True, "") if now else self.client.allowed_now()
+            best = self.client.next_job() if allowed else None
+            if best is not None:
+                entry = best.entry
+                self.client.run(entry["pr"], entry["head"], "queue", entry.get("title", ""), entry.get("author", ""))
+                return f"ran {entry['job']}"
+        if self.local.enabled() and self.client.onboarded() and (now or self.schedule_allows()[0]):
+            done = self.run_local()
+            if done:
+                return done
+        if ready and (now or allowed):
+            why = "nothing to test"
+        self.client.status.update(state="idle", line=f"Idle: {why}" if why == "nothing to test" else f"Waiting: {why}")
+        return why
 
     def worker(self):
         self.load(sync=True)
@@ -475,13 +485,8 @@ class Engine(QObject):
                     self.client.run(row["number"], row["head"], "tester", row["title"], row["author"])
                 elif kind == "listing":
                     self.refresh_listing(force=True)
-                elif kind == "next":
-                    self.log(self.run_best())
-                elif self.config.automatic:
-                    done = self.client.run_next()
-                    if not done.startswith("ran ") and self.schedule_allows()[0]:  # nothing queued for this machine: local tests
-                        done = self.run_local() or done
-                    self.log(done)
+                elif self.config.testing != "off":
+                    self.log(self.next_test())
                 if kind != "listing" and not self.quitting:
                     self.refresh_listing()
                     self.refresh_local(force=kind == "local")
