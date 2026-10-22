@@ -7,19 +7,26 @@ Trust is the tester's: a head runs only when the PR's own author pushed it (the 
 head names its pusher), and every test builds and runs in the sandbox as a queued one does. Main is pinned for
 PIN_HOURS, so the PRs tested together are measured against the same main and that side builds and warms up once.
 
-  state/client/local-tests.json          the list: {"repository", "pinned": {"main", "at"}, "entries": [...]}
+  state/client/local-tests.json          the list: {"repository", "pinned": {"main", "base", "fixes", "at"}, "prs", "fixes",
+                                         "entries": [...], "removed", "paused"}
   state/local-tests/<night>.md           a summary per night
-  state/local-tests/drafts/<pr>-<head>.md   the report per tested head
+  state/local-tests/drafts/<pr>-<head>.md   the report per tested head, as written when it ran
+
+Fixes (the [local] fixes setting) are pull requests merged onto main for both sides, for a main that can't run the
+tester's games without them; a fix main already has is left out. Posting is the tester's: a result is marked posted
+by hand, and one not posted goes stale (stale) when the PR moves on.
 """
 
 import datetime
 import json
+import re
+import threading
 from pathlib import Path
 
 from . import formats, gh, job, sandbox, sources, verdict
-from .relay import render
 
 PIN_HOURS = 12  # a pin older than this starts a new night
+STALE_HOURS = 48  # a result not posted for this long is stale: main has moved on too far for it to say much
 
 
 def night_of(at):
@@ -28,12 +35,17 @@ def night_of(at):
     return (local - datetime.timedelta(hours=12)).date().isoformat()
 
 
+class Hold(RuntimeError):
+    """Local tests can't start: a fix to carry is not usable, or the base doesn't start the game."""
+
+
 class LocalTests:
     def __init__(self, config, log=print):
         self.config, self.log = config, log
         self.dir = Path(config.state_dir)
         self.path = self.dir / "client" / "local-tests.json"
         self.out = self.dir / "local-tests"
+        self.lock = threading.RLock()  # the worker and the window both change the list
         for old, new in ((self.dir / "client" / "overnight.json", self.path), (self.dir / "overnight", self.out)):
             if old.exists() and not new.exists():  # first named "tonight's list"
                 old.rename(new)
@@ -58,93 +70,255 @@ class LocalTests:
         temporary.write_text(json.dumps(data, indent=1))
         temporary.replace(self.path)
 
+    def change(self, edit):
+        """Read, edit(data), write, under the lock; returns what edit returned."""
+        with self.lock:
+            data = self.read()
+            out = edit(data)
+            self.write(data)
+            return out
+
     def remote(self):
         return f"https://github.com/{self.config.local_repository}.git"
 
+    def pull_url(self, number):
+        return f"https://github.com/{self.config.local_repository}/pull/{number}"
+
     def refresh(self, token):
-        """Bring the list up to date from GitHub (read only): each listed PR's head, and the open PRs of the listed people.
-        A head not yet on the list is added if its author pushed it; one the list has tested is left alone."""
+        """Bring the list up to date from GitHub (read only): each listed PR's head and state, the open PRs of the listed
+        people, and the heads of the fixes to carry. A head not yet on the list is added if its author pushed it; one the
+        list has tested is left alone. A PR the tester removed stays off it."""
         if not self.enabled():
             return []
         repo = gh.GitHubRepo(self.config.local_repository, token=token)
+        known = self.read()
+        removed = set(known.get("removed", []))
         numbers = set(self.config.local_prs)
         authors = {a.lower() for a in self.config.local_people}
         if authors:
             for issue in repo.pages(f"/repos/{repo.repository}/pulls", {"state": "open"}, limit=10):
-                if (issue.get("user") or {}).get("login", "").lower() in authors and not issue.get("draft"):
+                if (issue.get("user") or {}).get("login", "").lower() in authors and not issue.get("draft") and issue["number"] not in removed:
                     numbers.add(issue["number"])
-        data = self.read()
-        added = []
-        for number in sorted(numbers):
+        pulls, pushers = {}, {}
+
+        def pusher_of(pull):
+            if pull["head"] not in pushers:
+                runs = [r for r in repo.workflow_runs(head_sha=pull["head"]) if r["event"] in ("pull_request", "pull_request_target")]
+                pushers[pull["head"]] = runs[0]["actor"] if runs else None
+            return pushers[pull["head"]]
+
+        for number in sorted(numbers | set(self.config.local_fixes)):
             try:
-                pull = repo.pull(number)
+                pulls[number] = repo.pull(number)
             except gh.GitHubError as error:
                 self.log(f"local tests: #{number}: {error}")
-                continue
-            if pull["state"] != "open":
-                continue
-            if any(e["pr"] == number and e["head"] == pull["head"] for e in data["entries"]):
-                continue
-            runs = [r for r in repo.workflow_runs(head_sha=pull["head"]) if r["event"] in ("pull_request", "pull_request_target")]
-            pusher = runs[0]["actor"] if runs else None
-            entry = {"pr": number, "head": pull["head"], "title": pull["title"][:200], "author": pull["author"], "added": formats.iso(formats.now()),
-                     "status": "queued", "pusher": pusher}
-            if pusher is None:
-                entry.update(status="skipped", reason="no workflow run tells who pushed this head")
-            elif pusher.lower() != pull["author"].lower():
-                entry.update(status="skipped", reason=f"pushed by {pusher}, not the author")
-            # An older head of the same PR still queued is replaced: only the newest is worth the night.
-            for old in data["entries"]:
-                if old["pr"] == number and old["status"] == "queued":
-                    old.update(status="replaced", reason=f"{pull['head'][:9]} was pushed")
-            data["entries"].append(entry)
-            added.append(entry)
-            self.log(f"local tests: #{number} {pull['head'][:9]} by {pull['author']}: {entry['status']}{' (' + entry.get('reason', '') + ')' if entry.get('reason') else ''}")
-        self.write(data)
-        return added
+        tested = {(e["pr"], e["head"]) for e in known["entries"]}
+        for number in numbers:  # the network outside the lock: who pushed each new head
+            pull = pulls.get(number)
+            if pull and pull["state"] == "open" and (number, pull["head"]) not in tested:
+                pusher_of(pull)
+        for number in self.config.local_fixes:
+            if number in pulls:
+                pusher_of(pulls[number])
+
+        def apply(data):
+            now = formats.iso(formats.now())
+            added = []
+            prs = data.setdefault("prs", {})
+            for number, pull in pulls.items():
+                prs[str(number)] = {"head": pull["head"], "state": pull["state"], "title": pull["title"][:200], "author": pull["author"], "checked": now}
+            fixes = {}
+            for number in self.config.local_fixes:
+                pull = pulls.get(number)
+                if pull is None:
+                    continue
+                pusher = pushers.get(pull["head"])
+                problem = ("" if pusher and pusher.lower() == pull["author"].lower() else
+                           f"its head {pull['head'][:9]} was pushed by {pusher}, not its author" if pusher else
+                           f"no workflow run tells who pushed its head {pull['head'][:9]}")
+                fixes[str(number)] = {"head": pull["head"], "title": pull["title"][:200], "author": pull["author"], "state": pull["state"], "problem": problem}
+            data["fixes"] = fixes
+            for number in sorted(numbers):
+                pull = pulls.get(number)
+                if pull is None or pull["state"] != "open" or number in data.get("removed", []):
+                    continue
+                if any(e["pr"] == number and e["head"] == pull["head"] for e in data["entries"]):
+                    continue
+                pusher = pushers.get(pull["head"])
+                entry = {"pr": number, "head": pull["head"], "title": pull["title"][:200], "author": pull["author"], "added": now,
+                         "status": "queued", "pusher": pusher}
+                if pusher is None:
+                    entry.update(status="skipped", reason="no workflow run tells who pushed this head")
+                elif pusher.lower() != pull["author"].lower():
+                    entry.update(status="skipped", reason=f"pushed by {pusher}, not the author")
+                # An older head of the same PR still queued is replaced: only the newest is worth testing.
+                for old in data["entries"]:
+                    if old["pr"] == number and old["status"] == "queued":
+                        old.update(status="replaced", reason=f"{pull['head'][:9]} was pushed")
+                data["entries"].append(entry)
+                added.append(entry)
+                self.log(f"local tests: #{number} {pull['head'][:9]} by {pull['author']}: {entry['status']}"
+                         f"{' (' + entry.get('reason', '') + ')' if entry.get('reason') else ''}")
+            return added
+
+        return self.change(apply)
 
     def queued(self):
         return [e for e in self.read()["entries"] if e["status"] == "queued"]
 
-    def held(self, now=None):
-        """Why local tests wait although some are queued: the pinned main didn't start the game, so every change on it
-        would fail the same way. {"at", "main", "reason"} while that main is still the pinned one, else None. A new pin
-        (PIN_HOURS on, or unpin) ends it."""
+    # -- what the tester does on the Local tests page -----------------------------------------------------------------
+
+    def parse(self, text):
+        """A pull request number from "8104", "#8104" or its GitHub link. Returns (number, "") or (None, why not)."""
+        text = text.strip()
+        found = re.fullmatch(r"#?(\d+)", text) or re.fullmatch(r"(?:https?://)?github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)\S*", text)
+        if not found:
+            return None, "Type a pull request number, or paste its link."
+        if len(found.groups()) == 2:
+            if found.group(1).lower() != self.config.local_repository.lower():
+                return None, f"That's a pull request of {found.group(1)}; this list tests {self.config.local_repository or 'no project yet'}."
+            return int(found.group(2)), ""
+        return int(found.group(1)), ""
+
+    def added(self, number):
+        """A PR the tester (re)added: no longer removed."""
+        self.change(lambda data: data["removed"].remove(number) if number in data.setdefault("removed", []) else None)
+
+    def remove(self, number):
+        """Off the list: its waiting test is dropped and a followed person's PR isn't added again. Results stay."""
+        def edit(data):
+            if number not in data.setdefault("removed", []):
+                data["removed"].append(number)
+            for entry in data["entries"]:
+                if entry["pr"] == number and entry["status"] == "queued":
+                    entry.update(status="removed", reason="removed from the list")
+        self.change(edit)
+
+    def again(self, number):
+        """Test the PR's latest tested head again (against main as it is pinned then). Returns the head, or None."""
+        def edit(data):
+            latest = self.latest(data, number)
+            if latest is None or latest["status"] == "queued":
+                return None
+            data["entries"].append({key: latest[key] for key in ("pr", "head", "title", "author", "pusher") if key in latest}
+                                   | {"added": formats.iso(formats.now()), "status": "queued", "again": True})
+            return latest["head"]
+        return self.change(edit)
+
+    def mark_posted(self, number, head, posted=True):
+        """The tester posted (or took back) the report of the PR's latest result for head."""
+        def edit(data):
+            for entry in reversed(data["entries"]):
+                if entry["pr"] == number and entry["head"] == head and entry["status"] in ("done", "failed"):
+                    if posted:
+                        entry["posted"] = {"at": formats.iso(formats.now())}
+                    else:
+                        entry.pop("posted", None)
+                    return True
+            return False
+        return self.change(edit)
+
+    @staticmethod
+    def latest(data, number):
+        """The PR's newest entry that says something: a test waiting, a result, or why it was skipped."""
+        return next((e for e in reversed(data["entries"]) if e["pr"] == number and e["status"] not in ("replaced", "removed")), None)
+
+    def rows(self, now=None):
+        """The Local tests page: one row per pull request, waiting ones first, then the newest results:
+        [{"pr", "title", "author", "entry" (the newest), "stale" (why, or ""), "earlier" [older results], "removed"}]."""
         data = self.read()
-        paused, pinned = data.get("paused"), data.get("pinned")
-        if not paused or not pinned or paused.get("main") != pinned.get("main"):
+        removed = set(data.get("removed", []))
+        rows = {}
+        for entry in data["entries"]:
+            if entry["status"] in ("replaced", "removed"):
+                continue
+            row = rows.setdefault(entry["pr"], {"pr": entry["pr"], "title": entry["title"], "author": entry["author"], "entry": None, "earlier": []})
+            if row["entry"] is not None and row["entry"]["status"] in ("done", "failed"):
+                row["earlier"].insert(0, row["entry"])
+            row["entry"] = entry
+            row["title"] = entry["title"]
+        out = []
+        for row in rows.values():
+            if row["pr"] in removed and row["entry"]["status"] not in ("done", "failed"):
+                continue
+            row["stale"] = stale(row["entry"], data, now)
+            row["removed"] = row["pr"] in removed
+            out.append(row)
+        waiting = [r for r in out if r["entry"]["status"] == "queued"]
+        rest = sorted((r for r in out if r["entry"]["status"] != "queued"), key=lambda r: r["entry"].get("at") or r["entry"].get("added", ""), reverse=True)
+        return waiting + rest
+
+    # -- main, and the fixes carried on both sides ---------------------------------------------------------------------
+
+    def held(self, now=None):
+        """Why local tests wait although some are queued: the pinned base didn't start the game (every change on it would
+        fail the same way), or a fix can't be carried. {"at", "main", "fixes", "reason"} until main is pinned again
+        (PIN_HOURS on, or unpin) or the fixes change; else None."""
+        paused = self.read().get("paused")
+        if not paused or paused.get("fixes", []) != sorted(self.config.local_fixes):
             return None
-        if (now or formats.now()) - formats.parse_time(pinned["at"]) >= datetime.timedelta(hours=PIN_HOURS):
+        if (now or formats.now()) - formats.parse_time(paused["at"]) >= datetime.timedelta(hours=PIN_HOURS):
             return None
         return paused
 
+    def hold(self, main, reason):
+        def edit(data):
+            data["paused"] = {"at": formats.iso(formats.now()), "main": main, "fixes": sorted(self.config.local_fixes), "reason": reason}
+        self.change(edit)
+        self.log(f"local tests: paused: {reason}")
+
     def unpin(self):
         """Measure the next local test against main as it is then (and try again after a main that didn't start)."""
-        data = self.read()
-        data["pinned"] = None
-        data.pop("paused", None)
-        self.write(data)
+        def edit(data):
+            data["pinned"] = None
+            data.pop("paused", None)
+        self.change(edit)
 
     def pin(self, now=None):
-        """The main local tests are measured against: pinned at the first test, kept for PIN_HOURS."""
+        """The base local tests are measured against: main with the fixes to carry merged onto it, pinned at the first
+        test and kept for PIN_HOURS or until the fixes change. Returns the base; raises Hold when a fix can't be used."""
         now = now or formats.now()
         data = self.read()
         pinned = data.get("pinned")
-        if pinned and now - formats.parse_time(pinned["at"]) < datetime.timedelta(hours=PIN_HOURS):
-            return pinned["main"]
-        main = sources.main_tip(self.remote())
-        data["pinned"] = {"main": main, "at": formats.iso(now), "night": night_of(now)}
-        data.pop("paused", None)
-        self.write(data)
-        self.log(f"local tests: main pinned at {main[:9]} for the night of {night_of(now)}")
-        return main
+        wanted = sorted(self.config.local_fixes)
+        if pinned and pinned.get("fix_numbers", []) == wanted and now - formats.parse_time(pinned["at"]) < datetime.timedelta(hours=PIN_HOURS):
+            return pinned.get("base") or pinned["main"]
+        heads = []
+        for number in wanted:
+            fix = (data.get("fixes") or {}).get(str(number))
+            if not fix:
+                raise Hold(f"#{number}, a fix to carry, hasn't been read from GitHub yet")
+            if fix.get("problem"):
+                raise Hold(f"#{number}, a fix to carry: {fix['problem']}")
+            heads.append((number, fix["head"]))
+        main = sources.main_tip(self.remote())  # the network and git outside the lock: the window waits on it
+        try:
+            base, carried, in_main = sources.carry(self.config.repo_dir, self.remote(), main, heads)
+        except sources.SourceError as error:
+            raise Hold(str(error)) from error
+
+        def edit(data):
+            data["pinned"] = {"main": main, "base": base, "fixes": carried, "in_main": in_main, "fix_numbers": wanted,
+                              "at": formats.iso(now), "night": night_of(now)}
+            data.pop("paused", None)
+        self.change(edit)
+        self.log(f"local tests: pinned main {main[:9]}" + "".join(f" + #{f['pr']} {f['head'][:9]}" for f in carried)
+                 + (f" (main has {', '.join('#' + str(n) for n in in_main)})" if in_main else ""))
+        return base
 
     # -- a test --------------------------------------------------------------------------------------------------------
 
     def run(self, entry, client):
-        """Build and run one head against the pinned main, with the client's sandbox, status and Stop. Nothing is posted."""
-        main = self.pin()
+        """Build and run one head against the pinned base, with the client's sandbox, status and Stop. Nothing is posted."""
         pr, head = entry["pr"], entry["head"]
+        try:
+            base = self.pin()
+        except (Hold, sources.SourceError) as error:
+            self.hold("?", str(error))
+            client.status.update(state="idle", line=f"Local tests paused: {str(error)[:160]}", job={}, progress="")
+            return None
+        pinned = self.read()["pinned"]
+        main, fixes = pinned["main"], pinned.get("fixes", [])
         client.status.update(state="running", line=f"Testing #{pr} (a local test)", progress="starting", stop_requested=False,
                              job={"pr": pr, "head": head, "title": entry["title"], "author": entry["author"], "trust": "local"})
 
@@ -155,71 +329,88 @@ class LocalTests:
             client.status.update(progress=text)
 
         results = job.run(self.config, self.config.state_dir, pr, head, lambda text: (self.log(text), progress(text) if text[:2] in ("A:", "B:") else None),
-                          recheck=stopped, progress=progress, should_stop=stopped, remote=self.remote(), main=main)
-        data = self.read()
-        record = next((e for e in data["entries"] if e["pr"] == pr and e["head"] == head), entry)
-        if client.status.read().get("stop_requested"):
-            record.update(status="queued")  # Stop: tried again later
-            client.status.update(state="idle", line=f"Stopped #{pr}", job={}, progress="")
-            self.write(data)
-            return None
+                          recheck=stopped, progress=progress, should_stop=stopped, remote=self.remote(), main=base)
         side, reason = failure(results)
-        if side == "A":
-            # The pinned main itself doesn't start the game: not this PR's fault, and every other PR would fail the same way.
-            # Local tests hold (held) until main is pinned again; the queue's tests, on their own main, go on.
-            record.update(status="queued")
-            data["paused"] = {"at": formats.iso(formats.now()), "main": main, "reason": reason}
-            self.write(data)
-            self.log(f"local tests: paused: main {main[:9]} doesn't start the game: {reason}")
-            client.status.update(state="idle", line=f"Local tests paused: main doesn't start the game ({reason[:120]})", job={}, progress="")
+        result = report_result(results, head, client) if side != "A" else None
+
+        def record(data):
+            match = [e for e in data["entries"] if e["pr"] == pr and e["head"] == head]
+            entry_now = next((e for e in reversed(match) if e["status"] == "queued"), match[-1] if match else entry)
+            if client.status.read().get("stop_requested"):
+                entry_now.update(status="queued")  # Stop: tried again later
+                return None
+            if side == "A":
+                # The base itself doesn't start the game: not this PR's fault, and every other PR would fail the same way.
+                # Local tests hold (held) until main is pinned again; the queue's tests, on their own main, go on.
+                entry_now.update(status="queued")
+                data["paused"] = {"at": formats.iso(formats.now()), "main": main, "fixes": sorted(self.config.local_fixes),
+                                  "reason": f"main {main[:9]}{''.join(' + #' + str(f['pr']) for f in fixes)} doesn't start the game: {reason}"}
+                return None
+            counted = side is None and result["status"] == "done" and all((t.get("sides") or {}) for t in result["titles"].values())
+            entry_now.update(status="done" if counted else "failed", at=formats.iso(formats.now()), main=main, fixes=fixes, base=base,
+                             display=sandbox.game_display(), job=f"{pr}-{head[:12]}",
+                             verdict=summary_words(result, verdict.DEFAULT) if side is None else f"the change doesn't start the game: {reason}")
+            return entry_now
+
+        done = self.change(record)
+        if done is None:
+            stopped_here = client.status.read().get("stop_requested")
+            client.status.update(state="idle", job={}, progress="",
+                                 line=f"Stopped #{pr}" if stopped_here else f"Local tests paused: main doesn't start the game ({reason[:120]})")
             self.write_summary()
             return None
-        result = report_result(results, head, client)
-        counted = side is None and result["status"] == "done" and all((entry.get("sides") or {}) for entry in result["titles"].values())
-        record.update(status="done" if counted else "failed", at=formats.iso(formats.now()), main=main, display=sandbox.game_display(),
-                      verdict=summary_words(result, verdict.DEFAULT) if side is None else f"the change doesn't start the game: {reason}",
-                      job=f"{pr}-{head[:12]}")
-        self.write(data)
-        draft = self.write_draft(entry, result, main)
-        record["draft"] = str(draft)
-        self.write(data)
+        draft = self.write_report(done, results)
+
+        def note(data):
+            for e in data["entries"]:
+                if e.get("job") == done["job"] and e.get("at") == done["at"]:
+                    e["draft"] = str(draft)
+        self.change(note)
         self.write_summary()
-        recent = [{"pr": pr, "head": head, "status": result["status"], "at": record["at"], "local": True, "draft": str(draft)}] \
-            + client.status.read().get("recent", [])[:9]
-        client.status.update(state="idle", line=f"Tested #{pr}: {record['verdict']}", job={}, progress="", recent=recent)
+        recent = [{"pr": pr, "head": head, "status": result["status"], "at": done["at"], "local": True}] + client.status.read().get("recent", [])[:9]
+        client.status.update(state="idle", line=f"Tested #{pr}: {done['verdict']}", job={}, progress="", recent=recent)
         return result
 
     # -- what the tester reads -----------------------------------------------------------------------------------------
 
-    def write_draft(self, entry, result, main):
-        """A comment the tester may post on the PR themselves: the A/B on this machine, in the App comment's tables."""
+    def report(self, entry):
+        """The report of a result, for the tester to post on the PR: built again from its job's results when they are
+        here (so it follows this code), else the one written when it ran."""
+        path = self.dir / "jobs" / entry.get("job", "-") / "results.json"
+        try:
+            results = json.loads(path.read_text())
+            if results.get("head") == entry["head"]:
+                return report_text(results, entry, self.graphics(results))
+        except (OSError, ValueError, KeyError):
+            pass
+        try:
+            return Path(entry["draft"]).read_text()
+        except (OSError, KeyError):
+            return ""
+
+    def graphics(self, results):
+        return {title_id: getattr(self.config.titles.get(title_id), "graphics_mode", "") for title_id in results.get("titles", {})}
+
+    def write_report(self, entry, results):
         drafts = self.out / "drafts"
         drafts.mkdir(parents=True, exist_ok=True)
         path = drafts / f"{entry['pr']}-{entry['head'][:12]}.md"
-        results = {result["machine"]: result}
-        lines = [f"Title runs on one machine of `{entry['head'][:9]}` merged onto main `{main[:9]}`, against that main. "
-                 f"Numbers are from one machine and one scene; they are not a review.", ""]
-        lines += render.combined_lines(results) + [""]
-        lines += render.HEADER + render.rows(results) + [""]
-        detail = render.details(results)
-        if detail:
-            lines += ["<details><summary>The timed runs and summary lines</summary>", ""] + detail + ["</details>", ""]
-        path.write_text("\n".join(lines) + "\n")
+        path.write_text(report_text(results, entry, self.graphics(results)))
         return path
 
     def write_summary(self):
         data = self.read()
-        night = (data.get("pinned") or {}).get("night") or night_of(formats.now())
+        pinned = data.get("pinned") or {}
+        night = pinned.get("night") or night_of(formats.now())
         self.out.mkdir(parents=True, exist_ok=True)
-        lines = [f"# Local tests, the night of {night}", "", f"{data['repository']}, main `{((data.get('pinned') or {}).get('main') or '?')[:9]}`.", ""]
+        base = f"main `{(pinned.get('main') or '?')[:9]}`" + "".join(f" + #{f['pr']} `{f['head'][:9]}`" for f in pinned.get("fixes", []))
+        lines = [f"# Local tests, the night of {night}", "", f"{data['repository']}, {base}.", ""]
         for e in data["entries"]:
-            if e["status"] in ("done", "failed"):
+            if e["status"] in ("done", "failed") and (e.get("at") or "") >= (pinned.get("at") or ""):
                 shown = " (the game ran as X11)" if e.get("display") == "x11" else ""  # whether the app took it in is the app's, not the job's
-                lines.append(f"- #{e['pr']} `{e['head'][:9]}` {e['title']} ({e['author']}): {e.get('verdict', e['status'])}{shown}. "
-                             f"Draft: {e.get('draft', '-')}")
+                lines.append(f"- #{e['pr']} `{e['head'][:9]}` {e['title']} ({e['author']}): {e.get('verdict', e['status'])}{shown}.")
         if data.get("paused"):
-            lines += ["", f"**Paused** at {data['paused']['at']}: main `{data['paused']['main'][:9]}` doesn't start the game: "
-                          f"{data['paused']['reason']}"]
+            lines += ["", f"**Paused** at {data['paused']['at']}: {data['paused']['reason']}"]
         waiting = [e for e in data["entries"] if e["status"] == "queued"]
         skipped = [e for e in data["entries"] if e["status"] == "skipped"]
         if waiting:
@@ -229,6 +420,99 @@ class LocalTests:
         path = self.out / f"{night}.md"
         path.write_text("\n".join(lines) + "\n")
         return path
+
+
+def stale(entry, data, now=None):
+    """Why a result not posted is no longer worth posting as it stands, or "": the PR has a newer head, it closed, or
+    the result is over STALE_HOURS old (main has moved on). A posted result is never stale."""
+    if entry.get("posted") or entry["status"] not in ("done", "failed"):
+        return ""
+    pull = (data.get("prs") or {}).get(str(entry["pr"])) or {}
+    if pull.get("state") in ("merged", "closed"):
+        return f"the pull request was {pull['state']}"
+    if pull.get("head") and pull["head"] != entry["head"]:
+        return f"the pull request has a newer head, {pull['head'][:9]}"
+    if entry.get("at") and (now or formats.now()) - formats.parse_time(entry["at"]) > datetime.timedelta(hours=STALE_HOURS):
+        return f"tested over {STALE_HOURS // 24} days ago, and main has moved on since"
+    return ""
+
+
+def summary_line(run, runs_dir):
+    """A timed run's summary line as AnyPS5 wrote it (its own number formatting), else as the job read it."""
+    path = Path(runs_dir or ".") / run.get("run", "-") / "aps5-summary.jsonl"
+    try:
+        lines = [line.strip() for line in path.read_text().splitlines() if line.startswith("{")]
+    except OSError:
+        lines = []
+    text = lines[-1] if lines else json.dumps(run["summary"], separators=(",", ":"))
+    return re.sub(r'"(/|[A-Za-z]:\\\\)[^"]*"', '"<path>"', text)  # no local paths, as AnyPS5 already does for its own
+
+
+def count(a, b):
+    """"two runs each", or "two and three runs" when the sides differ."""
+    words = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
+    if len(a) == len(b):
+        return f"{words.get(len(a), len(a))} run{'s' if len(a) > 1 else ''} each"
+    return f"{words.get(len(a), len(a))} and {words.get(len(b), len(b))} runs"
+
+
+def ms(values):
+    return ", ".join(f"{v:.1f}" for v in values)
+
+
+def report_text(results, entry, graphics=None):
+    """The report of one local test, in the form of the project's performance reports (its issue form and the comments
+    reviewers asked for): what ran where, main against main + the PR in A B A B order, p50, GPU busy and p99 per run,
+    what wasn't tested, and the summary lines. Plain text the tester reads, may edit, and posts themselves."""
+    pr, head = entry["pr"], entry["head"]
+    main, fixes = entry.get("main") or results.get("base", ""), entry.get("fixes") or []
+    carried = "".join(f" + #{f['pr']} at {f['head'][:9]}" for f in fixes)
+    on_both = (f" ({' and '.join('#' + str(f['pr']) for f in fixes)} on both sides)" if fixes else "")
+    base_words = f"main {main[:9]}{carried}"
+    out = []
+    for title_id, title in sorted(results.get("titles", {}).items()):
+        ab = title.get("ab") or {}
+        runs = [r for r in ab.get("runs", []) if r.get("counts") and r.get("summary")]
+        a = [r for r in runs if r["side"] == "A"]
+        b = [r for r in runs if r["side"] == "B"]
+        first = (a or b or [{}])[0].get("summary") or {}
+        mode = (graphics or {}).get(title_id) or ""
+        where = (f"{first.get('title') or title.get('name', title_id)} ({title_id} {first.get('content_version') or title.get('version', '')}), "
+                 f"{first.get('os', '?')}, {first.get('gpu', '?')}, {first.get('driver', '?')}" + (f", Graphics Mode {mode}" if mode else "")
+                 + (f", {title['scene']}" if title.get("scene") else "") + ", with no input.")
+        if not a or not b:
+            side, reason = failure({"titles": {title_id: title}})
+            if side == "B":
+                out += [f"Ran this on {where}", f"{base_words} starts the game; with #{pr} at {head[:9]} merged onto it{on_both}, the game "
+                        f"doesn't reach the scene:", "```", reason, "```"]
+            else:
+                out += [f"Ran this on {where}", f"Not enough timed runs counted to compare ({', '.join(r.get('capture', '') for r in ab.get('runs', []))})."]
+            continue
+        order = " ".join(r["side"] for r in runs)
+        env = first.get("env") or {}
+        window = (first.get("window") or {}).get("spec", "")
+        warm = ab.get("warm") or {}
+        quiet = all((warm.get(k) or {}).get("quiet", "").startswith("quiet: yes") for k in ("A", "B")) and all("no pipeline builds" in r.get("capture", "") for r in runs)
+        pa, pb = [r["summary"]["frame_ms"]["p50"] for r in a], [r["summary"]["frame_ms"]["p50"] for r in b]
+        ga, gb = [r["summary"].get("gpu_busy_ms_per_present") for r in a], [r["summary"].get("gpu_busy_ms_per_present") for r in b]
+        qa, qb = [r["summary"]["frame_ms"].get("p99") for r in a], [r["summary"]["frame_ms"].get("p99") for r in b]
+        diff = sum(pb) / len(pb) - sum(pa) / len(pa)
+        pct = diff / (sum(pa) / len(pa)) * 100
+        against = (f"{base_words}, against that + #{pr} at {head[:9]}{on_both}" if fixes else f"main {main[:9]} against main + #{pr} at {head[:9]}")
+        out += [f"Ran this on {where}",
+                f"{against}, same machine and session, {count(a, b)} in the order {order}"
+                + (f", window {window}" if window else "") + (f", APS5_TRACE_EVENTS={env['APS5_TRACE_EVENTS']}" if env.get("APS5_TRACE_EVENTS") else "") + "."
+                + (" Each side was warmed until it stopped building pipelines, and no timed run built one." if quiet else ""),
+                "",
+                f"Frame p50: main {ms(pa)} ms, with #{pr} {ms(pb)} ms ({diff:+.1f} ms, {pct:+.1f} %)."
+                + (f" GPU busy per present: {ms(ga)} -> {ms(gb)} ms." if all(v is not None for v in ga + gb) else ""),
+                *([f"p99: main {ms(qa)} ms, with #{pr} {ms(qb)} ms."] if all(v is not None for v in qa + qb) else []),
+                "Not tested: other scenes, other GPUs.",
+                "AI-assisted: yes",
+                "",
+                f"Summary lines ({'main' + carried if fixes else 'main'}, then with #{pr}):",
+                "```"] + [summary_line(r, title.get("runs_dir")) for r in a + b] + ["```", ""]
+    return "\n".join(out).rstrip("\n") + "\n"
 
 
 def failure(results):

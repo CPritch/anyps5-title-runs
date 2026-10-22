@@ -100,6 +100,7 @@ class Config:
     local_repository: str = ""  # [local]: pull requests tested on this computer with nothing posted (local_tests.py)
     local_prs: list = field(default_factory=list)
     local_people: list = field(default_factory=list)
+    local_fixes: list = field(default_factory=list)  # PRs merged onto main for both sides of local tests
     machine_info: dict = field(default_factory=dict)
 
     @property
@@ -193,5 +194,6 @@ def load(path):
         local_repository=str(local.get("repository", "")),
         local_prs=[int(n) for n in local.get("prs", [])],
         local_people=[str(a) for a in local.get("people", local.get("authors", []))],
+        local_fixes=[int(n) for n in local.get("fixes", [])],
         machine_info=dict(data.get("machine", {})),
     )

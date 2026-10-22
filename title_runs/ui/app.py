@@ -116,8 +116,8 @@ class Engine(QObject):
         paused = self.local.held() if self.local.enabled() else None
         if not paused:
             return ""
-        return (f"<b>Local tests are paused</b>: AnyPS5's main ({paused['main'][:9]}) crashes the game before it starts, so every change "
-                f"on it would fail. The game said: {paused['reason'][:200]}")
+        return (f"<b>Local tests are paused</b>: {paused['reason'][:240]}. They try again with the next main, or when you change the fixes "
+                f"on the Local tests page.")
 
     def ignored_mine(self):
         """The workflow answers nothing it does not use; the tester's own ignored comments are in its public cursors."""
