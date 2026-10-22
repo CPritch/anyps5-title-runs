@@ -81,6 +81,17 @@ class SceneFile(unittest.TestCase):
             with self.subTest(name), self.assertRaises(scenes.SceneError):
                 scenes.load(path)
 
+    def test_a_title_names_its_scene_by_id_or_path(self):
+        path, _ = scene_file(self.dir)
+        title = configs.Title("PPSA04263", Path("/dump"), scene=str(path))
+        self.assertEqual(scenes.of(title)["id"], "house")
+        self.assertIsNone(scenes.of(configs.Title("PPSA04263", Path("/dump"))))
+        with self.assertRaises(scenes.SceneError):
+            scenes.of(configs.Title("PPSA04263", Path("/dump"), scene="no-such-scene"))
+        other, _ = scene_file(self.dir, "other", title_id="PPSA01325")
+        with self.assertRaises(scenes.SceneError):
+            scenes.of(configs.Title("PPSA04263", Path("/dump"), scene=str(other)))
+
 
 class Save(unittest.TestCase):
     def setUp(self):
@@ -136,11 +147,28 @@ class Check(unittest.TestCase):
         self.assertIsNone(scenes.check(self.scene, None)[0])
         self.assertIsNone(scenes.check(self.scene, self.dir / "missing.bmp")[0])
 
+    def test_a_run_that_isnt_in_the_scene_fails_its_route(self):
+        run = self.dir / "run"
+        run.mkdir()
+        (run / "meta").write_text("")
+        (run / "actions").write_text("")
+        measure = protocol.Protocol(helpers.make_config(), None, {"steps": []}, self.dir / "runs", [], lambda text: None, scene=self.scene)
+        measure.in_scene(None, run, self.house)
+        with self.assertRaisesRegex(routes.RouteFailed, "the save may not have loaded"):
+            measure.in_scene(None, run, bmp(self.dir / "frame_003.bmp", (230, 230, 240)))
+        self.assertIn("scene=house scene_check=no", (run / "meta").read_text())
+
 
 class Elsewhere(unittest.TestCase):
     def test_a_scenes_runs_are_its_own(self):
         self.assertEqual(scenes.runs_name("PPSA04263", None), "PPSA04263")
         self.assertEqual(scenes.runs_name("PPSA04263", {"id": "house"}), "PPSA04263-house")
+
+    def test_the_config_file_keeps_the_scene(self):
+        config = helpers.make_config()
+        config.titles["PPSA04263"].scene = "house"
+        configfile.save(config)
+        self.assertEqual(configs.load(config.path).titles["PPSA04263"].scene, "house")
 
 
 if __name__ == "__main__":

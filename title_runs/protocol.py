@@ -23,10 +23,11 @@ import shutil
 import statistics
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
-from . import VENDOR, platform_info, route as routes, sandbox, verdict as verdicts
+from . import VENDOR, platform_info, route as routes, sandbox, scenes, verdict as verdicts
 from .game import Game
 
 sys.path.insert(0, str(VENDOR / "gtav_harness"))
@@ -62,8 +63,8 @@ class Side:
 
 
 class Protocol:
-    def __init__(self, config, title, route, runs_dir, sides, log, base_line=""):
-        self.config, self.title, self.route = config, title, route
+    def __init__(self, config, title, route, runs_dir, sides, log, base_line="", scene=None):
+        self.config, self.title, self.route, self.scene = config, title, route, scene
         self.machine_id = platform_info.machine_id()  # warm-ups belong to the computer, not to the name the tester gave it
         self.runs_dir, self.sides, self.log_line, self.base_line = Path(runs_dir), sides, log, base_line
         self.runs_dir.mkdir(parents=True, exist_ok=True)
@@ -143,10 +144,13 @@ class Protocol:
         self.meta(run, "capture=diagnostic warm-up")
         game = self.launch(side, run, env, pty=False)
         result = {"run": run.name, "reached": False}
+        driver = self.driver(side, run, game)
+        still = self.keep_still(side, run, game, driver)
         try:
-            marks = self.driver(side, run, game).run()
+            marks = driver.run()
             loaded = marks.get("loaded", 0.0)
             self.meta(run, f"loaded_at={loaded} resume_at={marks.get('resume', 0.0)}")
+            self.in_scene(side, run, latest(side.work))
             result["reached"] = True
             hold_end = time.monotonic() + WARM_HOLD_S
             while game.alive() and time.monotonic() < hold_end:
@@ -168,12 +172,45 @@ class Protocol:
             self.log(run, f"route failed: {error}")
             result["route_failed"] = str(error)
         finally:
+            if still:
+                still.set()
             result["stop"] = self.stop(game, run)
             result["exit_code"] = game.process.returncode
         if result["reached"]:
             call(capture.record, run=str(run))
         self.keep_last_frame(side, run)
         return result
+
+    def keep_still(self, side, run, game, driver):
+        """The scene's still button (scenes.py), pressed every few seconds from the route's resume mark (the load
+        starting; warm-ups and timed runs alike) until the run stops, on a thread of its own. Returns the Event that
+        stops it, or None."""
+        still = (self.scene or {}).get("still")
+        if not still:
+            return None
+        stop = threading.Event()
+        self.meta(run, f"still={still['press']} every {still['every']} s from resume")
+
+        def press():
+            while "resume" not in driver.marks:
+                if stop.wait(1) or not game.alive():
+                    return
+            self.log(run, f"pressing {still['press']} every {still['every']} s ({still.get('why', 'the scene asks for it')})")
+            while not stop.wait(still["every"]) and game.alive():
+                subprocess.run([sys.executable, "-I", str(side.tools / "pad_input.py"), str(side.work / "pad-input"), still["press"], "--hold-ms", "100"],
+                               capture_output=True)
+        threading.Thread(target=press, name="still", daemon=True).start()
+        return stop
+
+    def in_scene(self, side, run, frame):
+        """Raises RouteFailed when the frame isn't the scene's (scenes.check); records the check in meta."""
+        if not self.scene:
+            return
+        found, words = scenes.check(self.scene, frame)
+        self.meta(run, f"scene={self.scene['id']} scene_check={'yes' if found else 'unknown' if found is None else 'no'}: {words}")
+        self.log(run, f"scene {self.scene['id']}: {'reached' if found else 'not checked' if found is None else 'NOT reached'} ({words})")
+        if found is False:
+            raise routes.RouteFailed(f"{words}; the save may not have loaded")
 
     def keep_last_frame(self, side, run):
         frames = sorted(side.work.glob("frame_*.bmp"), key=lambda p: p.stat().st_mtime)
@@ -199,8 +236,10 @@ class Protocol:
                                            "APS5_DUMP_FRAMES": str(limit), "APS5_DUMP_FRAMES_EVERY": str(self.dump_every)})
         game = self.launch(side, run, env, pty=True)
         result = {"run": run.name, "side": side.key}
+        driver = self.driver(side, run, game)
+        still = self.keep_still(side, run, game, driver)
         try:
-            self.driver(side, run, game).run(stop_at=self.route.get("timed_stop_after", "resume"))
+            driver.run(stop_at=self.route.get("timed_stop_after", "resume"))
             waited = 0
             while game.alive() and not capture.window_line(side.work):
                 time.sleep(2)
@@ -220,9 +259,15 @@ class Protocol:
             self.log(run, f"route failed: {error}")
             result["route_failed"] = str(error)
         finally:
+            if still:
+                still.set()
             result["stop"] = self.stop(game, run)
             result["exit_code"] = game.process.returncode
         self.keep_last_frame(side, run)
+        try:
+            self.in_scene(side, run, run / "last-frame.bmp")
+        except routes.RouteFailed as error:
+            result["scene_failed"] = str(error)
         for path in [side.work / "aps5-summary.jsonl", *side.work.glob("aps5-trace-*.json.gz")]:
             if path.exists():
                 shutil.move(str(path), run / path.name)
@@ -231,6 +276,8 @@ class Protocol:
             digest = subprocess.run([sys.executable, "-I", str(side.tools / "trace_digest.py"), str(trace)], capture_output=True, text=True)
             (run / "digest.txt").write_text(digest.stdout + digest.stderr)
         code, out = call(capture.check, run=str(run), dump_every=self.dump_every)
+        if result.get("scene_failed"):
+            code, out = 1, f"{out.strip()}; not the scene: {result['scene_failed']}\n"
         (run / "capture").write_text(out)
         result["capture"] = out.strip()
         result["counts"] = code == 0
@@ -261,7 +308,8 @@ class Protocol:
                 result = self.warm_up(side)
                 warm[side.key] = {**result, "warm": "warm-up"}
                 if not result["reached"]:
-                    return {"warm": warm, "runs": [], "error": f"side {side.key}: the warm-up did not reach the scene"}
+                    return {"warm": warm, "runs": [], "error": f"side {side.key}: the warm-up did not reach the scene"
+                            + (f" ({result['route_failed']})" if result.get("route_failed") else "")}
         window = self.window()
         runs = []
         for number, side in enumerate([self.sides[0], self.sides[1], self.sides[0], self.sides[1]]):
@@ -295,6 +343,11 @@ class Protocol:
                                      str(self.runs_dir / b["run"] / "aps5-summary.jsonl")], capture_output=True, text=True)
             out.append({"a": a["run"], "b": b["run"], "text": (result.stdout if result.returncode == 0 else result.stderr).strip()})
         return out
+
+
+def latest(work):
+    frames = sorted(Path(work).glob("frame_*.bmp"), key=lambda p: p.stat().st_mtime)
+    return frames[-1] if frames else None
 
 
 def verdict(runs):

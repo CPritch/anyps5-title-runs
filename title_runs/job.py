@@ -10,7 +10,7 @@ import subprocess
 import traceback
 from pathlib import Path
 
-from . import build, game, protocol, route as routes, sandbox, sources
+from . import build, game, protocol, route as routes, sandbox, scenes, sources
 from .game import title_run
 
 
@@ -74,12 +74,19 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
     recheck() -> a reason or None, called after the trees are ready and just before anything is built: the client asks
     the queue again whether this SHA is still the approved one. progress(text) and should_stop() go to the A/B protocol:
     a job whose head is superseded ends after the run it is in. remote: where the head and main come from (default the
-    config's); main: a main SHA pinned in advance (local tests'), instead of main's tip now."""
+    config's); main: a main SHA pinned in advance (local tests'), instead of main's tip now.
+
+    A title set to a scene (scenes.py) is timed there: its save is downloaded and checked before anything is built, and
+    the job's folder is named after the scene too, so a head tested in two scenes keeps both results."""
     state_dir = Path(state_dir)
-    job_dir = state_dir / "jobs" / f"{number}-{head[:12]}"
+    try:
+        chosen, unknown = {title_id: scenes.of(title) for title_id, title in config.titles.items()}, None
+    except scenes.SceneError as error:  # failed below, in the job's own folder
+        chosen, unknown = {title_id: None for title_id in config.titles}, error
+    job_dir = state_dir / "jobs" / (f"{number}-{head[:12]}" + "".join(f"-{scene['id']}" for scene in chosen.values() if scene))
     job_dir.mkdir(parents=True, exist_ok=True)
     results = {"pr": number, "head": head, "started": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
-               "machine": config.machine, "sandbox": config.sandbox, "titles": {}}
+               "machine": config.machine, "sandbox": config.sandbox, "titles": {}, "job": job_dir.name}
 
     def note(text):
         log(text)
@@ -87,6 +94,13 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
             stream.write(f"{datetime.datetime.now():%H:%M:%S} {text}\n")
 
     try:
+        if unknown:
+            raise unknown
+        saves = {}
+        for title_id, scene in chosen.items():
+            saves[title_id] = scenes.files(scene, state_dir / "saves")
+            if scene:
+                note(f"{title_id}: in the scene {scene['name']}" + (", the save checked against its sha256" if saves[title_id] else ""))
         remote = remote or config.remote
         base = sources.fetch_pinned(config.repo_dir, remote, head, main) if main else sources.fetch_approved(config.repo_dir, remote, head)
         trees = {"A": state_dir / "trees" / "main", "B": state_dir / "trees" / "pr"}
@@ -116,24 +130,28 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
         for title_id, title in config.titles.items():
             entry = {"title_id": title_id}
             results["titles"][title_id] = entry
-            if title.route:
-                route = routes.load(title.route)
-                entry.update(scene=route["scene"], route=str(title.route))
+            scene = chosen[title_id]
+            if title.route or scene:
+                route = routes.load(scene["route"] if scene else title.route)
+                entry.update(scene=scene["scene"] if scene else route["scene"], route=str(scene["route"] if scene else title.route))
+                if scene:
+                    entry.update(scene_id=scene["id"], save=scenes.save_words(scene), input=scenes.input_words(scene))
+                runs_dir = state_dir / "runs" / scenes.runs_name(title_id, scene)
                 sides = []
                 for key, label in (("A", "main"), ("B", "pr")):
                     work = state_dir / "games" / title_id / label
-                    executable, found = game.prepare(title, builds[key]["dir"], work)
+                    executable, found = game.prepare(title, builds[key]["dir"], work, saves[title_id])
                     entry.setdefault("name", found["name"])
                     entry.setdefault("version", found["version"])
                     sides.append(protocol.Side(key, label, commits[key], executable, work, builds[key]["dir"], trees["A"] / "tools",
                                                state_dir / "caches" / title_id / label, run_env_rules(trees[key])))
                 base_line = f"main {base[:9]}; PR #{number} approved {head[:9]} merged onto it locally as {merge[:9]}"
-                measure = protocol.Protocol(config, title, route, state_dir / "runs" / title_id, sides, note, base_line)
+                measure = protocol.Protocol(config, title, route, runs_dir, sides, note, base_line, scene=scene)
                 measure.progress, measure.should_stop = progress, should_stop
                 ab = measure.ab(f"pr{number}-{head[:7]}")
                 if ab.get("stopped"):
                     results.update(status="superseded", detail=ab["stopped"])
-                entry.update(ab=ab, verdict=protocol.verdict(ab.get("runs", [])), runs_dir=str(state_dir / "runs" / title_id))
+                entry.update(ab=ab, verdict=protocol.verdict(ab.get("runs", [])), runs_dir=str(runs_dir))
                 entry["outcome"] = outcome_of(ab)
             else:
                 for key, label in (("A", "main"), ("B", "pr")):

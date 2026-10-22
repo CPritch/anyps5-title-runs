@@ -58,6 +58,8 @@ def config_data(config):
             entry["env"] = dict(title.env)
         if title.boot_seconds:
             entry["boot_seconds"] = title.boot_seconds
+        if title.scene:
+            entry["scene"] = title.scene
         titles[title_id] = entry
     return {
         "state_dir": str(config.state_dir),
