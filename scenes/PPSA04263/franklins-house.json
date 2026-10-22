@@ -1,0 +1,28 @@
+{
+  "title_id": "PPSA04263",
+  "name": "Franklin's house, Vinewood Hills (100% save)",
+  "scene": "Franklin at the front door inside his Vinewood Hills house, loaded by Resume Story from a 100% save",
+  "route": "routes/PPSA04263.json",
+  "source": "first loaded on 2026-10-22 (main c49fa17ee, Performance mode): Resume Story loads the save's autosave, '(Autosave) A Starlet In Vinewood (100.0%)'",
+  "save": {
+    "about": "Apollo's PS4 GTA V save '100% Save Game, God Mode, Max Everything'",
+    "page": "https://github.com/bucanero/apollo-saves/tree/master/PS4/CUSA00411",
+    "url": "https://raw.githubusercontent.com/bucanero/apollo-saves/37a995a1e841eba37a0a469eabd35702582fb364/PS4/CUSA00411/00000006.zip",
+    "sha256": "f0f603a853e734aa604e90d07d19e35e1cf900e8e0a50921d3403f485cea3dde",
+    "file": "savedata0/memory.dat",
+    "file_sha256": "c6351c1578372fcfb7a84f025bd5fb6c8ef14bedf30b77cc71289883c628045d",
+    "into": {
+      "memory_slot": 0
+    }
+  },
+  "still": {
+    "press": "left",
+    "every": 10,
+    "why": "it keeps GTA V's idle camera from starting; on foot here it does nothing else"
+  },
+  "frame": {
+    "colours": [0.3187, 0.0, 0.0, 0.0, 0.0005, 0.0003, 0.0002, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0714, 0.0, 0.0, 0.0, 0.0773, 0.4024, 0.0, 0.0, 0.0, 0.0018, 0.0009, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0015, 0.0, 0.0, 0.0, 0.0211, 0.0522, 0.0, 0.0, 0.0011, 0.0182, 0.0175, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0019, 0.0, 0.0, 0.0, 0.0037, 0.0034, 0.0028, 0.0, 0.0002, 0.0002, 0.0016, 0.001],
+    "max_distance": 0.2,
+    "from": "56 frames of the house with the still button (2026-10-22); the prologue is 0.49 away, the house 0.04 at most"
+  }
+}

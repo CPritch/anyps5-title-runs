@@ -92,6 +92,14 @@ class SceneFile(unittest.TestCase):
         with self.assertRaises(scenes.SceneError):
             scenes.of(configs.Title("PPSA04263", Path("/dump"), scene=str(other)))
 
+    def test_the_tools_own_scenes_load(self):
+        for title_dir in scenes.SCENES.iterdir():
+            for path in title_dir.glob("*.json"):
+                with self.subTest(path.name):
+                    scene = scenes.load(path)
+                    self.assertTrue(scene["route"].exists())
+                    self.assertTrue(scene.get("frame"), "a scene of the tool's own has a reference frame")
+
 
 class Save(unittest.TestCase):
     def setUp(self):
