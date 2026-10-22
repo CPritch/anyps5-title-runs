@@ -458,7 +458,8 @@ How it works (scenes.py):
    alike, and the report says so ("with D-pad left pressed every 10 s ... and no other input").
 6. **Each run is checked to be in the scene**, by its colours (frame_state's 96x54 sample in 4x4x4 colour boxes) against
    the scene's: a save the game didn't load starts the prologue instead. The house's frames with the still button were
-   0.04 at most from its colours, the prologue 0.49; the check allows 0.2. A warm-up that isn't in the scene fails its
-   route; a timed run that isn't does not count.
+   0.04 at most from its colours within a boot, and 0.07 to 0.17 across the first A/B's six runs (the camera starts
+   closer to Franklin or further from him on each boot); the prologue is 0.49 or more (30 of the first night's runs).
+   The check allows 0.3. A warm-up that isn't in the scene fails its route; a timed run that isn't does not count.
 7. **Results carry the scene**: the report names the save (source, file, sha256, where it went) so anyone can load the
    same one, and machines are combined only with machines timed in the same scene.
