@@ -191,7 +191,7 @@ class Overnight:
         lines = [f"# Overnight, the night of {night}", "", f"{data['repository']}, main `{((data.get('pinned') or {}).get('main') or '?')[:9]}`.", ""]
         for e in data["entries"]:
             if e["status"] in ("done", "failed"):
-                shown = " (game shown inside the app: X11)" if e.get("display") == "x11" else ""
+                shown = " (the game ran as X11)" if e.get("display") == "x11" else ""  # whether the app took it in is the app's, not the job's
                 lines.append(f"- #{e['pr']} `{e['head'][:9]}` {e['title']} ({e['author']}): {e.get('verdict', e['status'])}{shown}. "
                              f"Draft: {e.get('draft', '-')}")
         if data.get("paused"):
