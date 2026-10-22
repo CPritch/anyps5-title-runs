@@ -487,7 +487,7 @@ def report_text(results, entry, graphics=None):
         mode = (graphics or {}).get(title_id) or ""
         where = (f"{first.get('title') or title.get('name', title_id)} ({title_id} {first.get('content_version') or title.get('version', '')}), "
                  f"{first.get('os', '?')}, {first.get('gpu', '?')}, {first.get('driver', '?')}" + (f", Graphics Mode {mode}" if mode else "")
-                 + (f", {title['scene']}" if title.get("scene") else "") + ", with no input.")
+                 + (f", {title['scene']}" if title.get("scene") else "") + f", {title.get('input') or 'with no input'}.")
         if not a or not b:
             side, reason = failure({"titles": {title_id: title}})
             if side == "B":
@@ -512,7 +512,8 @@ def report_text(results, entry, graphics=None):
         out += [f"Ran this on {where}",
                 f"{against}, same machine and session, {count(a, b)} in the order {order}"
                 + (f", window {window}" if window else "") + (f", APS5_TRACE_EVENTS={env['APS5_TRACE_EVENTS']}" if env.get("APS5_TRACE_EVENTS") else "") + "."
-                + (" Each side was warmed until it stopped building pipelines, and no timed run built one." if quiet else ""),
+                + (" Each side was warmed until it stopped building pipelines, and no timed run built one." if quiet else "")
+                + (f" {title['save']}" if title.get("save") else ""),
                 "",
                 f"Frame p50: main {ms(pa)} ms, with #{pr} {ms(pb)} ms ({diff:+.1f} ms, {pct:+.1f} %)."
                 + (f" GPU busy per present: {ms(ga)} -> {ms(gb)} ms." if all(v is not None for v in ga + gb) else ""),

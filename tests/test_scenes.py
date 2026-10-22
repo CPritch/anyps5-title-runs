@@ -184,6 +184,18 @@ class Elsewhere(unittest.TestCase):
         configfile.save(config)
         self.assertEqual(configs.load(config.path).titles["PPSA04263"].scene, "house")
 
+    def test_the_report_names_the_save_and_the_input(self):
+        results = {"pr": 4287, "head": "7" * 40, "base": "c" * 40,
+                   "titles": {"PPSA04263": {"scene": "a house", "input": "with D-pad left pressed every 10 s and no other input",
+                                            "save": "The save is a 100% save (https://example.org/saves).",
+                                            "ab": {"warm": {"A": {"warm": "already"}, "B": {"warm": "already"}},
+                                                   "runs": [{"run": f"{s}{n}", "side": s, "counts": True, "capture": "counts; no pipeline builds",
+                                                             "summary": {"frame_ms": {"p50": 80.0}, "title": "Grand Theft Auto V"}}
+                                                            for n in (1, 2) for s in "AB"]}}}}
+        text = local_tests.report_text(results, {"pr": 4287, "head": "7" * 40, "main": "4" * 40})
+        self.assertIn(", a house, with D-pad left pressed every 10 s and no other input.", text.splitlines()[0])
+        self.assertIn("The save is a 100% save (https://example.org/saves).", text.splitlines()[1])
+
 
 if __name__ == "__main__":
     unittest.main()
