@@ -220,10 +220,10 @@ class TitlesTab(QWidget):
         super().__init__()
         self.engine = engine
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Your games. A game with a full test is played and timed; the others get a start-up check."))
-        self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(["On", "Game ID", "Name", "Version", "Test", "Saves copied in", "Folder"])
-        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Stretch)
+        layout.addWidget(QLabel("Your games. A game with a full test is played and timed in its scene; the others get a start-up check."))
+        self.table = QTableWidget(0, 8)
+        self.table.setHorizontalHeaderLabels(["On", "Game ID", "Name", "Version", "Test", "Scene", "Saves copied in", "Folder"])
+        self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
         layout.addWidget(self.table)
 
@@ -235,12 +235,25 @@ class TitlesTab(QWidget):
             on.setFlags(on.flags() | Qt.ItemIsUserCheckable)
             on.setCheckState(Qt.Checked if row["on"] else Qt.Unchecked)
             self.table.setItem(i, 0, on)
-            for column, key in enumerate(("title_id", "name", "version", "check", "seeds", "path"), start=1):
+            for column, key in zip((1, 2, 3, 4, 6, 7), ("title_id", "name", "version", "check", "seeds", "path")):
                 item = QTableWidgetItem(row[key])
                 if key == "seeds":
                     item.setToolTip("\n".join(row["seed_paths"]))
                 self.table.setItem(i, column, item)
+            self.table.setCellWidget(i, 5, self.scene_box(row))
         self.table.resizeColumnsToContents()
+
+    def scene_box(self, row):
+        """The title's scenes: where its route goes on its own, and each scene a save takes it to."""
+        if not row["scenes"]:
+            return QLabel("—")
+        box = QComboBox()
+        for choice in row["scenes"]:
+            box.addItem(choice["name"], choice["id"])
+            box.setItemData(box.count() - 1, "\n\n".join(t for t in (choice["scene"], choice.get("save", "")) if t), Qt.ToolTipRole)
+        box.setCurrentIndex(max(0, box.findData(row["scene"])))
+        box.currentIndexChanged.connect(lambda _, b=box, t=row["title_id"]: self.engine.set_scene(t, b.currentData()))
+        return box
 
 
 class SettingsTab(QWidget):

@@ -21,7 +21,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QApplication
 
-from .. import ROOT, client as clients, config as configs, configfile, formats, platform_info, poller, sandbox, store, verdict
+from .. import ROOT, client as clients, config as configs, configfile, formats, platform_info, poller, sandbox, scenes, store, verdict
 from ..relay import overview
 from ..relay.render import utc as utc_text
 from . import model, words
@@ -242,10 +242,24 @@ class Engine(QObject):
         rows = []
         for title_id, title in self.config.titles.items():
             dump = self.dumps.get(title_id, {})
+            choices = [{"id": "", "name": self.route_name(title), "scene": ""}] if title.route else []
+            choices += [{"id": key, "name": scene["name"], "scene": scene["scene"], "save": scenes.save_words(scene)}
+                        for key, scene in scenes.available(title_id).items()]
             rows.append({"on": True, "title_id": title_id, "name": dump.get("name", "?"), "version": dump.get("version", "?"),
-                         "check": "Full test" if title.route else "Start-up check", "seeds": f"{len(title.seed)} file(s)" if title.seed else "none",
-                         "seed_paths": [str(p) for p in title.seed], "path": str(title.dump)})
+                         "check": "Full test" if title.route or title.scene else "Start-up check", "seeds": f"{len(title.seed)} file(s)" if title.seed else "none",
+                         "seed_paths": [str(p) for p in title.seed], "path": str(title.dump), "scene": title.scene, "scenes": choices})
         return rows
+
+    def route_name(self, title):
+        try:
+            return json.loads(Path(title.route).read_text()).get("name", "Where the route goes")
+        except (OSError, ValueError):
+            return "Where the route goes"
+
+    def set_scene(self, title_id, scene_id):
+        """The Titles page's Scene: the next tests of this title are timed there (a scene's runs and warm-ups are its own)."""
+        self.config.titles[title_id].scene = scene_id
+        self.save_config()
 
     def allowed_now(self):
         return self.client.allowed_now()
