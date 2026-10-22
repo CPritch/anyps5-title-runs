@@ -5,6 +5,7 @@ puts the head back on the list. Nothing is posted: GitHub is only read."""
 import datetime
 import types
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import helpers  # noqa: F401
@@ -154,6 +155,49 @@ class Run(unittest.TestCase):
             self.assertIsNone(self.night.run(self.night.queued()[0], self.client))
         self.assertEqual(self.night.read()["entries"][0]["status"], "queued")
 
+
+class Carry(unittest.TestCase):
+    """Fixes merged onto main for both sides, in a real repository: the same base from the same heads, a fix main has
+    left out, a conflict refused."""
+
+    def setUp(self):
+        import subprocess
+        import tempfile
+        self.repo = Path(tempfile.mkdtemp())
+
+        def git(*args):
+            return subprocess.run(["git", "-C", str(self.repo), *args], capture_output=True, text=True, check=True,
+                                  env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+                                       "PATH": "/usr/bin:/bin", "HOME": str(self.repo)}).stdout.strip()
+        self.git = git
+        git("init", "-q", "-b", "main")
+        (self.repo / "voice.cpp").write_text("throw\n")
+        (self.repo / "other.cpp").write_text("a\n")
+        git("add", "."), git("commit", "-q", "-m", "m1")
+        self.m1 = git("rev-parse", "HEAD")
+        git("switch", "-q", "-c", "fix")
+        (self.repo / "voice.cpp").write_text("return 0\n")
+        git("commit", "-qam", "fix(voice)")
+        self.fix = git("rev-parse", "HEAD")
+        git("switch", "-q", "-c", "clash", self.m1)
+        (self.repo / "other.cpp").write_text("b\n")
+        git("commit", "-qam", "clash")
+        self.clash = git("rev-parse", "HEAD")
+        git("switch", "-q", "main")
+        (self.repo / "other.cpp").write_text("c\n")
+        git("commit", "-qam", "m2")
+        self.main = git("rev-parse", "HEAD")
+
+    def test_carry(self):
+        from title_runs import sources
+        base, carried, in_main = sources.carry(self.repo, "unused", self.main, [(9730, self.fix), (1, self.m1)])
+        self.assertEqual((carried, in_main), ([{"pr": 9730, "head": self.fix}], [1]))
+        self.assertEqual(self.git("show", f"{base}:voice.cpp"), "return 0")
+        self.assertEqual(self.git("rev-list", "--parents", "-n", "1", base).split()[1:], [self.main, self.fix])
+        self.assertEqual(sources.carry(self.repo, "unused", self.main, [(9730, self.fix)])[0], base)  # the same base again
+        self.assertEqual(sources.carry(self.repo, "unused", self.main, []), (self.main, [], []))
+        with self.assertRaisesRegex(sources.SourceError, "#5 .* does not merge onto main"):
+            sources.carry(self.repo, "unused", self.main, [(5, self.clash)])
 
 if __name__ == "__main__":
     unittest.main()

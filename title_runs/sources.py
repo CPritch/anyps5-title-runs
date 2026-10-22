@@ -84,6 +84,35 @@ def merge_onto(tree, main, head):
     return merge
 
 
+def carry(repo_dir, remote, main, fixes):
+    """main with fixes merged onto it, for both sides of local tests (a main that doesn't run the game without them).
+    fixes: [(PR number, head SHA)], merged in order without a worktree, each with the fixed identity and its head's date,
+    so the same main and heads give the same base everywhere. A fix whose head main already has is left out.
+    Returns (base, [{"pr", "head"}] carried, [PR numbers main already has]); raises SourceError on a conflict."""
+    if not fixes:
+        return main, [], []
+    for sha in [main] + [head for _, head in fixes]:
+        if subprocess.run(["git", "-C", str(repo_dir), "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode != 0:
+            git(repo_dir, "fetch", "--no-tags", "-q", remote, sha)
+    base, carried, in_main = main, [], []
+    for number, head in fixes:
+        if subprocess.run(["git", "-C", str(repo_dir), "merge-base", "--is-ancestor", head, main], capture_output=True).returncode == 0:
+            in_main.append(number)
+            continue
+        merged = subprocess.run(["git", "-C", str(repo_dir), "merge-tree", "--write-tree", base, head], capture_output=True, text=True)
+        if merged.returncode != 0:
+            raise SourceError(f"#{number} ({head[:9]}) does not merge onto main {main[:9]}")
+        date = git(repo_dir, "show", "-s", "--format=%cI", head)
+        env = {**os.environ, **MERGE_IDENTITY, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
+        base = subprocess.run(["git", "-C", str(repo_dir), "commit-tree", merged.stdout.split()[0], "-p", base, "-p", head,
+                               "-m", f"Merge #{number} ({head[:12]}) onto main {main[:12]} for both sides (title runs)"],
+                              capture_output=True, text=True, env=env, check=True).stdout.strip()
+        carried.append({"pr": number, "head": head})
+    if carried:
+        git(repo_dir, "update-ref", f"refs/title-runs/base/{base}", base)  # kept from git's clean-up while it is a base
+    return base, carried, in_main
+
+
 def worktree(repo_dir, path, commit):
     path = Path(path)
     if (path / ".git").exists():
