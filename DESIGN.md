@@ -423,11 +423,12 @@ After the first night of local tests (17 upstream PRs, 2026-10-21).
    and **Mark as posted**. Nothing in the client posts a local result. A result not posted goes **stale** when the PR
    gets a newer head, closes or merges, or after 48 hours (main has moved on); a posted one never does.
 
-## Scenes from saves (2026-10-22)
+## Scenarios (2026-10-22)
 
-Charlie chose saves as the next feature: scenes the tool can time without anyone playing, from save files found online,
-GTA V first. Until now every GTA V run timed the prologue: the seed holds only the profile (settings), so Resume Story
-starts a new game.
+Charlie chose saves as the next feature: runs the tool can time without anyone playing, from save files found online,
+GTA V first. A **scenario** is one specific run of a title, which may or may not load a save: how to get there, what is
+on screen, and what keeps it the same. GTA V's prologue is one (no save: with no story save, Resume Story starts a new
+game); Franklin's front door is another (a 100% save).
 
 What the first boots showed (main c49fa17ee, this laptop, 2026-10-22):
 
@@ -436,30 +437,36 @@ What the first boots showed (main c49fa17ee, this laptop, 2026-10-22):
   (`_sd_mem/u268435456/slot0.bin`), Resume Story loads it: Franklin at the front door of his Vinewood Hills house, in 80 s.
   With save-data tracing the PS5 game also looks for PS4's save folders by name (`SAVEDATASGTA50000` to `14`,
   `SAVEDATAPROFILE`, `SAVEDATAMISREP0000`).
-- **A saved place is not a fixed scene by itself.** With no input GTA V starts its idle camera after about 30 s and
-  turns it differently on every boot: the house gave 64 to 119 ms frames by 10 s interval, where the prologue (a mission,
-  no idle camera) holds 78 to 81 ms. D-pad left every 10 s (nothing on foot there) kept the view still for 150 s and the
-  frames at 85.9 to 89.5 ms.
+- **The idle camera.** With no input GTA V starts its idle camera after about 30 s and turns it differently on every
+  boot: the house gave 64 to 119 ms frames by 10 s interval, where the prologue (a mission, no idle camera) holds 78 to
+  81 ms. D-pad left every 10 s (nothing on foot there) kept the view still for 150 s and the frames at 85.9 to 89.5 ms.
+- **The camera's framing at the load is GTA V's own, and differs from boot to boot.** 11 boots of the same save gave
+  five framings; each boot keeps its own. The first A/B in the house (#4287) had main at 86.8 and 92.0 ms, where the
+  prologue's spread on the same builds is 0.1 ms. Tried and not working: cycling the camera modes with the touchpad (it
+  lands on a different mode each boot), walking forward (Franklin sometimes walks out of the front door), and pressing
+  the touchpad until the frame looks like first person (first person is not the same picture on two boots either, 0.55
+  alike, and neither a picture nor colours tell first person from the other modes reliably).
 
-How it works (scenes.py):
+How it works (scenarios.py):
 
-1. **A scene is a file**, `scenes/<TITLE ID>/<id>.json`: its name, the report's words for what is on screen, the route
-   that gets there, the save and where it goes, the still button, and the scene's colours.
+1. **A scenario is a file**, `scenarios/<TITLE ID>/<id>.json`: its name, the report's words for what is on screen, the
+   route that gets there, the save and where it goes (optional), the still button (optional), and the scene's colours.
+   One of a title's scenarios is its default (GTA V's: the prologue).
 2. **The save is never stored here.** It is downloaded once from its source, pinned to a commit, checked against its
    sha256 (and the zip member's), and kept under the state directory; a save's licence is its source's (Apollo's
    saves are GPL-3.0, this tool GPL-2.0). Save-data memory slots only, for now; save folders (`_sd/<name>/`) when a
-   scene needs one.
-3. **A title is set to one scene** (config `scene = "<id>"`, or the Titles page's Scene). Without one, the route's own
-   place. A job downloads and checks the save before it builds anything.
-4. **A scene's runs are its own**: `runs/<TITLE ID>-<scene id>`, so a warm-up in the prologue never counts as warm for
-   the house, and the window comes from the house's own settle point. The job folder carries the scene's id too, so a
-   head timed in two scenes keeps both results.
+   scenario needs one.
+3. **A title runs in one scenario** (config `scenario = "<id>"`, or the Titles page's Scenario), its default when none
+   is named. A job downloads and checks the save before it builds anything.
+4. **A scenario's runs are its own**: `runs/<TITLE ID>-<scenario id>`, so a warm-up in the prologue never counts as warm
+   for the house, and the window comes from the house's own settle point. The job folder carries the scenario's id too,
+   so a head tested in two scenarios keeps both results.
 5. **The still button** is pressed every few seconds from Resume Story until the run stops, in warm-ups and timed runs
    alike, and the report says so ("with D-pad left pressed every 10 s ... and no other input").
 6. **Each run is checked to be in the scene**, by its colours (frame_state's 96x54 sample in 4x4x4 colour boxes) against
-   the scene's: a save the game didn't load starts the prologue instead. The house's frames with the still button were
-   0.04 at most from its colours within a boot, and 0.07 to 0.17 across the first A/B's six runs (the camera starts
-   closer to Franklin or further from him on each boot); the prologue is 0.49 or more (30 of the first night's runs).
-   The check allows 0.3. A warm-up that isn't in the scene fails its route; a timed run that isn't does not count.
-7. **Results carry the scene**: the report names the save (source, file, sha256, where it went) so anyone can load the
-   same one, and machines are combined only with machines timed in the same scene.
+   the scenario's, and a black frame never is. A save the game didn't load starts the prologue instead, and a story save
+   in the seed would load instead of the prologue. The house's runs were 0.07 to 0.17 from its colours, the prologue's
+   own runs 0.25 at most from theirs (the mission's camera cuts), and the two scenes 0.41 to 0.50 apart; the house allows
+   0.3, the prologue 0.33. A warm-up that isn't in the scene fails its route; a timed run that isn't does not count.
+7. **Results carry the scenario**: the report names the save (source, file, sha256, where it went) so anyone can load
+   the same one, and machines are combined only with machines timed in the same scenario.

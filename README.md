@@ -178,14 +178,15 @@ vocabulary is in `title_runs/route.py`. `routes/PPSA04263.json` is GTA V's: titl
 presses to the Story tab, Resume Story, then until the Story has loaded. Timed runs stop the route after the
 Resume Story press (`timed_stop_after`) and wait for the window.
 
-## Scenes
+## Scenarios
 
-A route on its own times wherever it goes: for GTA V with no story save, the prologue. A scene (`scenes/<ID>/<id>.json`,
-`title_runs/scenes.py`) adds a save that the same route loads, a button pressed every few seconds to keep the title's
-idle camera from turning, and the scene's colours, which each run is checked against. The save is downloaded from its
-source and checked against its sha256, never stored in this repository. A title is set to one scene (`scene = "<id>"`
-in its section, or the Titles page); `scenes/PPSA04263/franklins-house.json` is GTA V's first: Franklin at his front
-door in Vinewood Hills, from Apollo's PS4 100% save.
+Every timed run is in a scenario (`scenarios/<ID>/<id>.json`, `title_runs/scenarios.py`): one specific run of a title,
+which may or may not load a save. A scenario names the route that gets there, the report's words for what is on screen,
+the save if it has one (downloaded from its source and checked against its sha256, never stored in this repository), a
+button pressed every few seconds to keep the title's idle camera from turning if it needs one, and the scene's colours,
+which each run is checked against. A title runs in one scenario (`scenario = "<id>"` in its section, or the Titles
+page), its default when none is named. GTA V's are `prologue` (the default: a new game, no save) and `franklins-house`
+(Franklin at his front door in Vinewood Hills, from Apollo's PS4 100% save).
 
 ## The trust model
 
