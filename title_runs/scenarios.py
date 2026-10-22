@@ -33,7 +33,7 @@ another, and the timed window comes from the scenario's own settle point.
 
 check() tells whether a run is in the scene and not another (a save the title didn't load starts a new game, and GTA V
 then plays the prologue; a story save in the seed loads instead of the prologue). It compares colours, which stay when
-the camera moves.
+the camera moves; a black frame is never in the scene.
 """
 
 import hashlib
@@ -213,6 +213,9 @@ def check(scenario, frame):
     if frame is None or not Path(frame).exists():
         return None, "no frame to check"
     try:
+        pixels = frame_state.sample(str(frame))
+        if frame_state.classify(pixels)[0] == "black":
+            return False, f"{Path(frame).name} is black"
         distance = sum(abs(a - b) for a, b in zip(colours(frame), reference["colours"])) / 2
     except (SystemExit, OSError, IndexError) as error:
         return None, f"could not read {Path(frame).name}: {error}"

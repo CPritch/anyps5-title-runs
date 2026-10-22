@@ -151,6 +151,11 @@ class Check(unittest.TestCase):
         self.assertIs(found, False)
         self.assertIn("frame_002.bmp is 1.00 from the scene's colours (at most 0.25)", words)
 
+    def test_a_black_frame_is_never_in_the_scene(self):
+        dark = bmp(self.dir / "frame_003.bmp", (0, 0, 0))
+        scenario = dict(self.scenario, frame={"colours": scenarios.colours(dark), "max_distance": 0.25})
+        self.assertEqual(scenarios.check(scenario, dark), (False, "frame_003.bmp is black"))
+
     def test_unknown_without_reference_colours_or_a_frame(self):
         self.assertIsNone(scenarios.check({"id": "x"}, self.house)[0])
         self.assertIsNone(scenarios.check(self.scenario, None)[0])
