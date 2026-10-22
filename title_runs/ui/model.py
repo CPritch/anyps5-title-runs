@@ -142,7 +142,7 @@ def waiting_for(why):
     if why.startswith("in use"):
         return "the computer has been left alone for a while"
     if why == "paused":
-        return "you resume"
+        return "when you switch testing back on"
     if why.startswith("paused until"):
         return why.replace("paused until", "after")
     return why
@@ -171,18 +171,18 @@ TESTING = {"off": ("Off", "Testing is off: no test starts."),
 
 
 def schedule_words(rules, idle_detectable=True):
-    """The schedule in a sentence: "between 01:00 and 07:00, when the computer is plugged in"."""
-    parts = []
-    first, last = rules.get("hours", [0, 24])
-    if (first, last) != (0, 24):
-        parts.append(f"between {first:02d}:00 and {last:02d}:00")
+    """The schedule in a sentence: "between 01:00 and 07:00, when the computer is plugged in and nothing is fullscreen"."""
+    conditions = []
     if rules.get("idle_only", True) and idle_detectable:
-        parts.append(f"after {rules.get('idle_minutes', 10)} minutes away from the computer")
+        conditions.append(f"you've been away for {rules.get('idle_minutes', 10)} minutes")
     if rules.get("mains_only", True):
-        parts.append("when it's plugged in")
+        conditions.append("the computer is plugged in")
     if rules.get("pause_fullscreen", True):
-        parts.append("not while something is fullscreen")
-    return ", ".join(parts) or "at any time"
+        conditions.append("nothing is fullscreen")
+    when = "when " + (", ".join(conditions[:-1]) + " and " if len(conditions) > 1 else "") + conditions[-1] if conditions else ""
+    first, last = rules.get("hours", [0, 24])
+    hours = f"between {first:02d}:00 and {last:02d}:00" if (first, last) != (0, 24) else ""
+    return ", ".join(part for part in (hours, when) if part) or "at any time"
 
 
 def header(status, ready, why, testing, allowed, allowed_why, best):

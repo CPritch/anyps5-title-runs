@@ -430,7 +430,8 @@ class MainScreenModel(unittest.TestCase):
     def test_the_schedule_in_words(self):
         rules = {"hours": [1, 7], "idle_only": True, "idle_minutes": 10, "mains_only": True, "pause_fullscreen": True}
         self.assertEqual(model.schedule_words(rules, idle_detectable=False),
-                         "between 01:00 and 07:00, when it's plugged in, not while something is fullscreen")
+                         "between 01:00 and 07:00, when the computer is plugged in and nothing is fullscreen")
+        self.assertEqual(model.schedule_words({**rules, "hours": [0, 24], "mains_only": False}), "when you've been away for 10 minutes and nothing is fullscreen")
         self.assertEqual(model.schedule_words({"hours": [0, 24], "idle_only": False, "mains_only": False, "pause_fullscreen": False}), "at any time")
 
     def test_the_step_from_the_jobs_progress(self):
