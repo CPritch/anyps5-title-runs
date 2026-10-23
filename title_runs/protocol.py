@@ -4,7 +4,9 @@ Per side (A = main at the merge base, B = GitHub's merge of the PR):
   - a warm-up only when no earlier run of the same built commit and RUN_ENV reached the scene on this machine
     (capture.py warmed). It runs the whole route, then stays in the scene until its last 60 s built no pipelines
     (capture.py quiet), at most 20 minutes, so a cold cache is filled before anything is timed;
-  - one window for both sides from the latest warm runs' settle points (capture.py window);
+  - one window for both sides from the latest warm runs' settle points (capture.py window), 60 s or as many presents
+    as fit a trace of about TRACE_TARGET bytes, whichever is fewer (trace_presents): the project's performance form asks
+    for each trace attached, and GitHub takes files up to 25 MB;
   - timed runs in the order A B A B, two per side: APS5_TRACE_FRAMES and APS5_TRACE_EVENTS only, the log on a
     pseudo-terminal (script(1)), frame dumps that stop before the window; each checked by capture.py check
     (counts / not counted), a run that does not count repeated once;
@@ -34,6 +36,9 @@ sys.path.insert(0, str(VENDOR / "gtav_harness"))
 import capture  # noqa: E402
 
 TRACE_EVENTS = 4194304
+ATTACH_LIMIT = 25_000_000  # GitHub's largest attached file other than an image or a video (25 MB)
+TRACE_TARGET = 20_000_000  # the size a window is chosen for, with room for a heavier stretch than any earlier trace had
+BYTES_PER_PRESENT = 61_000  # without an earlier trace of the scenario: GTA V's heaviest so far (Franklin's house, 60.1 kB)
 WARM_HOLD_S = 30
 WARM_MAX_S = 1200
 CAPTURE_TIMEOUT_S = 1500
@@ -223,13 +228,21 @@ class Protocol:
         if code != 0 or not out.strip():
             raise RuntimeError(f"no window: {out.strip()}")
         spec, limit, sources = out.split()[:3]
-        return spec, int(limit), sources
+        start, count = (int(value) for value in spec.split(":"))
+        fits, self.sized = trace_presents(self.runs_dir)
+        return f"{start}:{min(count, fits)}", int(limit), sources
+
+    sized = ""  # why the window has as many presents as it has (window())
+
+    def window_record(self, window):
+        return {"spec": window[0], "dump_limit": window[1], "from": window[2], "sized": self.sized}
 
     def timed(self, side, label, window, warmed_by):
         spec, limit, sources = window
         run = self.new_run(side, label)
         self.meta(run, f"capture=timed APS5_TRACE_FRAMES={spec} APS5_TRACE_EVENTS={TRACE_EVENTS} dump_limit={limit}")
         self.meta(run, f"window_from={sources}")
+        self.meta(run, f"window_sized={self.sized}")
         self.meta(run, f"warmed_by={warmed_by}")
         self.meta(run, "log=terminal (script(1))")
         env = self.environment(side, run, {"APS5_TRACE_FRAMES": spec, "APS5_TRACE_EVENTS": str(TRACE_EVENTS),
@@ -315,7 +328,7 @@ class Protocol:
         for number, side in enumerate([self.sides[0], self.sides[1], self.sides[0], self.sides[1]]):
             stop = stopped()
             if stop:
-                return {"warm": warm, "window": {"spec": window[0], "dump_limit": window[1], "from": window[2]}, "runs": runs,
+                return {"warm": warm, "window": self.window_record(window), "runs": runs,
                         "pairs": self.pairs(runs), "stopped": stop}
             label = f"{name}-{side.key}{number // 2 + 1}"
             say(f"{'main' if side.key == 'A' else 'PR'} run {number // 2 + 1}, {number + 1}/4")
@@ -324,14 +337,14 @@ class Protocol:
                 stop = stopped()
                 if stop:  # a run the tester's Stop ended does not count, but is not repeated
                     runs.append(result)
-                    return {"warm": warm, "window": {"spec": window[0], "dump_limit": window[1], "from": window[2]}, "runs": runs,
+                    return {"warm": warm, "window": self.window_record(window), "runs": runs,
                             "pairs": self.pairs(runs), "stopped": stop}
                 retry = self.timed(side, label + "r", window, warm[side.key]["run"])
                 retry["repeat_of"] = result["run"]
                 runs.append(result)
                 result = retry
             runs.append(result)
-        return {"warm": warm, "window": {"spec": window[0], "dump_limit": window[1], "from": window[2]}, "runs": runs,
+        return {"warm": warm, "window": self.window_record(window), "runs": runs,
                 "pairs": self.pairs(runs)}
 
     def pairs(self, runs):
@@ -343,6 +356,21 @@ class Protocol:
                                      str(self.runs_dir / b["run"] / "aps5-summary.jsonl")], capture_output=True, text=True)
             out.append({"a": a["run"], "b": b["run"], "text": (result.stdout if result.returncode == 0 else result.stderr).strip()})
         return out
+
+
+def trace_presents(runs_dir):
+    """(presents, why): how many presents fit a trace of TRACE_TARGET bytes, in tens and at least 100, at the most bytes
+    per present of the timed traces already in runs_dir (a scenario's own runs), else at BYTES_PER_PRESENT. A trace is
+    one slice per draw stage, so its size follows the scene: GTA V's prologue 46 to 52 kB per present, the house 47 to 60."""
+    most, seen = 0.0, 0
+    for trace in Path(runs_dir).glob("*/aps5-trace-*.json.gz"):
+        lines = capture.window_line(trace.parent)
+        if len(lines) == 1 and lines[0].get("presents"):
+            most, seen = max(most, trace.stat().st_size / lines[0]["presents"]), seen + 1
+    per = most or BYTES_PER_PRESENT
+    presents = max(100, int(TRACE_TARGET / per) // 10 * 10)
+    source = f"the most of {seen} earlier trace{'s' if seen != 1 else ''} here" if seen else "with no earlier trace here"
+    return presents, f"at most {presents} presents fit a {TRACE_TARGET / 1e6:.0f} MB trace at {per / 1000:.1f} kB per present, {source}"
 
 
 def latest(work):
