@@ -538,6 +538,36 @@ nothing posts.
 4. **Up next** labels a local test "Local test".
 
 
+## Local tests alone (Charlie, 2026-10-23)
+
+Charlie decided to take the queue out: the results repository and its relay workflow, registering machines, the App
+queueing and commenting on pull requests, and testers' machines running what a maintainer queued. Why:
+
+- **Safety.** Nothing makes someone's machine run code they didn't pick: whoever runs a test chose it.
+- **Nothing for maintainers to do.** No App to install, no repository to keep, no labels. They get reports in the
+  form they already ask for, posted by the person who ran the test.
+- **Local tests are what proved useful**: the 17 pull requests tested overnight on 2026-10-21 and #4287's -5.11 ms
+  on 2026-10-23 were all local tests.
+- **The queue had no safe way to run on time.** GitHub's schedule ran the relay 11 times from 21 to 23 October, 2 to
+  6 hours apart. It only kept up while the window started it with `gh workflow run` (removed in 407710f); every other
+  way needed something hosted, a workflow in AnyPS5, or runs started from testers' accounts.
+
+Kept:
+
+- local tests: pull requests by number or link, following people, fixes on both sides, testing again, the reports
+  with their traces, posting by hand and stale results. Following someone is the one way a test runs a head the
+  tester hasn't looked at, so it says so where it's set;
+- signing in through the App, as a sign-in only: the tool reads the project's pull requests with it (GitHub allows
+  60 requests an hour without one), and the App needs no permissions for that;
+- the verdicts: per machine, and combined over machines of one class, for a pull request run on several machines of
+  the tester's own;
+- the window, the command line, scenarios and the sandbox.
+
+Next, later: renting machines (Vast) to run the tester's own picks on, so the trust stays the tester's.
+
+On GitHub, Charlie retires the results repository (CPritch/anyps5-title-runs-results) and cuts the App back to a
+sign-in. The queue's design and code are in git history: DESIGN.md and FORMATS.md as they were at 407710f.
+
 ## The command line (2026-10-23)
 
 For people and for agents driving the tool (a maintainer's agent asking for and tracking tests, a tester's agent
