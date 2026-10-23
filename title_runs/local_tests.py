@@ -11,6 +11,7 @@ PIN_HOURS, so the PRs tested together are measured against the same main and tha
                                          "entries": [...], "removed", "paused"}
   state/local-tests/<night>.md           a summary per night
   state/local-tests/drafts/<pr>-<head>.md   the report per tested head, as written when it ran
+  state/local-tests/attach/<job>/        its traces under the report's names, for the tester to drag into the comment
 
 Fixes (the [local] fixes setting) are pull requests merged onto main for both sides, for a main that can't run the
 tester's games without them; a fix main already has is left out. Posting is the tester's: a result is marked posted
@@ -19,14 +20,17 @@ by hand, and one not posted goes stale (stale) when the PR moves on.
 
 import datetime
 import json
+import os
 import re
+import shutil
 import threading
 from pathlib import Path
 
-from . import formats, gh, job, sandbox, sources, verdict
+from . import formats, gh, job, protocol, sandbox, sources, verdict
 
 PIN_HOURS = 12  # a pin older than this starts a new night
 STALE_HOURS = 48  # a result not posted for this long is stale: main has moved on too far for it to say much
+COMMENT_LIMIT = 65536  # GitHub's longest comment, in characters
 
 
 def night_of(at):
@@ -381,20 +385,43 @@ class LocalTests:
 
     # -- what the tester reads -----------------------------------------------------------------------------------------
 
+    def results_of(self, entry):
+        """A result's job results, while they are here and of its head; else None."""
+        try:
+            results = json.loads((self.dir / "jobs" / entry.get("job", "-") / "results.json").read_text())
+        except (OSError, ValueError):
+            return None
+        return results if results.get("head") == entry.get("head") else None
+
     def report(self, entry):
         """The report of a result, for the tester to post on the PR: built again from its job's results when they are
         here (so it follows this code), else the one written when it ran."""
-        path = self.dir / "jobs" / entry.get("job", "-") / "results.json"
-        try:
-            results = json.loads(path.read_text())
-            if results.get("head") == entry["head"]:
-                return report_text(results, entry, self.graphics(results))
-        except (OSError, ValueError, KeyError):
-            pass
+        results = self.results_of(entry)
+        if results:
+            return report_text(results, entry, self.graphics(results))
         try:
             return Path(entry["draft"]).read_text()
         except (OSError, KeyError):
             return ""
+
+    def attach(self, entry):
+        """(folder, files): the result's traces (attachments()), linked into local-tests/attach/<job>/ under the report's
+        names for the tester to drag into the comment. A trace over GitHub's limit is listed but left out of the folder."""
+        results = self.results_of(entry)
+        files = attachments(results) if results else []
+        folder = self.out / "attach" / entry.get("job", "-")
+        if files:
+            folder.mkdir(parents=True, exist_ok=True)
+            for old in folder.iterdir():
+                old.unlink()
+            for item in files:
+                if item["path"] and item["fits"]:
+                    item["file"] = folder / item["name"]
+                    try:
+                        os.link(item["path"], item["file"])  # the same file, no second copy on disk
+                    except OSError:
+                        shutil.copy2(item["path"], item["file"])
+        return folder, files
 
     def graphics(self, results):
         return {title_id: getattr(self.config.titles.get(title_id), "graphics_mode", "") for title_id in results.get("titles", {})}
@@ -468,10 +495,71 @@ def ms(values):
     return ", ".join(f"{v:.1f}" for v in values)
 
 
+def attachments(results):
+    """The traces a report asks to be attached, in the order of its summary lines (each title's runs of main, then with
+    the PR): [{"title_id", "side", "number", "words" ("main, run 1"), "name", "path", "size", "fits", "digest"}]. The
+    name is AnyPS5's with the title and the run added, aps5-trace-<commit>-<pid>-<TITLE ID>-main-1.json.gz: the game is
+    the same process ID in every sandboxed run, so a side's two traces would have the same name."""
+    out = []
+    for title_id, title in sorted(results.get("titles", {}).items()):
+        runs = [r for r in (title.get("ab") or {}).get("runs", []) if r.get("counts") and r.get("summary")]
+        for side, label, words in (("A", "main", "main"), ("B", "pr", f"with #{results.get('pr')}")):
+            for number, run in enumerate((r for r in runs if r["side"] == side), 1):
+                folder = Path(title.get("runs_dir") or ".") / run["run"]
+                trace = next(iter(sorted(folder.glob("aps5-trace-*.json.gz"))), None)
+                stem = trace.name.removesuffix(".json.gz") if trace else f"aps5-trace-{run['summary'].get('commit', '')}"
+                try:
+                    digest = (folder / "digest.txt").read_text().strip().replace(str(Path.home()), "~")
+                except OSError:
+                    digest = ""
+                if "Traceback (most recent call last)" in digest:
+                    digest = ""  # trace_digest.py failed on it: nothing for the report
+                size = trace.stat().st_size if trace else None
+                out.append({"title_id": title_id, "side": side, "number": number, "words": f"{words}, run {number}",
+                            "name": f"{stem}-{title_id}-{label}-{number}.json.gz", "path": trace, "size": size,
+                            "fits": size is not None and size <= protocol.ATTACH_LIMIT, "digest": digest})
+    return out
+
+
+def megabytes(size):
+    return f"{size / 1e6:.1f} MB"
+
+
+def traces_text(files, digests=True):
+    """The report's Traces (the tester drops the files under its first line) and each trace's digest, folded."""
+    if not any(f["path"] for f in files):
+        return []
+    out = []
+    if any(f["fits"] for f in files):
+        out += ["Traces, one per run in the order of the summary lines (AnyPS5's file names with the title and the run added):", ""]
+    too_big = [f for f in files if f["path"] and not f["fits"]]
+    if too_big:
+        named = "; ".join(f"{f['words']} ({megabytes(f['size'])})" for f in too_big)
+        limit = f"GitHub's {protocol.ATTACH_LIMIT // 1_000_000} MB for a file"
+        out += [(f"Traces: not attached, as each is over {limit}: " if len(too_big) == len(files) else
+                 f"Not attached, as {'it is' if len(too_big) == 1 else 'they are'} over {limit}: ") + named + ".", ""]
+    missing = [f["words"] for f in files if not f["path"]]
+    if missing:
+        out += [f"No trace kept: {', '.join(missing)}.", ""]
+    for f in files if digests else []:
+        if f["digest"]:
+            out += [f"<details><summary>Digest, {f['words']} (python3 tools/trace_digest.py)</summary>", "", f["digest"], "", "</details>", ""]
+    return out
+
+
 def report_text(results, entry, graphics=None):
     """The report of one local test, in the form of the project's performance reports (its issue form and the comments
     reviewers asked for): what ran where, main against main + the PR in A B A B order, p50, GPU busy and p99 per run,
-    what wasn't tested, and the summary lines. Plain text the tester reads, may edit, and posts themselves."""
+    what wasn't tested, the summary lines, the traces to attach and their digests. Plain text the tester reads, may edit,
+    and posts themselves; the digests are left out of a report that would be longer than GitHub takes."""
+    text = report_lines(results, entry, graphics, digests=True)
+    if len(text) > COMMENT_LIMIT:
+        text = report_lines(results, entry, graphics, digests=False)
+        text += f"\nThe digests are left out: with them this would be over GitHub's {COMMENT_LIMIT} characters for a comment.\n"
+    return text
+
+
+def report_lines(results, entry, graphics, digests):
     pr, head = entry["pr"], entry["head"]
     main, fixes = entry.get("main") or results.get("base", ""), entry.get("fixes") or []
     carried = "".join(f" + #{f['pr']} at {f['head'][:9]}" for f in fixes)
@@ -523,6 +611,7 @@ def report_text(results, entry, graphics=None):
                 "",
                 f"Summary lines ({'main' + carried if fixes else 'main'}, then with #{pr}):",
                 "```"] + [summary_line(r, title.get("runs_dir")) for r in a + b] + ["```", ""]
+        out += traces_text(attachments({"pr": pr, "titles": {title_id: title}}), digests)
     return "\n".join(out).rstrip("\n") + "\n"
 
 

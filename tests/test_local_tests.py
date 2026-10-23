@@ -3,6 +3,7 @@ when the author pushed it; main pinned for the night; the result kept here with 
 puts the head back on the list. Nothing is posted: GitHub is only read."""
 
 import datetime
+import json
 import types
 import unittest
 from pathlib import Path
@@ -206,6 +207,67 @@ class Report(unittest.TestCase):
         self.assertIn('{"commit":"c49fa17ee046","window":{"ms":56318.040},"log":"<path>"}', lines)
         self.assertEqual(sum(1 for line in lines if line.startswith("{")), 4)
         self.assertNotIn("@", text)
+
+    def traces(self, sizes):
+        """A runs folder with each run's trace (sparse, of the given size) and digest, as the protocol leaves them."""
+        import tempfile
+        runs_dir = Path(tempfile.mkdtemp())
+        for (run, commit), size in zip((("A1", "c49fa17ee046"), ("B1", "08a87661ab9a"), ("A2", "c49fa17ee046"), ("B2", "08a87661ab9a")), sizes):
+            (runs_dir / run).mkdir()
+            with open(runs_dir / run / f"aps5-trace-{commit}-3.json.gz", "wb") as trace:
+                trace.truncate(size)
+            (runs_dir / run / "digest.txt").write_text(f"**frames 3300:380** of {run}\n")
+        return runs_dir
+
+    def test_the_traces_to_attach_named_by_run(self):
+        files = local_tests.attachments(self.results(self.traces([19_400_000, 19_100_000, 26_000_000, 19_000_000])))
+        self.assertEqual([f["name"] for f in files], ["aps5-trace-c49fa17ee046-3-PPSA04263-main-1.json.gz", "aps5-trace-c49fa17ee046-3-PPSA04263-main-2.json.gz",
+                                                     "aps5-trace-08a87661ab9a-3-PPSA04263-pr-1.json.gz", "aps5-trace-08a87661ab9a-3-PPSA04263-pr-2.json.gz"])
+        self.assertEqual([f["words"] for f in files], ["main, run 1", "main, run 2", "with #4287, run 1", "with #4287, run 2"])
+        self.assertEqual([f["fits"] for f in files], [True, False, True, True])  # main's second trace is over GitHub's 25 MB
+
+    def test_the_report_has_the_traces_and_their_digests(self):
+        text = local_tests.report_text(self.results(self.traces([19_400_000, 19_100_000, 26_000_000, 19_000_000])), {"pr": 4287, "head": "7" * 40, "main": "4" * 40})
+        lines = text.splitlines()
+        at = lines.index("Traces, one per run in the order of the summary lines (AnyPS5's file names with the title and the run added):")
+        self.assertLess(lines.index("Summary lines (main, then with #4287):"), at)
+        self.assertEqual(lines[at + 1], "")  # where the tester drops the files
+        self.assertEqual(lines[at + 2], "Not attached, as it is over GitHub's 25 MB for a file: main, run 2 (26.0 MB).")
+        summaries = [line for line in lines if line.startswith("<details><summary>Digest, ")]
+        self.assertEqual(summaries, [f"<details><summary>Digest, {words} (python3 tools/trace_digest.py)</summary>"
+                                     for words in ("main, run 1", "main, run 2", "with #4287, run 1", "with #4287, run 2")])
+        self.assertEqual(lines[lines.index(summaries[2]) + 2], "**frames 3300:380** of B1")
+
+    def test_traces_none_of_which_can_be_attached(self):
+        text = local_tests.report_text(self.results(self.traces([35_600_000, 34_100_000, 35_300_000, 34_800_000])), {"pr": 4287, "head": "7" * 40, "main": "4" * 40})
+        self.assertNotIn("Traces, one per run", text)
+        self.assertIn("Traces: not attached, as each is over GitHub's 25 MB for a file: main, run 1 (35.6 MB); main, run 2 (35.3 MB); "
+                      "with #4287, run 1 (34.1 MB); with #4287, run 2 (34.8 MB).", text.splitlines())
+
+    def test_a_report_too_long_for_a_comment_leaves_the_digests_out(self):
+        runs_dir = self.traces([19_000_000] * 4)
+        for run in ("A1", "B1", "A2", "B2"):
+            (runs_dir / run / "digest.txt").write_text("x" * 17000)
+        text = local_tests.report_text(self.results(runs_dir), {"pr": 4287, "head": "7" * 40, "main": "4" * 40})
+        self.assertLess(len(text), local_tests.COMMENT_LIMIT)
+        self.assertNotIn("<details><summary>Digest", text)
+        self.assertIn("The digests are left out: with them this would be over GitHub's 65536 characters for a comment.", text)
+
+    def test_the_files_to_drag_are_linked_into_one_folder(self):
+        import tempfile
+        config = make_config(machine="laptop", local_repository="boykopovar/AnyPS5")
+        config.state_dir = Path(tempfile.mkdtemp())
+        results = self.results(self.traces([19_400_000, 19_100_000, 26_000_000, 19_000_000]))
+        job_dir = config.state_dir / "jobs" / "4287-7aea3fe29ff7-prologue"
+        job_dir.mkdir(parents=True)
+        (job_dir / "results.json").write_text(json.dumps(results))
+        local = local_tests.LocalTests(config, log=lambda *_: None)
+        folder, files = local.attach({"pr": 4287, "head": results["head"], "job": "4287-7aea3fe29ff7-prologue"})
+        self.assertEqual(folder, config.state_dir / "local-tests" / "attach" / "4287-7aea3fe29ff7-prologue")
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), sorted(f["name"] for f in files if f["fits"]))
+        self.assertEqual(folder.joinpath(files[0]["name"]).stat().st_ino, files[0]["path"].stat().st_ino)  # a link, not a copy
+        self.assertNotIn("file", files[1])  # over the limit: listed, not in the folder
+        self.assertEqual(local.attach({"pr": 4287, "head": "0" * 40, "job": "4287-7aea3fe29ff7-prologue"})[1], [])  # another head's job
 
     def test_a_change_that_does_not_start_the_game(self):
         results = self.results("/nowhere")
