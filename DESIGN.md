@@ -410,7 +410,9 @@ After the first night of local tests (17 upstream PRs, 2026-10-21).
    Off so nothing starts a minute later. A Pause from before the switch reads as Off.
 2. **Local tests are a page of their own**, not a list in the config: add a PR by number or link, follow people (their
    open PRs), test again, remove (a followed person's PR then stays off). Each PR shows its newest result, and its
-   earlier ones in the report window.
+   earlier ones in the report window. Testing a head again keeps the earlier result (2026-10-23): each test has its own
+   job folder (`<pr>-<head>-<scenario>`, then `-2`, `-3`), draft and traces, where a second test used to overwrite the
+   first's results, so the first's report showed the second's numbers.
 3. **Fixes on both sides.** PRs merged onto main for both sides, for a main that can't run the tester's games without
    them (main aborted GTA V at boot from fe4016f61 until #9730). A fix main already has is left out; a fix that
    doesn't merge, or whose head its author didn't push, holds local tests and says why.
