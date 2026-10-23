@@ -483,6 +483,10 @@ class LocalOnly(unittest.TestCase):
         from helpers import make_config
         from title_runs.ui import app
         self.config = make_config(results_url="", results_app="Iv23testapp", local_repository="boykopovar/AnyPS5", local_prs=[4287])
+        fork = self.config.state_dir / "client" / "results"  # the fork's checkout, from a config sharing this state folder
+        fork.mkdir(parents=True)
+        (fork / "config.json").write_text('{"repository": "CPritch/AnyPS5", "maintainers": ["CPritch"], "app": {"client_id": "Iv23testapp"}}')
+        (fork / "cursors.json").write_text('{"last_run": "2026-10-20T00:00:00Z"}')
         self.engine = app.Engine(self.config)
         self.engine.client.finish_onboarding({"idle": "hours"})
         self.engine.client.flow().store({"login": "CPritch", "access_token": "t", "client_id": "Iv23testapp"})
@@ -497,6 +501,8 @@ class LocalOnly(unittest.TestCase):
         self.assertEqual(self.engine.local_only_note(), "AnyPS5 hasn't set up automated testing with this tool, so only your local tests run here.")
         self.engine.load(sync=True)  # no results repository to read: nothing tried, nothing logged
         self.assertEqual((self.engine.ranked, self.engine.repository), ([], "boykopovar/AnyPS5"))
+        # nothing of the fork's checkout: not its maintainer here, and no warning about its relay
+        self.assertEqual((self.engine.client.maintainer(), self.engine.client.stale(), self.engine.stale_text()), (False, None, ""))
 
     def test_without_an_app_a_new_tester_still_joins(self):
         from helpers import make_config

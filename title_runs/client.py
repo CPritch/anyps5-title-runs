@@ -100,7 +100,9 @@ class Client:
             log(text)
 
         self.log = both
-        self.repo = store.ResultsRepo(config.results_url, self.dir / "results")
+        # Local tests only: a folder that never exists, so no checkout of another testing setup sharing this state
+        # folder is read (its maintainers, its relay's last run, its registrations).
+        self.repo = store.ResultsRepo(config.results_url, self.dir / ("no-results" if self.local_only() else "results"))
         self.endpoint = config.results_github
         self.trust = trust.TrustStore(self.dir / "trust.json")
         self.status = Status(self.dir / "status.json")
