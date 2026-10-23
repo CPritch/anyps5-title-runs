@@ -44,7 +44,7 @@ has been offered upstream; Charlie decides.
 
 ## Ours only (outside #7264's scope)
 
-- The queue and its workflow, local tests, the client, and the jobs (`refs/pull/N/merge` against its base).
+- Local tests, the client, and the jobs (a pull request's head merged onto main locally).
 - Routes as data, driven by frame states and pad input, and the harness's timed protocol (warm caches, one
   window, A B A B, counts or not counted).
 - The sandbox itself.
