@@ -267,7 +267,7 @@ class Engine(QObject):
             if job.get("pr") == entry["pr"] and job.get("head") == entry["head"]:
                 continue
             rows.append({"number": entry["pr"], "title": entry["title"], "author": entry["author"], "head": entry["head"], "queued_by": "",
-                         "queued_at": entry["added"], "score": 0.5, "why": "A local test (the result stays on this computer)", "reasons": [],
+                         "queued_at": entry["added"], "score": 0.5, "why": "Local test", "reasons": [],
                          "local": True})
         return rows
 
