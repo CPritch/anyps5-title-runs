@@ -74,7 +74,9 @@ The window has six tabs:
 
 `Run…` on a PR no maintainer queued opens the trust dialog. Screenshots are in `docs/screens/`. Without the window:
 `title-runs client --config FILE status|sign-in|register|use OWNER/NAME|queue|next|run-once|daemon`. The client has
-no built-in results repository; `use` (or the Settings field) switches to another one.
+no built-in results repository; `use` (or the Settings field) switches to another one. For a project that hasn't set
+up testing with this tool, a config with `[results] url = ""` and `app` (the GitHub App to sign in with) runs local
+tests only: nothing to register, nothing sent (DESIGN.md, "Local tests only").
 
 ### The stand-in
 
