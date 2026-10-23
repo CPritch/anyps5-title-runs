@@ -7,12 +7,13 @@ when the testing switch and the schedule let one start.
 """
 
 import datetime
+import os
 import queue as queues
 import subprocess
 import threading
 from pathlib import Path
 
-from . import client as clients, config as configs, configfile, formats, listing as listings, platform_info, sandbox, scenarios, store, verdict
+from . import client as clients, config as configs, configfile, formats, listing as listings, locks, platform_info, sandbox, scenarios, store, verdict
 from .relay import overview
 from .relay.render import utc as utc_text
 from .ui import model, words
@@ -43,6 +44,9 @@ class Engine:
             if found:
                 self.dumps[title_id] = found[0]
         self.names = model.title_names(config, list(self.dumps.values()))
+        self._config_lock = threading.Lock()
+        self._config_base, self._config_mtime = configfile.snapshot(config), self._config_time()
+        self.runner = locks.Runner(config.state_dir)
 
     # -- data for the UI -----------------------------------------------------------------------------------------------
 
@@ -410,8 +414,46 @@ class Engine:
         self.log(f"trust: {scope} for {row['author']} (#{row['number']} {row['head'][:9]})")
         self.work.put(("tester", row))
 
+    def _config_time(self):
+        try:
+            return self.config.path.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def sync_config(self):
+        """Take the settings another process (the command line) changed in the config file since this one last read or
+        wrote it, unless this one changed them too; a new testing switch or local tests list wakes the worker. Returns
+        the names of the settings taken."""
+        if self._config_time() == self._config_mtime:
+            return []
+        with self._config_lock, locks.held(self.config.path):
+            mtime = self._config_time()
+            if mtime == self._config_mtime:
+                return []
+            try:
+                disk = configs.load(self.config.path)
+            except (OSError, ValueError) as error:  # half-written by hand, say: read it again when it changes
+                self.log(f"could not read {self.config.path}: {error}")
+                self._config_mtime = mtime
+                return []
+            taken = configfile.merge(self.config, self._config_base, disk)
+            self._config_base, self._config_mtime = configfile.snapshot(disk), mtime
+        if taken:
+            self.log(f"settings changed in {self.config.path}: {', '.join(taken)}")
+            if {"testing", "local_prs", "local_people", "local_fixes", "local_repository"} & set(taken):
+                self.work.put(("local" if "testing" not in taken else "wake", None))
+        return taken
+
     def save_config(self):
-        configfile.save(self.config)
+        """Write the config, keeping what another process changed in the file since this one last read or wrote it."""
+        with self._config_lock, locks.held(self.config.path):
+            if self._config_time() != self._config_mtime:
+                try:
+                    configfile.merge(self.config, self._config_base, configs.load(self.config.path))
+                except (OSError, ValueError):
+                    pass
+            configfile.save(self.config)
+            self._config_base, self._config_mtime = configfile.snapshot(self.config), self._config_time()
         self.log(f"saved {self.config.path}")
 
     def switch_results(self, location):
@@ -463,8 +505,19 @@ class Engine:
         queued = self.local.queued()
         if not queued or self.local.held():
             return None
-        result = self.local.run(queued[0], self.client)
+        with self.testing_here():
+            result = self.local.run(queued[0], self.client)
         return f"tested #{queued[0]['pr']} (a local test)" if result else f"stopped #{queued[0]['pr']}"
+
+    def testing_here(self):
+        """The runner lock for one test (locks.Runner): raises locks.Busy when another process is testing on this
+        computer; a stop asked for by another process ends this one's build or game."""
+        return self.runner.hold(self.client.status, platform_info.stop_children)
+
+    def busy_elsewhere(self):
+        """Who else is testing on this computer, in words, or ""."""
+        holder = self.runner.holder()
+        return f"another title-runs process (pid {holder}) is testing on this computer" if holder not in (None, os.getpid()) else ""
 
     def refresh_local(self, force=False):
         """The local tests list from GitHub every 15 minutes (read only, with the tester's sign-in)."""
@@ -526,20 +579,28 @@ class Engine:
 
     def next_test(self):
         """The next test, if the switch lets one start now: On schedule within the schedule, Now whatever it says. The
-        queue's tests first (a registered machine), then local tests. Returns what was done."""
+        queue's tests first (a registered machine), then local tests. Returns what was done. While another process tests
+        on this computer, nothing starts here and the status file is theirs."""
+        busy = self.busy_elsewhere()
+        if busy:
+            return busy
         now = self.config.testing == "now"
         ready, why = self.client.ready()
-        if ready:
-            allowed, why = (True, "") if now else self.client.allowed_now()
-            best = self.client.next_job() if allowed else None
-            if best is not None:
-                entry = best.entry
-                self.client.run(entry["pr"], entry["head"], "queue", entry.get("title", ""), entry.get("author", ""))
-                return f"ran {entry['job']}"
-        if self.local.enabled() and self.client.onboarded() and (now or self.schedule_allows()[0]):
-            done = self.run_local()
-            if done:
-                return done
+        try:
+            if ready:
+                allowed, why = (True, "") if now else self.client.allowed_now()
+                best = self.client.next_job() if allowed else None
+                if best is not None:
+                    entry = best.entry
+                    with self.testing_here():
+                        self.client.run(entry["pr"], entry["head"], "queue", entry.get("title", ""), entry.get("author", ""))
+                    return f"ran {entry['job']}"
+            if self.local.enabled() and self.client.onboarded() and (now or self.schedule_allows()[0]):
+                done = self.run_local()
+                if done:
+                    return done
+        except locks.Busy as error:  # another process took the lock since
+            return str(error)
         if ready and (now or allowed):
             why = "nothing to test"
         self.client.status.update(state="idle", line=f"Idle: {why}" if why == "nothing to test" else f"Waiting: {why}")
@@ -555,8 +616,10 @@ class Engine:
             if self.quitting or kind == "quit":
                 break
             try:
+                self.sync_config()
                 if kind == "tester":
-                    self.client.run(row["number"], row["head"], "tester", row["title"], row["author"])
+                    with self.testing_here():
+                        self.client.run(row["number"], row["head"], "tester", row["title"], row["author"])
                 elif kind == "listing":
                     self.refresh_listing(force=True)
                 else:
@@ -567,6 +630,8 @@ class Engine:
                 if kind != "listing" and not self.quitting:
                     self.refresh_listing()
                     self.refresh_local()
+            except locks.Busy as error:  # another process is testing here: its status stays as it is
+                self.log(str(error))
             except Exception as error:  # noqa: BLE001
                 if not self.quitting:
                     self.client.status.update(state="error", line=f"Error: {clients.clean(error, 200)}")

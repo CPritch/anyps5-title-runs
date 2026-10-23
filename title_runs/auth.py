@@ -18,7 +18,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from . import gh
+from . import gh, locks
 
 DEVICE_URL = "https://github.com/login/device/code"
 TOKEN_URL = "https://github.com/login/oauth/access_token"
@@ -72,10 +72,19 @@ class DeviceFlow:
         data = self.stored_for_this_app()
         if not data:
             return None
-        expires = data.get("expires_at")
-        if expires and datetime.datetime.fromisoformat(expires) - _now() < datetime.timedelta(minutes=10) and data.get("refresh_token"):
-            data = self.refresh(data)
+        if self.expiring(data):
+            with locks.held(self.token_file):  # GitHub replaces the refresh token: only one process may use it
+                data = self.stored_for_this_app()  # another process may have refreshed it meanwhile
+                if not data:
+                    return None
+                if self.expiring(data):
+                    data = self.refresh(data)
         return data["access_token"]
+
+    @staticmethod
+    def expiring(data):
+        expires = data.get("expires_at")
+        return bool(expires and datetime.datetime.fromisoformat(expires) - _now() < datetime.timedelta(minutes=10) and data.get("refresh_token"))
 
     # -- the flow ------------------------------------------------------------------------------------------------------
 

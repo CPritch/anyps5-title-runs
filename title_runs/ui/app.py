@@ -150,7 +150,7 @@ def main(argv=None):
     wake.start(250)
     engine.start()
     timer = QTimer()
-    timer.timeout.connect(lambda: (tray.refresh() if tray else None, window.isVisible() and window.refresh()))
+    timer.timeout.connect(lambda: (engine.sync_config(), tray.refresh() if tray else None, window.isVisible() and window.refresh()))
     timer.start(2000)
     window.refresh()
     window.show()

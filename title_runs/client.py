@@ -16,7 +16,7 @@ import shutil
 import time
 from pathlib import Path
 
-from . import auth, config as configs, formats, gh, job, platform_info, schedule, store, trust, verdict
+from . import auth, config as configs, formats, gh, job, locks, platform_info, schedule, store, trust, verdict
 
 VERSION = "anyps5-title-runs 0.3"
 STALE_HOURS = 1  # the relay workflow last ran longer ago than this: warn
@@ -43,13 +43,14 @@ class Status:
             return {"state": "idle", "line": "Idle"}
 
     def update(self, **values):
-        data = self.read()
-        data.update(values, updated=formats.iso(formats.now()))
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(data, indent=1))
-        os.replace(temporary, self.path)
-        return data
+        with locks.held(self.path):  # the window, the command line and the running test all write it
+            data = self.read()
+            data.update(values, updated=formats.iso(formats.now()))
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(data, indent=1))
+            os.replace(temporary, self.path)
+            return data
 
 
 def machine_line(results):
@@ -381,7 +382,12 @@ class Client:
         return data
 
     def run_next(self):
-        """Run the best-scoring job, if the client is ready and the schedule allows it now."""
+        """Run the best-scoring job, if the client is ready and the schedule allows it now, and no other process is
+        testing on this computer (the runner lock: then the status file is theirs)."""
+        runner = locks.Runner(self.config.state_dir)
+        holder = runner.holder()
+        if holder not in (None, os.getpid()):
+            return f"another title-runs process (pid {holder}) is testing on this computer"
         allowed, why = self.allowed_now()
         if not allowed:
             self.status.update(state="idle", line=f"Waiting: {why}")
@@ -392,7 +398,11 @@ class Client:
             return "nothing to do"
         entry = best.entry
         self.status.update(next={"pr": entry["pr"], "priority": entry["priority"], "reasons": best.reasons})
-        self.run(entry["pr"], entry["head"], "queue", entry.get("title", ""), entry.get("author", ""))
+        try:
+            with runner.hold(self.status, platform_info.stop_children):
+                self.run(entry["pr"], entry["head"], "queue", entry.get("title", ""), entry.get("author", ""))
+        except locks.Busy as error:
+            return str(error)
         return f"ran {entry['job']}"
 
     def daemon(self, every=60):

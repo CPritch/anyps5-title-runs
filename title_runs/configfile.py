@@ -1,7 +1,14 @@
 """Write a Config back as TOML: the setup window creates the tester's config file with it, and the Schedule and Settings
-tabs save through it. A file written here has no hand-written comments; config.example.toml keeps those."""
+tabs save through it. A file written here has no hand-written comments; config.example.toml keeps those.
 
+change() is the command line's way to change a setting while the window may be open: the file is read, changed and
+written under the config's lock, and the window merges what changed (engine.Engine.sync_config)."""
+
+import copy
+import dataclasses
 from pathlib import Path
+
+from . import locks
 
 
 def _value(value):
@@ -75,6 +82,33 @@ def config_data(config):
         "titles": titles,
         "local": {"repository": config.local_repository, "prs": list(config.local_prs), "people": list(config.local_people), "fixes": list(config.local_fixes)},
     }
+
+
+def change(path, edit):
+    """Load the config file, edit(config), save it, under the config's lock. Returns the config."""
+    from . import config as configs
+    with locks.held(Path(path).resolve()):
+        config = configs.load(path)
+        edit(config)
+        save(config)
+    return config
+
+
+def snapshot(config):
+    """The config's settings as they are now (deep copies), to tell later which of them this process changed."""
+    return {f.name: copy.deepcopy(getattr(config, f.name)) for f in dataclasses.fields(config) if f.name != "path"}
+
+
+def merge(config, base, disk):
+    """Take every setting another process changed on disk (disk differs from base, what this process last read or
+    wrote) unless this process changed it too; returns the names taken."""
+    taken = []
+    for name, value in base.items():
+        theirs = getattr(disk, name)
+        if theirs != value and getattr(config, name) == value:
+            setattr(config, name, copy.deepcopy(theirs))
+            taken.append(name)
+    return taken
 
 
 def save(config, path=None):

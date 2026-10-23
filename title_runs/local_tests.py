@@ -26,7 +26,7 @@ import shutil
 import threading
 from pathlib import Path
 
-from . import formats, gh, job, protocol, sandbox, sources, verdict
+from . import formats, gh, job, locks, protocol, sandbox, sources, verdict
 
 PIN_HOURS = 12  # a pin older than this starts a new night
 STALE_HOURS = 48  # a result not posted for this long is stale: main has moved on too far for it to say much
@@ -75,8 +75,9 @@ class LocalTests:
         temporary.replace(self.path)
 
     def change(self, edit):
-        """Read, edit(data), write, under the lock; returns what edit returned."""
-        with self.lock:
+        """Read, edit(data), write, under the lock (this process's threads, and other title-runs processes); returns what
+        edit returned."""
+        with self.lock, locks.held(self.path):
             data = self.read()
             out = edit(data)
             self.write(data)
