@@ -153,7 +153,7 @@ class Engine:
         rows = []
         for title_id, title in self.config.titles.items():
             dump = self.dumps.get(title_id, {})
-            found = scenarios.available(title_id)
+            found = scenarios.available(title_id, self.config.state_dir)
             choices = [{"id": key, "name": s["name"], "scene": s["scene"], "save": scenarios.save_words(s)} for key, s in found.items()]
             current = title.scenario or next((key for key, s in found.items() if s.get("default")), "")
             rows.append({"on": True, "title_id": title_id, "name": dump.get("name", "?"), "version": dump.get("version", "?"),

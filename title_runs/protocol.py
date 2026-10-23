@@ -11,6 +11,8 @@ Per side (A = main at the merge base, B = GitHub's merge of the PR):
     pseudo-terminal (script(1)), frame dumps that stop before the window; each checked by capture.py check
     (counts / not counted), a run that does not count repeated once;
   - main's tools/trace_digest.py on each trace and tools/performance_compare.py on each pair.
+A scenario with recorded play (scenarios.py, "input") plays it in every run from the first frame in its scene after
+Resume Story (play_input); a run where that never happens doesn't count, and a warm-up waits for the play to end.
 Run directories have the harness's layout (meta, actions, aps5-summary.jsonl, the trace, digest.txt, capture), so the
 vendored capture.py reads them unchanged.
 """
@@ -29,7 +31,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import VENDOR, platform_info, route as routes, sandbox, scenarios, verdict as verdicts
+from . import VENDOR, pad, platform_info, route as routes, sandbox, scenarios, verdict as verdicts
 from .game import Game
 
 sys.path.insert(0, str(VENDOR / "gtav_harness"))
@@ -42,6 +44,7 @@ BYTES_PER_PRESENT = 61_000  # without an earlier trace of the scenario: GTA V's 
 RECENT_TRACES = 8  # the window follows the scenario's last few traces (both sides of the last two tests), as main changes
 WARM_HOLD_S = 30
 WARM_MAX_S = 1200
+SCENE_TIMEOUT_S = 600  # from Resume Story to the first frame in the scene: GTA V's loads take 80 s, or minutes cold
 CAPTURE_TIMEOUT_S = 1500
 
 
@@ -152,11 +155,19 @@ class Protocol:
         result = {"run": run.name, "reached": False}
         driver = self.driver(side, run, game)
         still = self.keep_still(side, run, game, driver)
+        played = self.play_input(side, run, game, driver)
         try:
             marks = driver.run()
             loaded = marks.get("loaded", 0.0)
             self.meta(run, f"loaded_at={loaded} resume_at={marks.get('resume', 0.0)}")
-            self.in_scene(side, run, latest(side.work))
+            if played:
+                limit = time.monotonic() + WARM_MAX_S  # the play's places warmed too: the window is in the middle of it
+                while game.alive() and not (played["ended"] or played["problem"]) and time.monotonic() < limit:
+                    time.sleep(2)
+                if played["problem"]:
+                    raise routes.RouteFailed(played["problem"])
+            else:
+                self.in_scene(side, run, latest(side.work))
             result["reached"] = True
             hold_end = time.monotonic() + WARM_HOLD_S
             while game.alive() and time.monotonic() < hold_end:
@@ -180,6 +191,8 @@ class Protocol:
         finally:
             if still:
                 still.set()
+            if played:
+                played["stop"].set()
             result["stop"] = self.stop(game, run)
             result["exit_code"] = game.process.returncode
         if result["reached"]:
@@ -192,7 +205,7 @@ class Protocol:
         starting; warm-ups and timed runs alike) until the run stops, on a thread of its own. Returns the Event that
         stops it, or None."""
         still = (self.scenario or {}).get("still")
-        if not still:
+        if not still or (self.scenario or {}).get("input"):  # recorded play presses it after the play (play_input)
             return None
         stop = threading.Event()
         self.meta(run, f"still={still['press']} every {still['every']} s from resume")
@@ -207,6 +220,61 @@ class Protocol:
                                capture_output=True)
         threading.Thread(target=press, name="still", daemon=True).start()
         return stop
+
+    def play_input(self, side, run, game, driver):
+        """The scenario's recorded play (scenarios.py, "input"), on a thread of its own: from the first frame dumped after
+        the route's resume mark that is in the scenario's scene, the track (pad.play), then the still button until the
+        run stops. Returns {"stop": the Event that stops it, "started", "ended", "problem"}, or None for a scenario with
+        no recorded play."""
+        played = (self.scenario or {}).get("input")
+        if not played:
+            return None
+        state = {"stop": threading.Event(), "started": None, "ended": None, "problem": None}
+        stop, track = state["stop"], played["track"]
+        self.meta(run, f"input=recorded play ({pad.words(track)}) from the first frame in the scene after resume")
+
+        def play():
+            while "resume" not in driver.marks:
+                if stop.wait(1) or not game.alive():
+                    return
+            found = self.wait_for_scene(side, game, time.time() - 1, stop)
+            if found is None:
+                if not stop.is_set():
+                    state["problem"] = "the scene never showed after Resume Story, so the recorded play didn't start"
+                    self.log(run, state["problem"])
+                    self.meta(run, "input_started=no")
+                return
+            state["started"] = time.monotonic()
+            self.meta(run, f"input_started=yes: {found}")
+            self.log(run, f"playing the recorded play from here ({found})")
+            out = pad.PadFile(side.work / "pad-input")
+            played_ms = pad.play(track, out, stop.is_set)
+            state["ended"] = time.monotonic()
+            self.meta(run, f"input_played={played_ms} of {track[-1][0]} ms")
+            still = self.scenario.get("still")
+            while still and not stop.wait(still["every"]) and game.alive():
+                out.write((pad.BUTTONS[still["press"]], 128, 128, 128, 128))
+        threading.Thread(target=play, name="input", daemon=True).start()
+        return state
+
+    def wait_for_scene(self, side, game, after, stop, timeout=SCENE_TIMEOUT_S):
+        """The scene check's words for the first frame dumped after `after` (a time.time()) that is in the scenario's
+        scene, or None when none is within timeout seconds, or the game ends, or stop is set."""
+        seen, deadline = set(), time.monotonic() + timeout
+        while game.alive() and time.monotonic() < deadline and not stop.is_set():
+            frame = latest(side.work)
+            try:
+                fresh = frame is not None and frame.name not in seen and frame.stat().st_mtime >= after
+            except OSError:
+                fresh = False
+            if fresh:
+                found, words = scenarios.check(self.scenario, frame)
+                if found is not None:  # None: not readable yet (still being written); looked at again
+                    seen.add(frame.name)
+                if found:
+                    return words
+            stop.wait(0.5)
+        return None
 
     def in_scene(self, side, run, frame):
         """Raises RouteFailed when the frame isn't the scenario's scene (scenarios.check); records the check in meta."""
@@ -252,6 +320,7 @@ class Protocol:
         result = {"run": run.name, "side": side.key}
         driver = self.driver(side, run, game)
         still = self.keep_still(side, run, game, driver)
+        played = self.play_input(side, run, game, driver)
         try:
             driver.run(stop_at=self.route.get("timed_stop_after", "resume"))
             waited = 0
@@ -275,13 +344,19 @@ class Protocol:
         finally:
             if still:
                 still.set()
+            if played:
+                played["stop"].set()
             result["stop"] = self.stop(game, run)
             result["exit_code"] = game.process.returncode
         self.keep_last_frame(side, run)
-        try:
-            self.in_scene(side, run, run / "last-frame.bmp")
-        except routes.RouteFailed as error:
-            result["scene_failed"] = str(error)
+        if played:  # the scene was checked when the play started; the run ends wherever the play went
+            if not played["started"]:
+                result["scene_failed"] = played["problem"] or "the recorded play didn't start before the run ended"
+        else:
+            try:
+                self.in_scene(side, run, run / "last-frame.bmp")
+            except routes.RouteFailed as error:
+                result["scene_failed"] = str(error)
         for path in [side.work / "aps5-summary.jsonl", *side.work.glob("aps5-trace-*.json.gz")]:
             if path.exists():
                 shutil.move(str(path), run / path.name)

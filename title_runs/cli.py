@@ -391,7 +391,7 @@ def run_games_scenario(ctx, args):
     title = engine.config.titles.get(args.title_id)
     if title is None:
         raise Failed(f"{args.title_id} is not one of your games (title-runs games).")
-    found = scenarios.available(args.title_id)
+    found = scenarios.available(args.title_id, engine.config.state_dir)
     if args.scenario:
         if args.scenario not in found:
             raise Failed(f"{args.title_id} has no scenario {args.scenario!r}; it has {', '.join(found) or 'none'}.")

@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 import helpers  # noqa: F401  (puts the repository on sys.path)
-from title_runs import config as configs, configfile, local_tests, protocol, route as routes, scenarios, verdict
+from title_runs import config as configs, configfile, local_tests, pad, protocol, route as routes, scenarios, verdict
 
 SAVE = b"\x00\x00\x00\x01(\x00A\x00u\x00t\x00o\x00s\x00a\x00v\x00e\x00)" + bytes(1000)
 
@@ -171,6 +171,86 @@ class Check(unittest.TestCase):
         with self.assertRaisesRegex(routes.RouteFailed, "not the scene of A house"):
             measure.in_scene(None, run, bmp(self.dir / "frame_004.bmp", (230, 230, 240)))
         self.assertIn("scenario=house scene_check=no", (run / "meta").read_text())
+
+
+class RecordedPlay(unittest.TestCase):
+    """A scenario with recorded play: its file, recorded scenarios kept in the state folder, the report's words, and the
+    play starting at the first frame in the scene after Resume Story."""
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.colours = scenarios.colours(bmp(self.dir / "reference.bmp", (120, 90, 60)))
+        self.track = [[0, *pad.NEUTRAL], [1000, 0, 128, 0, 128, 128], [1300, *pad.NEUTRAL]]
+
+    def recorded(self, state, name="walk", **changes):
+        folder = scenarios.recorded(state, "PPSA04263")
+        folder.mkdir(parents=True, exist_ok=True)
+        data = {"frame": {"colours": self.colours, "max_distance": 0.25},
+                "input": {"track": self.track, "from": "house", "recorded": {"at": "2026-10-24T09:00:00Z", "main": "1" * 40}}}
+        data.update(changes)
+        return scenario_file(folder, name, **data)[0]
+
+    def test_a_recorded_scenario_in_the_state_folder(self):
+        state = self.dir / "state"
+        path = self.recorded(state)
+        walk = scenarios.load(path)
+        self.assertEqual(walk["input"]["track"], self.track)
+        self.assertIn("walk", scenarios.available("PPSA04263", state))
+        self.assertNotIn("walk", scenarios.available("PPSA04263"))
+        self.assertEqual(scenarios.of(configs.Title("PPSA04263", Path("/dump"), scenario="walk"), state)["id"], "walk")
+        self.recorded(state, "prologue")  # the tool's own of the same id comes first
+        self.assertTrue(scenarios.available("PPSA04263", state)["prologue"].get("default"))
+        self.assertEqual(scenarios.input_words(walk), "with play recorded from a controller on 2026-10-24 (1 s: the sticks), played back "
+                                                      "from when the scene showed, then D-pad left every 10 s")
+
+    def test_what_recorded_play_needs(self):
+        state = self.dir / "state"
+        with self.assertRaisesRegex(scenarios.ScenarioError, "input needs the scene's colours"):
+            scenarios.load(self.recorded(state, frame=None))
+        with self.assertRaisesRegex(scenarios.ScenarioError, "input: a track ends at rest"):
+            scenarios.load(self.recorded(state, input={"track": [[0, *pad.NEUTRAL], [10, 0, 0, 128, 128, 128]]}))
+
+    def play(self, alive=True):
+        work = self.dir / "work"
+        work.mkdir()
+        run = self.dir / "run"
+        run.mkdir()
+        (run / "meta").write_text("")
+        (run / "actions").write_text("")
+        scenario = scenarios.load(self.recorded(self.dir / "state"))
+        measure = protocol.Protocol(helpers.make_config(), None, {"steps": []}, self.dir / "runs", [], lambda text: None, scenario=scenario)
+        side = mock.Mock(work=work)
+        game = mock.Mock()
+        game.alive.return_value = alive
+        driver = mock.Mock(marks={} if alive else {"resume": 12.0})  # a game gone after Resume Story
+        state = measure.play_input(side, run, game, driver)
+        bmp(work / "frame_001.bmp", (230, 230, 240))  # the menu, before Resume Story
+        driver.marks["resume"] = 12.0
+        return state, work, run
+
+    def test_the_play_starts_with_the_scene(self):
+        state, work, run = self.play()
+        import time
+        time.sleep(1.2)
+        self.assertIsNone(state["started"])  # the menu isn't the scene
+        bmp(work / "frame_002.bmp", (120, 90, 60))
+        deadline = time.monotonic() + 10
+        while state["ended"] is None and time.monotonic() < deadline:
+            time.sleep(0.1)
+        state["stop"].set()
+        self.assertIsNotNone(state["started"])
+        self.assertIsNotNone(state["ended"])
+        meta = (run / "meta").read_text()
+        self.assertIn("input_started=yes: frame_002.bmp is 0.00 from the scene's colours", meta)
+        self.assertIn("input_played=1300 of 1300 ms", meta)
+        self.assertEqual((work / "pad-input").read_text().split()[1:], ["0", "250", "128", "128", "128", "128"])
+
+    def test_no_scene_no_play(self):
+        state, work, run = self.play(alive=False)
+        import time
+        time.sleep(1.5)
+        self.assertEqual(state["problem"], "the scene never showed after Resume Story, so the recorded play didn't start")
+        self.assertIsNone(state["started"])
 
 
 class Elsewhere(unittest.TestCase):

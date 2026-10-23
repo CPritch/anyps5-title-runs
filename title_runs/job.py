@@ -81,7 +81,7 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
     job's folder is named after the scenario too, so a head tested in two scenarios keeps both results."""
     state_dir = Path(state_dir)
     try:
-        chosen, unknown = {title_id: scenarios.of(title) for title_id, title in config.titles.items()}, None
+        chosen, unknown = {title_id: scenarios.of(title, state_dir) for title_id, title in config.titles.items()}, None
     except scenarios.ScenarioError as error:  # failed below, in the job's own folder
         chosen, unknown = {title_id: None for title_id in config.titles}, error
     job_dir = job_folder(state_dir / "jobs", f"{number}-{head[:12]}" + "".join(f"-{scenario['id']}" for scenario in chosen.values() if scenario))

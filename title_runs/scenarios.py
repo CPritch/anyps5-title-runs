@@ -14,7 +14,9 @@ it the same every time. A scenario file:
               "file": the member of a zip download that is the save (optional), "file_sha256": of that member,
               "into": {"memory_slot": 0}},                    where the title finds it (below; optional)
      "still": {"press": "left", "every": 10, "why": "..."},  a button pressed every few seconds from Resume Story (optional)
-     "frame": {"colours": [64 shares], "max_distance": 0.3}}  the scene's colours, which every run is checked against
+     "frame": {"colours": [64 shares], "max_distance": 0.3},  the scene's colours, which every run is checked against
+     "input": {"track": [[ms, buttons, lx, ly, rx, ry], ...], recorded play, played from when the scene shows (optional)
+               "from": the scenario it was recorded from, "recorded": {"at", "main", "controller"}}}
 
 The save is downloaded once, outside the sandbox, checked against its sha256 and kept in <state>/saves/<sha256>/; it is
 never stored in this repository (a save's licence is its source's). "into" says where AnyPS5 keeps it in the game
@@ -27,6 +29,12 @@ on where it looked. A button that does nothing where the scene is keeps it still
 
 What a still button can't fix: GTA V loads a save with its camera at a framing of its own choosing (11 boots of the
 same save gave five; each boot then keeps its own), so runs in the house are not yet the same place every time.
+
+"input" is play recorded from a controller (pad.py, recording.py; DESIGN.md, "Recorded play"): the scenario it was
+recorded from, with the track every run plays back from the first frame in that scenario's scene (its "frame"), and
+the still button after the track ends. The scene is checked when the track starts, not at the end of the run, which is
+wherever the play went. Recorded scenarios are the tester's, kept in <state>/scenarios/<TITLE ID>/<id>.json next to
+this tool's own (recorded()); a tool's scenario of the same id comes first.
 
 A scenario's runs are kept apart from the title's others (runs_name()), so a warm-up in one never counts as warm for
 another, and the timed window comes from the scenario's own settle point.
@@ -45,7 +53,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from . import ROOT, VENDOR
+from . import ROOT, VENDOR, pad
 
 sys.path.insert(0, str(VENDOR / "gtav_harness"))
 import frame_state  # noqa: E402
@@ -98,27 +106,47 @@ def load(path):
     frame = scenario.get("frame")
     if frame is not None and (len(frame.get("colours") or []) != BINS ** 3 or not 0 < frame.get("max_distance", 0) < 1):
         raise ScenarioError(f"{path}: frame needs {BINS ** 3} colours and a max_distance between 0 and 1")
+    played = scenario.get("input")
+    if played is not None:
+        if not frame:
+            raise ScenarioError(f"{path}: input needs the scene's colours (frame), to start from")
+        try:
+            pad.check_track(played.get("track") if isinstance(played, dict) else None)
+        except pad.PadError as error:
+            raise ScenarioError(f"{path}: input: {error}") from error
     return scenario
 
 
-def available(title_id):
-    """The scenarios this tool has for a title, by id, the default first."""
+def recorded(state_dir, title_id):
+    """The folder of a title's recorded scenarios in a state folder."""
+    return Path(state_dir) / "scenarios" / title_id
+
+
+def available(title_id, state_dir=None):
+    """The scenarios for a title, by id, the default first: this tool's, then the ones recorded in state_dir."""
     found = {}
-    for path in sorted((SCENARIOS / title_id).glob("*.json")):
-        try:
-            found[path.stem] = load(path)
-        except ScenarioError:
-            continue
+    folders = [SCENARIOS / title_id] + ([recorded(state_dir, title_id)] if state_dir else [])
+    for folder in folders:
+        for path in sorted(folder.glob("*.json")):
+            if path.stem in found:
+                continue
+            try:
+                found[path.stem] = load(path)
+            except ScenarioError:
+                continue
     return dict(sorted(found.items(), key=lambda item: not item[1].get("default")))
 
 
-def of(title):
-    """The scenario a title runs in: the one its config names (scenario = "<id>", or the path of a scenario file of the
-    tester's own), else the title's default, else None (a title with a route and no scenarios times where it goes)."""
+def of(title, state_dir=None):
+    """The scenario a title runs in: the one its config names (scenario = "<id>" of this tool's or recorded in
+    state_dir, or the path of a scenario file of the tester's own), else the title's default, else None (a title with
+    a route and no scenarios times where it goes)."""
     if not title.scenario:
         return next((s for s in available(title.title_id).values() if s.get("default")), None)
     value = Path(title.scenario).expanduser()
     path = value if value.suffix == ".json" else SCENARIOS / title.title_id / f"{title.scenario}.json"
+    if not path.exists() and value.suffix != ".json" and state_dir:
+        path = recorded(state_dir, title.title_id) / f"{title.scenario}.json"
     if not path.exists():
         raise ScenarioError(f"{title.title_id}: no scenario {title.scenario!r} ({path})")
     scenario = load(path)
@@ -189,6 +217,11 @@ def save_words(scenario):
 def input_words(scenario):
     """The report's words for the input during a run in the scenario."""
     still = (scenario or {}).get("still")
+    played = (scenario or {}).get("input")
+    if played:
+        when = str((played.get("recorded") or {}).get("at", ""))[:10]
+        words = f"with play recorded from a controller{' on ' + when if when else ''} ({pad.words(played['track'])}), played back from when the scene showed"
+        return words + (f", then {BUTTONS[still['press']]} every {still['every']} s" if still else "")
     if not still:
         return "with no input"
     why = f" ({still['why']})" if still.get("why") else ""
