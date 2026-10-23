@@ -6,10 +6,12 @@ Usage:
       when the run reached the loaded Story (a diagnostic run whose meta has the loaded_at that
       nav.sh writes, or a timed run with its window summary line), appends it to story-loaded.tsv
       in the runs directory: started, machine, built commit, RUN_ENV, warm (a diagnostic run, which
-      has a settle point) or timed, run. Once per run.
+      has a settle point), timed, or cold (a run with a cache override, CACHE_OVERRIDES, which
+      leaves the build's own caches as they were), run. Once per run.
   capture.py warmed <runs-dir> <machine> <built-commit> [<run-env>]
       the latest run of that built commit and RUN_ENV on this machine that reached the loaded
-      Story. Exits 1 when there is none: the caches are cold and a warm-up is needed.
+      Story, cold runs left out. Exits 1 when there is none: the caches are cold and a warm-up is
+      needed.
   capture.py window <runs-dir> <machine> <built-commit> [<built-commit> ...] [--margin-s 30]
                     [--seconds 60] [--dump-every 30]
       one window for the builds to be compared, "<start>:<count> <dump-limit> <source-runs>", from
@@ -105,6 +107,10 @@ def calibrate(run):
 
 INDEX = "story-loaded.tsv"
 COLUMNS = ("started", "machine", "built_from", "run_env", "kind", "run")
+# Switches that point a run at another shader cache or turn one off: AnyPS5's on-disk cache, the NVIDIA and
+# Mesa driver caches. A run with one of them leaves the build's own caches as they were.
+CACHE_OVERRIDES = ("ANYPS5_SHADER_CACHE_DIR", "ANYPS5_NO_SHADER_CACHE", "__GL_SHADER_DISK_CACHE",
+                   "__GL_SHADER_DISK_CACHE_PATH", "MESA_SHADER_CACHE_DIR", "MESA_SHADER_CACHE_DISABLE")
 
 
 def run_env_key(value):
@@ -113,6 +119,20 @@ def run_env_key(value):
 
 def same_commit(a, b):
     return bool(a) and bool(b) and (a.startswith(b) or b.startswith(a))
+
+
+def cache_overrides(m):
+    """The cache overrides among a run's extra switches, RUN_ENV and environment (meta)."""
+    found = set()
+    for word in " ".join(m.get(k, "") for k in ("extra", "run_env", "environment")).split():
+        name, _, value = word.partition("=")
+        if name not in CACHE_OVERRIDES:
+            continue
+        # __GL_SHADER_DISK_CACHE=1 and an empty or 0 ANYPS5_NO_SHADER_CACHE are the defaults.
+        if (name == "__GL_SHADER_DISK_CACHE" and value != "0") or (name == "ANYPS5_NO_SHADER_CACHE" and value in ("", "0")):
+            continue
+        found.add(name)
+    return sorted(found)
 
 
 def loaded_runs(runs_dir, machine):
@@ -135,6 +155,9 @@ def record(args):
     if not reached:
         print(f"{run.name}: did not reach the loaded Story; not recorded")
         return 1
+    overrides = cache_overrides(m)
+    if overrides:
+        kind = "cold"
     if any(r["run"] == run.name for r in loaded_runs(run.parent, None)):
         return 0
     path = run.parent / INDEX
@@ -144,14 +167,15 @@ def record(args):
         if out.tell() == 0:
             out.write("# " + "\t".join(COLUMNS) + "\n")
         out.write("\t".join(fields) + "\n")
-    print(f"{run.name}: reached the loaded Story ({kind}, built {fields[2][:9]}, RUN_ENV {fields[3]}); recorded in {path}")
+    note = f"; {', '.join(overrides)}: warms nothing" if overrides else ""
+    print(f"{run.name}: reached the loaded Story ({kind}, built {fields[2][:9]}, RUN_ENV {fields[3]}{note}); recorded in {path}")
     return 0
 
 
 def warmed(args):
     key = run_env_key(args.run_env)
     hits = [r for r in loaded_runs(args.runs_dir, args.machine)
-            if same_commit(r["built_from"], args.built) and run_env_key(r["run_env"]) == key]
+            if r["kind"] != "cold" and same_commit(r["built_from"], args.built) and run_env_key(r["run_env"]) == key]
     if not hits:
         print(f"cold: no run of {args.built[:9]} with RUN_ENV {key or '(none)'} has reached the loaded Story on {args.machine}")
         return 1

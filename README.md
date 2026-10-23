@@ -185,7 +185,7 @@ dump's contents.
 
 - `vendor/title_run/`: #7264's `tools/title_run.py` (LeandroLP23), unchanged, at c2dce8dd3: discovery, relinking and
   layout (`prepare()`), outcome classes, `summary.json`, the generic boot-and-classify run.
-- `vendor/gtav_harness/`: the harness's `frame_state.py`, `steady.py` and `capture.py`, unchanged, at ef6636d: frame
+- `vendor/gtav_harness/`: the harness's `frame_state.py`, `steady.py` and `capture.py`, unchanged, at ab8b91c: frame
   states, load detection, the Performance report form's protocol (window, warm caches, counts / not counted, quiet).
 - Main's `tools/performance_compare.py`, `tools/trace_digest.py` and `tools/pad_input.py`, from each job's checkout of
   main's base commit.
