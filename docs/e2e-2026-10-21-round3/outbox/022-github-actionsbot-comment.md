@@ -1,1 +1,0 @@
-Approved by @CPritch: standin-tester-2/laptop-2 takes jobs from now on.

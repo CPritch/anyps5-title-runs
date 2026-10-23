@@ -1,1 +1,0 @@
-Approved by @CPritch: standin-tester-3/synthetic takes jobs from now on.

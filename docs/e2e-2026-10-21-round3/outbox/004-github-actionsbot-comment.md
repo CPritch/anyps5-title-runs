@@ -1,1 +1,0 @@
-Approved by @CPritch: standin-tester/laptop takes jobs from now on.
