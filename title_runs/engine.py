@@ -12,7 +12,7 @@ import subprocess
 import threading
 from pathlib import Path
 
-from . import client as clients, config as configs, configfile, formats, gh, listing as listings, locks, platform_info, sandbox, scenarios
+from . import client as clients, config as configs, configfile, formats, gh, listing as listings, locks, pad, platform_info, sandbox, scenarios
 from .ui import model
 
 
@@ -154,12 +154,50 @@ class Engine:
         for title_id, title in self.config.titles.items():
             dump = self.dumps.get(title_id, {})
             found = scenarios.available(title_id, self.config.state_dir)
-            choices = [{"id": key, "name": s["name"], "scene": s["scene"], "save": scenarios.save_words(s)} for key, s in found.items()]
+            choices = [{"id": key, "name": s["name"], "scene": s["scene"], "save": scenarios.save_words(s), "recorded": bool(s.get("input")),
+                        "startable": bool(s.get("frame")) and not s.get("input")} for key, s in found.items()]
             current = title.scenario or next((key for key, s in found.items() if s.get("default")), "")
             rows.append({"on": True, "title_id": title_id, "name": dump.get("name", "?"), "version": dump.get("version", "?"),
                          "check": "Full test" if title.route or choices else "Start-up check", "seeds": f"{len(title.seed)} file(s)" if title.seed else "none",
                          "seed_paths": [str(p) for p in title.seed], "path": str(title.dump), "scenario": current, "scenarios": choices})
         return rows
+
+    def controller(self):
+        """The game controller a recording would read, {"name", "path"}, or None."""
+        return next(iter(pad.controllers()), None)
+
+    def record_scenario(self, title_id, from_id, scenario_id, name, scene, seconds, controller=None, say=None):
+        """Record a scenario (recording.py) on this thread, holding the runner lock, with the status file saying what it
+        does; Stop ends it with nothing saved. Returns the new scenario's path; raises RecordError or PadError."""
+        from . import recording
+        try:
+            recording.check(self.config, title_id, from_id, scenario_id, name, scene, seconds)
+            controller = controller or pad.Controller.first()
+        except (recording.RecordError, pad.PadError) as error:
+            self.client.status.update(line=f"Not recorded: {clients.clean(error, 200)}")
+            raise
+        try:
+            with self.testing_here():
+                self.client.status.update(state="running", stop_requested=False, progress="starting", line=f"Recording {name}",
+                                          job={"recording": scenario_id, "title": name})
+
+                def progress(text):
+                    self.client.status.update(progress=text, line=f"Recording {name}: {text}")
+                    if say:
+                        say(text)
+                try:
+                    path = recording.record(self.config, title_id, from_id, scenario_id, name, scene, seconds, controller, log=self.log,
+                                            progress=progress, should_stop=lambda: "stopped" if self.status().get("stop_requested") else None)
+                except Exception as error:
+                    self.client.status.update(state="idle", job={}, progress="", line=f"Not recorded: {clients.clean(error, 200)}")
+                    self.log(f"recording {scenario_id}: {error}")
+                    raise
+                self.client.status.update(state="idle", job={}, progress="",
+                                          line=f"Recorded {name}: choose it as {title_id}'s scenario in Settings, Your games")
+                self.log(f"recorded {scenario_id}: {path}")
+                return path
+        finally:
+            controller.close()
 
     def set_scenario(self, title_id, scenario_id):
         """The Titles page's Scenario: the next tests of this title run in it (a scenario's runs and warm-ups are its own)."""
@@ -447,6 +485,11 @@ class Engine:
                 self.sync_config()
                 if kind == "listing":
                     self.refresh_listing()
+                elif kind == "record":
+                    try:
+                        self.record_scenario(**row)
+                    except (RuntimeError, OSError) as error:  # RecordError, PadError: the status file says why
+                        self.log(f"not recorded: {error}")
                 else:
                     if kind == "local":  # the list changed: read it from GitHub before anything starts
                         self.refresh_local(force=True)

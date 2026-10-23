@@ -184,12 +184,13 @@ class HomePage(QWidget):
         self.fix.setVisible(state["kind"] == "setup" and bool(self.engine.readiness()[2]))
         self.modes[self.engine.config.testing].setChecked(True)
         self.testing_note.setText(self.testing_words())
-        self.progress.setVisible(running)
-        if running:
+        recording = running and state["step"] < 0
+        self.progress.setVisible(running and not recording)
+        if running and not recording:
             self.progress.setValue(state["step"] + 1)
             self.progress.setFormat(f"Step {state['step'] + 1} of {len(model.STEPS)}: {model.STEPS[state['step']]}")
         self.game_card.setVisible(running or self.advanced())
-        if running and state["step"] >= 3:
+        if running and (recording or state["step"] >= 3):
             self.game.watch()
         elif self.state == "running" and not running:
             self.game.unwatch()

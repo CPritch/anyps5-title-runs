@@ -180,6 +180,13 @@ class TitlesTab(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
         layout.addWidget(self.table)
+        row = QHBoxLayout()
+        record = QPushButton("Record a scenario…")
+        record.setToolTip("Play part of a game with your controller; tests in the new scenario play it back")
+        record.clicked.connect(self.record)
+        row.addWidget(record)
+        row.addStretch(1)
+        layout.addLayout(row)
 
     def refresh(self):
         rows = self.engine.titles()
@@ -196,6 +203,13 @@ class TitlesTab(QWidget):
                 self.table.setItem(i, column, item)
             self.table.setCellWidget(i, 5, self.scenario_box(row))
         self.table.resizeColumnsToContents()
+
+    def record(self):
+        from .record import RecordDialog
+        if RecordDialog(self.engine, self).exec() == RecordDialog.Accepted:
+            window = self.engine.window
+            window.buttons["home"].setChecked(True)
+            window.show_page(window.home)
 
     def scenario_box(self, row):
         """The title's scenarios: which run its tests are timed in, each with what is on screen and its save, if any."""

@@ -214,8 +214,12 @@ def run_check(ctx, args):
     sandbox = engine.sandbox_self_test()
     ready, why, _ = engine.readiness()
     games = [{"title_id": t["title_id"], "name": t["name"], "test": t["check"], "scenario": t["scenario"], "folder": t["path"]} for t in engine.titles()]
-    data = {"sandbox": sandbox, "sandbox_ok": sandbox.startswith("The sandbox works"), "ready": ready, "why": why, "games": games}
-    lines = [sandbox, "Ready to test." if ready else f"Not ready: {plain(why)}."]
+    controller = engine.controller()
+    data = {"sandbox": sandbox, "sandbox_ok": sandbox.startswith("The sandbox works"), "ready": ready, "why": why, "games": games,
+            "controller": controller}
+    lines = [sandbox, "Ready to test." if ready else f"Not ready: {plain(why)}.",
+             f"Controller for recording: {controller['name']} ({controller['path']})." if controller else
+             "No game controller connected (only recording a scenario needs one)."]
     lines += [f"{g['title_id']} {g['name']}: {g['test'].lower()}" + (f", scenario {g['scenario']}" if g["scenario"] else "") for g in games] or ["No games set up."]
     return Out(lines, data)
 
@@ -402,6 +406,25 @@ def run_games_scenario(ctx, args):
                        "scenarios": [{"id": key, "name": s["name"], "scene": s["scene"]} for key, s in found.items()]})
 
 
+def run_games_record(ctx, args):
+    from . import pad, recording
+    engine = ctx.engine
+    taken = scenarios_of(engine, args.title_id)
+    scenario_id = args.id or recording.new_id(args.name, taken)
+    try:
+        path = engine.record_scenario(args.title_id, args.start, scenario_id, args.name, args.scene, args.seconds,
+                                      say=lambda text: ctx.echo(text, {"progress": text}))
+    except (recording.RecordError, pad.PadError) as error:
+        raise Failed(f"Not recorded: {error}") from error
+    return Out(f"Recorded {args.name} as {scenario_id} ({path}). To time {args.title_id} in it: title-runs games scenario {args.title_id} {scenario_id}",
+               {"recorded": scenario_id, "path": str(path)})
+
+
+def scenarios_of(engine, title_id):
+    from . import scenarios
+    return scenarios.available(title_id, engine.config.state_dir)
+
+
 # -- commands with a parser of their own ---------------------------------------------------------------------------------
 
 def window_main(argv):
@@ -449,10 +472,11 @@ COMMANDS = [
             'one object per line: {"log": text} as it goes, then {"result": text}',
             ("title-runs run", "title-runs run --once", "title-runs --json run --once"),
             lambda p: p.add_argument("--once", action="store_true", help="one test now, whatever the switch says, then exit"), run_run),
-    Command(("check",), "computer", "Check this computer can test: the sandbox and your games.",
+    Command(("check",), "computer", "Check this computer can test: the sandbox, your games and a controller to record with.",
             "Runs the sandbox's self-test (no internet and none of your files inside; the graphics card available to the game) and "
             "says whether anything else keeps tests from starting.",
-            NOTHING, '{"sandbox", "sandbox_ok", "ready", "why", "games": [{"title_id", "name", "test", "scenario", "folder"}]}',
+            NOTHING, '{"sandbox", "sandbox_ok", "ready", "why", "games": [{"title_id", "name", "test", "scenario", "folder"}], '
+            '"controller": {"name", "path"} or null}',
             ("title-runs check",), None, run_check),
     Command(("log",), "computer", "The last lines of this computer's log, and of the latest test's.", "", NOTHING, '{"lines": [...]}',
             ("title-runs log", "title-runs log --lines 50"),
@@ -523,6 +547,22 @@ COMMANDS = [
             SETTINGS + " Only when a scenario is given.", '{"title_id", "scenario", "scenarios": [{"id", "name", "scene"}]}',
             ("title-runs games scenario PPSA04263", "title-runs games scenario PPSA04263 franklins-house"),
             lambda p: (p.add_argument("title_id", metavar="TITLE_ID"), p.add_argument("scenario", nargs="?", metavar="SCENARIO")), run_games_scenario),
+    Command(("games", "record"), "games", "Record a scenario: play from a scenario's scene with a controller, and runs play it back.",
+            "Starts the game on main's build (a local test builds it) in the scenario named by --from, gets to its scene by itself, "
+            "then passes your controller through to the game: the first second is ignored, then everything the controller does "
+            "is recorded for --seconds (100 to 600; the timed window opens about 30 s in and lasts up to 60). The new scenario is "
+            "the one it started from with your play, and every run in it plays that back from when the scene shows. Stop "
+            "(title-runs stop, or the window's) ends it with nothing saved.",
+            "Starts the game on this computer, and writes the new scenario to the state folder.",
+            'one object per line: {"progress": text} as it goes, then {"recorded": ID, "path"}',
+            ("title-runs games record PPSA04263 --from franklins-house --name \"Out of the house\" --scene \"Franklin walks out of his "
+             "house to the road\"",),
+            lambda p: (p.add_argument("title_id", metavar="TITLE_ID"),
+                       p.add_argument("--from", dest="start", required=True, metavar="SCENARIO", help="the scenario to start from"),
+                       p.add_argument("--name", required=True, help="the new scenario's name"),
+                       p.add_argument("--scene", required=True, help="what happens in it, for reports (up to 120 characters)"),
+                       p.add_argument("--seconds", type=int, default=150, help="how long to record (100 to 600, default 150)"),
+                       p.add_argument("--id", help="the new scenario's id (default: from its name)")), run_games_record),
     Command(("window",), "games", "Open the window (the first-run walkthrough if the config is new).",
             changes="Nothing by itself; the window changes what you change in it.", examples=("title-runs window", "title-runs window --config ~/games/anyps5.toml"),
             passthrough=window_main),
@@ -551,7 +591,7 @@ def overview():
                 lines.append(f"  {c.name.ljust(width)}{c.summary}")
         lines.append("")
     lines += ["Options", f"  --config FILE   the config (default: ${CONFIG_ENV}, else anyps5-title-runs/config.toml in your config folder)",
-              "  --json          print JSON: one object, or one per line for run", "",
+              "  --json          print JSON: one object, or one per line for run and games record", "",
               "Exit codes: 0 done, 1 couldn't (the message says why), 2 the command was written wrong.",
               "Nothing here posts anything or writes to GitHub: you post reports yourself.",
               "`title-runs help COMMAND` says more about each."]
@@ -711,7 +751,7 @@ def main(argv=None):
             print(f"title-runs: {error}", file=sys.stderr)
         return EXIT_FAILED
     if args.json:
-        streamed = command.path == ("run",)
+        streamed = command.path in (("run",), ("games", "record"))
         print(json.dumps(out.data, default=str) if streamed else json.dumps(out.data, indent=2, default=str))
     elif out.text:
         print("\n".join(out.text) if isinstance(out.text, list) else out.text)

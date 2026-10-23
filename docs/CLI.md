@@ -12,7 +12,7 @@ This computer
   testing           Show or set the testing switch: off, schedule or now.
   stop              End the running test now, and set testing to off.
   run               Run tests here without the window, as the switch and the schedule allow, until stopped.
-  check             Check this computer can test: the sandbox and your games.
+  check             Check this computer can test: the sandbox, your games and a controller to record with.
   log               The last lines of this computer's log, and of the latest test's.
 
 Local tests: pull requests you pick, tested on this computer. Nothing is posted.
@@ -32,11 +32,12 @@ Local tests: pull requests you pick, tested on this computer. Nothing is posted.
 Your games and the window
   games list        Your games: each one's test, scenario and folder.
   games scenario    Show or choose the scenario a game is timed in.
+  games record      Record a scenario: play from a scenario's scene with a controller, and runs play it back.
   window            Open the window (the first-run walkthrough if the config is new).
 
 Options
   --config FILE   the config (default: $TITLE_RUNS_CONFIG, else anyps5-title-runs/config.toml in your config folder)
-  --json          print JSON: one object, or one per line for run
+  --json          print JSON: one object, or one per line for run and games record
 
 Exit codes: 0 done, 1 couldn't (the message says why), 2 the command was written wrong.
 Nothing here posts anything or writes to GitHub: you post reports yourself.
@@ -149,12 +150,12 @@ Examples:
 
 ### `title-runs check`
 
-Check this computer can test: the sandbox and your games.
+Check this computer can test: the sandbox, your games and a controller to record with.
 
 ```
 usage: title-runs check [-h]
 
-Check this computer can test: the sandbox and your games.
+Check this computer can test: the sandbox, your games and a controller to record with.
 
 Runs the sandbox's self-test (no internet and none of your files inside; the graphics card available
 to the game) and says whether anything else keeps tests from starting.
@@ -163,7 +164,7 @@ options:
   -h, --help  show this help message and exit
 
 Changes: Nothing.
-JSON (--json): {"sandbox", "sandbox_ok", "ready", "why", "games": [{"title_id", "name", "test", "scenario", "folder"}]}
+JSON (--json): {"sandbox", "sandbox_ok", "ready", "why", "games": [{"title_id", "name", "test", "scenario", "folder"}], "controller": {"name", "path"} or null}
 
 Examples:
   title-runs check
@@ -541,6 +542,42 @@ JSON (--json): {"title_id", "scenario", "scenarios": [{"id", "name", "scene"}]}
 Examples:
   title-runs games scenario PPSA04263
   title-runs games scenario PPSA04263 franklins-house
+```
+
+### `title-runs games record`
+
+Record a scenario: play from a scenario's scene with a controller, and runs play it back.
+
+```
+usage: title-runs games record [-h] --from SCENARIO --name NAME --scene SCENE
+                               [--seconds SECONDS] [--id ID]
+                               TITLE_ID
+
+Record a scenario: play from a scenario's scene with a controller, and runs play it back.
+
+Starts the game on main's build (a local test builds it) in the scenario named by --from, gets to
+its scene by itself, then passes your controller through to the game: the first second is ignored,
+then everything the controller does is recorded for --seconds (100 to 600; the timed window opens
+about 30 s in and lasts up to 60). The new scenario is the one it started from with your play, and
+every run in it plays that back from when the scene shows. Stop (title-runs stop, or the window's)
+ends it with nothing saved.
+
+positional arguments:
+  TITLE_ID
+
+options:
+  -h, --help         show this help message and exit
+  --from SCENARIO    the scenario to start from
+  --name NAME        the new scenario's name
+  --scene SCENE      what happens in it, for reports (up to 120 characters)
+  --seconds SECONDS  how long to record (100 to 600, default 150)
+  --id ID            the new scenario's id (default: from its name)
+
+Changes: Starts the game on this computer, and writes the new scenario to the state folder.
+JSON (--json): one object per line: {"progress": text} as it goes, then {"recorded": ID, "path"}
+
+Examples:
+  title-runs games record PPSA04263 --from franklins-house --name "Out of the house" --scene "Franklin walks out of his house to the road"
 ```
 
 ### `title-runs window`

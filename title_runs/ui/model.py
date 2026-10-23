@@ -154,6 +154,8 @@ def header(status, ready, why, testing, allowed, allowed_why, best):
     """The main screen's header: {"kind", "headline", "detail"}; kind is running, setup, error, idle, off, waiting or
     ready. best: the next head to be tested, or None."""
     job = status.get("job") or {}
+    if status.get("state") == "running" and job.get("recording"):
+        return {"kind": "running", "headline": f"Recording a scenario: {job.get('title', '')}", "detail": status.get("progress", ""), "step": -1}
     if status.get("state") == "running" and job:
         return {"kind": "running", "headline": f"Testing #{job.get('pr')}" + (f": {job['title']}" if job.get("title") else ""),
                 "detail": STEPS[step(status.get("progress"))], "step": step(status.get("progress"))}
