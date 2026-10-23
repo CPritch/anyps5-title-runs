@@ -325,3 +325,31 @@ to drop the App and read without a sign-in:
 4. **When the limit is used up**, nothing more is read until GitHub's reset time, and Home says until when.
 5. **What goes**: the App, the sign-in and its token on disk (a token kept from before is deleted), the walkthrough's
    sign-in page, `title-runs sign-in` and `sign-out`, and `[github] app`. Charlie can delete the App, title-runs-dev.
+
+## Recorded play (Charlie, 2026-10-23)
+
+Charlie's idea for scenes that differ less from run to run: a "record a scenario" step where he plays (input locked
+out for the first second), the tool records the controller, and runs play the recording back. What AnyPS5 and this
+tool already do decided how:
+
+- **Runs never see a real controller.** They set `APS5_NO_PAD_INPUT=1` and hide every controller from SDL; input
+  comes only from the pad command file (`APS5_PAD_INPUT_FILE`), as the routes' presses do. So recording passes the
+  controller through that same file while it records, and playback writes the same commands: the game gets input the
+  same way in both.
+- **The pad file.** AnyPS5 (15e71dbe1, `InputCommandFile.hpp`) reads it at most every 100 ms of its process time, when
+  the game reads the pad. A command is a sequence number, buttons, a hold of up to 5 s, and optionally both sticks.
+  Its timeline form (`APS5_PAD_TIMELINE`) is exact to the millisecond but has buttons only, and walking needs the
+  sticks. So the tool writes a command every 50 ms with a 250 ms hold (input stops by itself if the tool does), and
+  the game takes the latest one each time it reads the file.
+- **The controller** is read from Linux's evdev with the standard library: systemd gives joystick devices to the
+  logged-in user (`70-uaccess.rules`), so no root is needed. Buttons follow the Linux gamepad layout (south is Cross);
+  Select (Create, or Xbox's View) is the touchpad; triggers count as L2 and R2 past a third of their travel.
+- **Playback is by time, not by frames.** In a timed run there is no live frame count to follow: frame dumps must stop
+  before the window (the project's capture rules), and the window's summary comes only at its end. Time is also what
+  GTA V's world moves by. Both recording and playback start at the same point: the first frame dumped after Resume
+  Story that is in the starting scenario's scene (its colours), so a slower load doesn't shift the input.
+- **A recorded scenario** is the starting scenario (its route, save and start colours) plus the track: the state at
+  each change, in milliseconds from that start. The window opens about 30 s after the scene loads and lasts up to 60 s,
+  so a recording is at least 100 s. After the track ends, the starting scenario's still button carries on. A run whose
+  scene never showed, so the track never started, doesn't count. Recorded scenarios are kept in the state folder
+  (`scenarios/<TITLE ID>/<id>.json`), next to the tool's own.
