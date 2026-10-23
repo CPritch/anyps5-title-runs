@@ -1,70 +1,50 @@
-"""The client: nothing runs before the walkthrough and the sign-in; the sign-in (GitHub's device flow, slow_down, a
-sign-in kept for another App); and the source trees a job builds."""
+"""The client: nothing runs before the walkthrough; a sign-in kept from before is removed; and the source trees a job
+builds."""
 
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 from helpers import INFO, make_config
 from history import History, git
 
-from title_runs import auth, client, config as configs, configfile, sources
+from title_runs import client, config as configs, configfile, sources
 
 
 class Ready(unittest.TestCase):
     def setUp(self):
-        self.config = make_config(github_app="Iv1.x")
-        self.client = client.Client(self.config, log=lambda *_: None, info=INFO)
+        self.config = make_config()
 
-    def sign_in(self, client_id="Iv1.x"):
-        self.client.flow().store({"login": "CPritch", "access_token": "t", "client_id": client_id})
+    def test_nothing_runs_before_the_walkthrough(self):
+        tester = client.Client(self.config, log=lambda *_: None, info=INFO)
+        self.assertEqual(tester.ready(), (False, "the first-run walkthrough is not done"))
+        tester.finish_onboarding({})
+        self.assertEqual(tester.ready(), (True, ""))  # nothing to sign in to
+        self.config.titles = {}
+        self.assertEqual(tester.ready(), (False, "no titles are set up"))
 
-    def test_nothing_runs_before_the_walkthrough_and_the_sign_in(self):
-        self.assertEqual(self.client.ready(), (False, "the first-run walkthrough is not done"))
-        self.client.finish_onboarding({})
-        self.assertEqual(self.client.ready(), (False, "not signed in"))
-        self.assertEqual(self.client.allowed_now(), (False, "not signed in"))
-        self.sign_in()
-        self.assertEqual(self.client.ready(), (True, ""))
-
-    def test_a_sign_in_through_another_app_is_not_used(self):
-        self.sign_in("Iv1.another")
-        self.assertIsNone(self.client.tester())
-        data = self.client.flow().stored()
-        del data["client_id"]  # as round 3 stored them
-        self.client.flow().store(data)
-        self.assertIsNone(self.client.tester())
-
-    def test_slow_down_lengthens_the_wait(self):
-        flow = auth.DeviceFlow("Iv1.x", Path(tempfile.mkdtemp()) / "token.json")
-        device = {"device_code": "d", "interval": 5}
-        with mock.patch.object(flow, "_post", return_value={"error": "slow_down", "interval": 10}):
-            self.assertIsNone(flow.poll(device))
-        self.assertEqual(auth.DeviceFlow.interval(device), 11)
-        waits = []
-        replies = iter([{"error": "slow_down", "interval": 15}, {"error": "authorization_pending"}, {"access_token": "t", "expires_in": 28800}])
-        with mock.patch.object(flow, "_post", side_effect=lambda url, fields: next(replies)), \
-                mock.patch("title_runs.gh.GitHubRepo.login", return_value="CPritch"):
-            self.assertEqual(flow.wait(device, sleep=waits.append)["login"], "CPritch")
-        self.assertEqual(waits, [11, 16, 16])  # first wait before the first poll; then GitHub's new interval, plus a second
+    def test_a_sign_in_kept_from_before_is_removed(self):
+        folder = self.config.state_dir / "client"
+        folder.mkdir(parents=True)
+        (folder / "github-token.json").write_text('{"login": "CPritch", "access_token": "t"}')
+        (folder / "github-token.json.lock").write_text("")
+        said = []
+        client.Client(self.config, log=said.append, info=INFO)
+        self.assertEqual(list(folder.glob("github-token*")), [])
+        self.assertEqual(said, ["removed the old GitHub sign-in: the tool reads GitHub without one"])
 
 
-class TheApp(unittest.TestCase):
-    """The App testers sign in with: the tool's own unless [github] app names another; [results] app before 2026-10-23."""
-
-    def test_the_tools_app_unless_the_config_names_one(self):
+class OldConfig(unittest.TestCase):
+    def test_the_sign_in_and_results_sections_are_read_and_dropped(self):
         path = Path(tempfile.mkdtemp()) / "config.toml"
-        path.write_text("")
-        self.assertEqual(configs.load(path).github_app, configs.DEFAULT_APP)
-        path.write_text('[results]\nurl = ""\napp = "Iv23old"\n')
-        self.assertEqual(configs.load(path).github_app, "Iv23old")
-        path.write_text('[github]\napp = "Iv23new"\n[results]\napp = "Iv23old"\n')
+        path.write_text('[github]\napp = "Iv23new"\n[results]\nurl = ""\napp = "Iv23old"\n[tester]\nname = "CPritch"\nmachine = "box"\n')
         config = configs.load(path)
-        self.assertEqual(config.github_app, "Iv23new")
         configfile.save(config)
-        self.assertNotIn("[results]", path.read_text())
-        self.assertEqual(configs.load(path).github_app, "Iv23new")
+        text = path.read_text()
+        self.assertNotIn("[github]", text)
+        self.assertNotIn("[results]", text)
+        self.assertNotIn("name =", text)
+        self.assertEqual(configs.load(path).machine, "box")
 
 
 class Sources(unittest.TestCase):

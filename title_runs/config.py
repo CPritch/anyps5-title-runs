@@ -10,9 +10,6 @@ from pathlib import Path
 from . import ROOT
 
 TITLE_ID = re.compile(r"[A-Z]{4}[0-9]{5}")
-# The GitHub App testers sign in with (its client ID): title-runs-dev. A sign-in only: the tool reads the project's pull
-# requests with it, and the App needs no permissions for that. [github] app names another.
-DEFAULT_APP = "Iv23liikPAbKjFujfrIB"
 
 
 # When work may run (the Schedule tab): only when the machine has been idle idle_minutes, only on mains power, within
@@ -62,7 +59,6 @@ class Config:
     path: Path
     state_dir: Path
     remote: str
-    tester: str
     machine: str
     repo_dir: Path
     cmake_args: list
@@ -70,7 +66,6 @@ class Config:
     shutdown_wait: int
     titles: dict
     allocator: str = ""
-    github_app: str = DEFAULT_APP  # [github] app: the GitHub App to sign in with (its client ID)
     schedule: dict = field(default_factory=lambda: dict(SCHEDULE))
     testing: str = "schedule"  # the main screen's switch: off, schedule (within [schedule], while the app is open) or now (whatever it says)
     tray: bool = False  # keep running in the system tray when the window is closed (otherwise closing quits)
@@ -119,7 +114,6 @@ def load(path):
         path=path,
         state_dir=_path(data.get("state_dir", user_dirs()[1])),
         remote=source.get("remote", "origin"),
-        tester=tester.get("name", ""),
         machine=tester.get("machine", os.uname().nodename),
         repo_dir=_path(source.get("repo_dir", "")) or _path(data.get("state_dir", user_dirs()[1])) / "anyps5",
         cmake_args=list(source.get("cmake_args", ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"])),
@@ -127,7 +121,6 @@ def load(path):
         shutdown_wait=int(sandbox.get("shutdown_wait", 900)),
         titles=titles,
         allocator=data.get("run", {}).get("allocator", ""),
-        github_app=str(data.get("github", {}).get("app") or data.get("results", {}).get("app") or DEFAULT_APP),  # [results]: before 2026-10-23
         schedule={**SCHEDULE, **data.get("schedule", {})},
         testing=testing_mode(data.get("client", {})),
         tray=bool(data.get("client", {}).get("tray", False)),

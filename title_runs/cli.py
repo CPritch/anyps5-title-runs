@@ -28,7 +28,7 @@ CONFIG_ENV = "TITLE_RUNS_CONFIG"
 GROUPS = {
     "computer": "This computer",
     "local": "Local tests: pull requests you pick, tested on this computer. Nothing is posted.",
-    "account": "Your account, your games and the window",
+    "games": "Your games and the window",
 }
 
 NOTHING = "Nothing."
@@ -159,7 +159,7 @@ def run_status(ctx, args):
     data = {"headline": header["headline"], "detail": plain(header["detail"]), "kind": header["kind"], "testing": ctx.config.testing,
             "running": running, "busy_elsewhere": engine.busy_elsewhere(),
             "next": {"pr": nxt["number"], "title": nxt["title"], "head": nxt["head"]} if nxt else None,
-            "notes": notes, "signed_in": engine.client.tester(), "machine": ctx.config.machine, "project": ctx.config.local_repository,
+            "notes": notes, "machine": ctx.config.machine, "project": ctx.config.local_repository,
             "config": str(ctx.config.path), "state": str(ctx.config.state_dir)}
     # as the window has it: the header, what to know, then the switch
     lines = [SWITCH["off"] + " To start: title-runs testing schedule (or now)." if header["kind"] == "off" else f"{header['headline']}. {plain(header['detail'])}"]
@@ -170,8 +170,7 @@ def run_status(ctx, args):
         lines.append(SWITCH[ctx.config.testing])
     if nxt and not running:
         lines.append(f"Up next: #{nxt['number']} {nxt['title']}")
-    who = f"signed in as {data['signed_in']}" if data["signed_in"] else "not signed in"
-    lines.append(f"This computer: {ctx.config.machine}, {who}. Config {ctx.config.path}")
+    lines.append(f"This computer: {ctx.config.machine}. Config {ctx.config.path}")
     return Out(lines, data)
 
 
@@ -215,8 +214,7 @@ def run_check(ctx, args):
     sandbox = engine.sandbox_self_test()
     ready, why, _ = engine.readiness()
     games = [{"title_id": t["title_id"], "name": t["name"], "test": t["check"], "scenario": t["scenario"], "folder": t["path"]} for t in engine.titles()]
-    data = {"sandbox": sandbox, "sandbox_ok": sandbox.startswith("The sandbox works"), "ready": ready, "why": why, "games": games,
-            "signed_in": engine.client.tester()}
+    data = {"sandbox": sandbox, "sandbox_ok": sandbox.startswith("The sandbox works"), "ready": ready, "why": why, "games": games}
     lines = [sandbox, "Ready to test." if ready else f"Not ready: {plain(why)}."]
     lines += [f"{g['title_id']} {g['name']}: {g['test'].lower()}" + (f", scenario {g['scenario']}" if g["scenario"] else "") for g in games] or ["No games set up."]
     return Out(lines, data)
@@ -379,22 +377,6 @@ def run_local_repository(ctx, args):
 
 # -- your account, your games and the window -------------------------------------------------------------------------------
 
-def run_sign_in(ctx, args):
-    flow = ctx.engine.client.flow()
-    if not flow.client_id:
-        raise Failed("This config names no GitHub App to sign in with: set [github] app in it.")
-    device = flow.start()
-    ctx.echo(f"Open {device['verification_uri']} and type {device['user_code']}. Waiting for GitHub...",
-             {"verification_uri": device["verification_uri"], "user_code": device["user_code"]})
-    login = flow.wait(device)["login"]
-    return Out(f"Signed in as {login}.", {"signed_in": login})
-
-
-def run_sign_out(ctx, args):
-    ctx.engine.client.flow().sign_out()
-    return Out("Signed out.", {"signed_in": None})
-
-
 def run_games(ctx, args):
     games = [{"title_id": t["title_id"], "name": t["name"], "version": t["version"], "test": t["check"], "scenario": t["scenario"],
               "scenarios": [s["id"] for s in t["scenarios"]], "folder": t["path"]} for t in ctx.engine.titles()]
@@ -444,7 +426,7 @@ COMMANDS = [
             NOTHING,
             '{"headline", "detail", "kind": "running|setup|off|idle|waiting|ready|error", "testing", "running": {"pr", "head", "title", '
             '"step", "progress"} or null, "busy_elsewhere", "next": {"pr", "title", "head"} or null, "notes": [...], '
-            '"signed_in", "machine", "project", "config", "state"}',
+            '"machine", "project", "config", "state"}',
             ("title-runs status", "title-runs --json status"), None, run_status),
     Command(("testing",), "computer", "Show or set the testing switch: off, schedule or now.",
             "off: no test starts. schedule: tests start by themselves at the times set in the window's When to test. now: one test "
@@ -467,10 +449,10 @@ COMMANDS = [
             'one object per line: {"log": text} as it goes, then {"result": text}',
             ("title-runs run", "title-runs run --once", "title-runs --json run --once"),
             lambda p: p.add_argument("--once", action="store_true", help="one test now, whatever the switch says, then exit"), run_run),
-    Command(("check",), "computer", "Check this computer can test: the sandbox, your games and the sign-in.",
+    Command(("check",), "computer", "Check this computer can test: the sandbox and your games.",
             "Runs the sandbox's self-test (no internet and none of your files inside; the graphics card available to the game) and "
             "says whether anything else keeps tests from starting.",
-            NOTHING, '{"sandbox", "sandbox_ok", "ready", "why", "games": [{"title_id", "name", "test", "scenario", "folder"}], "signed_in"}',
+            NOTHING, '{"sandbox", "sandbox_ok", "ready", "why", "games": [{"title_id", "name", "test", "scenario", "folder"}]}',
             ("title-runs check",), None, run_check),
     Command(("log",), "computer", "The last lines of this computer's log, and of the latest test's.", "", NOTHING, '{"lines": [...]}',
             ("title-runs log", "title-runs log --lines 50"),
@@ -533,26 +515,19 @@ COMMANDS = [
             "Your settings, when given.", '{"repository"}', ("title-runs local repository", "title-runs local repository boykopovar/AnyPS5"),
             lambda p: p.add_argument("repository", nargs="?", metavar="OWNER/NAME"), run_local_repository),
 
-    Command(("sign-in",), "account", "Sign in with GitHub: shows a code to type at github.com/login/device, then waits.",
-            "The sign-in reads the project's pull requests for your local tests (GitHub allows 60 requests an hour without one). "
-            "Nothing is posted with it.",
-            "Keeps the sign-in on this computer.", 'one object per line: {"verification_uri", "user_code"}, then {"signed_in": LOGIN}',
-            ("title-runs sign-in",), None, run_sign_in),
-    Command(("sign-out",), "account", "Forget the sign-in on this computer.", "", "Removes the sign-in from this computer.", '{"signed_in": null}',
-            ("title-runs sign-out",), None, run_sign_out),
-    Command(("games", "list"), "account", "Your games: each one's test, scenario and folder.", "`title-runs games` alone does the same.",
+    Command(("games", "list"), "games", "Your games: each one's test, scenario and folder.", "`title-runs games` alone does the same.",
             NOTHING, '{"games": [{"title_id", "name", "version", "test", "scenario", "scenarios", "folder"}]}', ("title-runs games",), None, run_games),
-    Command(("games", "scenario"), "account", "Show or choose the scenario a game is timed in.",
+    Command(("games", "scenario"), "games", "Show or choose the scenario a game is timed in.",
             "A scenario is one specific run of a game, which may or may not load a save first (GTA V's prologue, or Franklin's house). "
             "The next tests of the game run in it.",
             SETTINGS + " Only when a scenario is given.", '{"title_id", "scenario", "scenarios": [{"id", "name", "scene"}]}',
             ("title-runs games scenario PPSA04263", "title-runs games scenario PPSA04263 franklins-house"),
             lambda p: (p.add_argument("title_id", metavar="TITLE_ID"), p.add_argument("scenario", nargs="?", metavar="SCENARIO")), run_games_scenario),
-    Command(("window",), "account", "Open the window (the first-run walkthrough if the config is new).",
+    Command(("window",), "games", "Open the window (the first-run walkthrough if the config is new).",
             changes="Nothing by itself; the window changes what you change in it.", examples=("title-runs window", "title-runs window --config ~/games/anyps5.toml"),
             passthrough=window_main),
 
-    Command(("ui",), "account", "The window, by its first name.", passthrough=window_main, hidden=True),
+    Command(("ui",), "games", "The window, by its first name.", passthrough=window_main, hidden=True),
 ]
 
 BY_NAME = {command.path: command for command in COMMANDS}
@@ -576,7 +551,7 @@ def overview():
                 lines.append(f"  {c.name.ljust(width)}{c.summary}")
         lines.append("")
     lines += ["Options", f"  --config FILE   the config (default: ${CONFIG_ENV}, else anyps5-title-runs/config.toml in your config folder)",
-              "  --json          print JSON: one object, or one per line for run and sign-in", "",
+              "  --json          print JSON: one object, or one per line for run", "",
               "Exit codes: 0 done, 1 couldn't (the message says why), 2 the command was written wrong.",
               "Nothing here posts anything or writes to GitHub: you post reports yourself.",
               "`title-runs help COMMAND` says more about each."]
@@ -736,7 +711,7 @@ def main(argv=None):
             print(f"title-runs: {error}", file=sys.stderr)
         return EXIT_FAILED
     if args.json:
-        streamed = command.path in (("run",), ("sign-in",))
+        streamed = command.path == ("run",)
         print(json.dumps(out.data, default=str) if streamed else json.dumps(out.data, indent=2, default=str))
     elif out.text:
         print("\n".join(out.text) if isinstance(out.text, list) else out.text)

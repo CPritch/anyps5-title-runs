@@ -1,16 +1,15 @@
 """The first-run walkthrough (DESIGN.md, "First run: the walkthrough"): what the tool does and what leaves the machine,
 the sandbox and what it does not protect against, when it may run (idle where the machine can tell, otherwise hours;
-mains power; fullscreen programs), the dumps, and signing in through the App. Nothing runs before the tester has been
-through it: Finish writes the config and marks the walkthrough done (client.finish_onboarding)."""
+mains power; fullscreen programs), and the dumps. Nothing runs before the tester has been through it: Finish writes
+the config and marks the walkthrough done (client.finish_onboarding)."""
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QGuiApplication
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QSpinBox,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWizard, QWizardPage)
 
-from .. import ROOT, auth, configfile, platform_info
+from .. import ROOT, configfile, platform_info
 from ..config import Title
 
 
@@ -36,7 +35,7 @@ class WhatPage(QWizardPage):
         leaves = QGroupBox("What leaves this computer")
         box = QVBoxLayout(leaves)
         box.addWidget(text(
-            "<ul><li>Nothing by itself. The app reads the project's pull requests on GitHub, signed in as you, and posts nothing.</li>"
+            "<ul><li>Nothing by itself. The app reads the project's pull requests on GitHub, as anyone can, and posts nothing.</li>"
             "<li>A report you post says what it ran on (your graphics card, driver and system) and how fast each run was, with the "
             "traces you attach.</li></ul>"
             "<b>Never your game files, your saves, or anything else on this computer.</b>"))
@@ -216,82 +215,6 @@ class DumpsPage(QWizardPage):
         return bool(self.found) and self.clone_ok
 
 
-class SignInPage(QWizardPage):
-    def __init__(self, engine):
-        super().__init__()
-        self.engine = engine
-        self.setTitle("Sign in with GitHub")
-        self.setSubTitle("The app reads the project's pull requests as you, to know what to test. It posts nothing.")
-        layout = QVBoxLayout(self)
-        self.state = text("")
-        layout.addWidget(self.state)
-        self.code = QLabel("")
-        font = self.code.font()
-        font.setPointSize(font.pointSize() * 2)
-        font.setBold(True)
-        self.code.setFont(font)
-        self.code.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(self.code, 0, Qt.AlignHCenter)
-        row = QHBoxLayout()
-        row.addStretch(1)
-        self.start_button = QPushButton("Sign in with GitHub")
-        self.start_button.clicked.connect(self.start)
-        row.addWidget(self.start_button)
-        self.copy = QPushButton("Copy the code")
-        self.copy.clicked.connect(lambda: QGuiApplication.clipboard().setText(self.code.text()))
-        self.copy.setEnabled(False)
-        row.addWidget(self.copy)
-        self.open = QPushButton("Open github.com/login/device")
-        self.open.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.device["verification_uri"])))
-        self.open.setEnabled(False)
-        row.addWidget(self.open)
-        row.addStretch(1)
-        layout.addLayout(row)
-        layout.addStretch(1)
-        self.device = None
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.poll)
-        self.show_state()
-
-    def show_state(self):
-        login = self.engine.client.tester()
-        if login:
-            self.state.setText(f"Signed in as <b>{login}</b>. You stay signed in; Settings can sign you out.")
-            self.code.setText("✓")
-            for button in (self.start_button, self.copy, self.open):
-                button.hide()
-        elif self.device:
-            self.state.setText(f"Open <a href='{self.device['verification_uri']}'>{self.device['verification_uri']}</a> and type this code. "
-                               f"This page carries on by itself once you have.")
-        else:
-            self.state.setText("Press Sign in with GitHub to get a code to type on GitHub, in any browser.")
-        self.completeChanged.emit()
-
-    def start(self):
-        self.device = self.engine.client.flow().start()
-        self.code.setText(self.device["user_code"])
-        self.copy.setEnabled(True)
-        self.open.setEnabled(True)
-        self.timer.start(auth.DeviceFlow.interval(self.device) * 1000)
-        self.start_button.setText("New code")
-        self.show_state()
-
-    def poll(self):
-        try:
-            if self.engine.client.flow().poll(self.device):
-                self.timer.stop()
-                self.device = None
-            else:
-                self.timer.setInterval(auth.DeviceFlow.interval(self.device) * 1000)  # GitHub's slow_down lengthens it
-        except Exception as error:  # noqa: BLE001
-            self.timer.stop()
-            self.state.setText(f"Sign-in didn't work: {error}")
-        self.show_state()
-
-    def isComplete(self):  # noqa: N802
-        return bool(self.engine.client.tester())
-
-
 class DonePage(QWizardPage):
     def __init__(self, engine):
         super().__init__()
@@ -311,14 +234,14 @@ class DonePage(QWizardPage):
         how += (", only when plugged in" if when.mains.isChecked() else "") + (", pausing while something is fullscreen" if when.fullscreen.isChecked() else "")
         titles = ", ".join(f"{d['name']} ({d['title_id']})" for d in wizard.dumps.found)
         rows = [("✓", "You've read what leaves this computer and what the sandbox can't protect against."), ("✓", f"It tests {how}."),
-                ("✓", f"Games: {titles}."), ("✓", f"Signed in as <b>{self.engine.client.tester()}</b>.")]
+                ("✓", f"Games: {titles}.")]
         self.summary.setText("<table cellspacing='6'>" + "".join(f"<tr><td><b>{mark}</b></td><td>{line}</td></tr>" for mark, line in rows) + "</table>"
                              "<p>Finish opens the app. Add the pull requests you want tested on its Local tests page. You can change all of "
                              "this later in Settings, and go through these steps again from there.</p>")
 
 
 class Walkthrough(QWizard):
-    PAGES = ("what", "sandbox", "when", "dumps", "sign-in", "done")
+    PAGES = ("what", "sandbox", "when", "dumps", "done")
 
     def __init__(self, engine, folder="", parent=None, start="what"):
         super().__init__(parent)
@@ -327,8 +250,8 @@ class Walkthrough(QWizard):
         self.setWizardStyle(QWizard.ModernStyle)
         self.what, self.sandbox, self.when = WhatPage(), SandboxPage(), WhenPage(engine.config.schedule)
         self.dumps = DumpsPage(folder, engine.config.repo_dir)
-        self.sign_in, self.done_page = SignInPage(engine), DonePage(engine)
-        for page in (self.what, self.sandbox, self.when, self.dumps, self.sign_in, self.done_page):
+        self.done_page = DonePage(engine)
+        for page in (self.what, self.sandbox, self.when, self.dumps, self.done_page):
             self.addPage(page)
         pages = self.pageIds()
         for number, page_id in enumerate(pages, start=1):
@@ -346,7 +269,6 @@ class Walkthrough(QWizard):
             if dump["title_id"] not in config.titles:
                 config.titles[dump["title_id"]] = Title(dump["title_id"], Path(dump["path"]), Path(dump["route"]) if dump.get("route") else None)
         config.repo_dir = Path(self.dumps.repo_dir.text()).expanduser()
-        config.tester = self.engine.client.tester() or config.tester
         configfile.save(config)
         self.engine.client.finish_onboarding({"sandbox_read": True, "idle": "idle" if when.idle.isChecked() else "hours",
                                               "idle_detectable": when.idle_ok, "titles": sorted(config.titles)})

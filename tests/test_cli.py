@@ -76,9 +76,9 @@ class Commands(unittest.TestCase):
         return run("--config", str(self.path), *argv)
 
     def json(self, *argv):
-        """The exit code and the JSON printed: the last object, for the commands that print one per line (run, sign-in)."""
+        """The exit code and the JSON printed: the last object, for run, which prints one per line."""
         code, out, err = run("--json", "--config", str(self.path), *argv)
-        return code, json.loads(out if argv[:1] not in (("run",), ("sign-in",)) else out.splitlines()[-1])
+        return code, json.loads(out if argv[:1] != ("run",) else out.splitlines()[-1])
 
     def config(self):
         return configs.load(self.path)
@@ -151,18 +151,15 @@ class Commands(unittest.TestCase):
     def test_status_says_what_this_computer_does(self):
         code, data = self.json("status")
         self.assertEqual(code, 0)
-        for key in ("headline", "kind", "testing", "running", "busy_elsewhere", "next", "notes", "signed_in", "machine", "project", "config", "state"):
+        for key in ("headline", "kind", "testing", "running", "busy_elsewhere", "next", "notes", "machine", "project", "config", "state"):
             self.assertIn(key, data)
         self.assertEqual((data["kind"], data["running"], data["project"]), ("setup", None, "boykopovar/AnyPS5"))
         self.assertEqual(self.cli("status")[1].splitlines()[0], "Almost ready. Go through the first-run steps.")
-        # the walkthrough done and signed in: nothing left to set up
-        client = clients.Client(self.config(), log=lambda *_: None)
-        client.finish_onboarding({"idle": "hours"})
-        client.flow().store({"login": "CPritch", "access_token": "t", "client_id": self.config().github_app})
+        # the walkthrough done: nothing left to set up
+        clients.Client(self.config(), log=lambda *_: None).finish_onboarding({"idle": "hours"})
         lines = self.cli("status")[1].splitlines()
         self.assertEqual(lines[:2], ["No tests waiting. New heads of your local tests show up here by themselves.",
                                      "Testing is off: no test starts."])
-        self.assertEqual(self.json("status")[1]["signed_in"], "CPritch")
 
     def test_run_once_starts_one_test_whatever_the_switch_says(self):
         self.assertEqual(self.json("run", "--once")[1]["error"], "Go through the first-run walkthrough first (title-runs window): nothing runs before it.")

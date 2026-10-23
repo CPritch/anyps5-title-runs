@@ -88,8 +88,7 @@ def first_line(text, limit=90):
 def setup_text(why):
     """What a tester still has to do (or wait for), for a reason client.ready gave."""
     return {"the first-run walkthrough is not done": "Go through the first-run steps.",
-            "no titles are set up": "Add a game you own.",
-            "not signed in": "Sign in with GitHub."}.get(why, why)
+            "no titles are set up": "Add a game you own."}.get(why, why)
 
 
 STEPS = ("Getting the change", "Building AnyPS5 as it is", "Building AnyPS5 with the change", "Warming up the game",

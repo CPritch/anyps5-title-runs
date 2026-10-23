@@ -19,18 +19,10 @@ except ImportError:  # the window needs PySide6; the model does not
     QApplication = None
 
 HEAD = "69ac2e155ad018ed1fb9028d2028d15999a8571e"
-DEVICE = {"device_code": "d", "user_code": "WDJB-MJHT", "verification_uri": "https://github.com/login/device", "interval": 5, "expires_in": 900}
 
 
 def listed(number, title="t", body="", labels=(), author="someuser", draft=False):
     return {"number": number, "title": title, "body": body, "draft": draft, "author": author, "head": HEAD, "labels": list(labels)}
-
-
-def signing_in(login="tester"):
-    """GitHub's device flow, answered here: the code, then the token once it is typed; the token is login's."""
-    replies = iter([DEVICE, {"access_token": "t", "expires_in": 28800}])
-    return (mock.patch("title_runs.auth.DeviceFlow._post", side_effect=lambda url, fields: next(replies)),
-            mock.patch("title_runs.gh.GitHubRepo.login", return_value=login))
 
 
 class Model(unittest.TestCase):
@@ -63,7 +55,7 @@ if __name__ == "__main__":
 
 @unittest.skipIf(QApplication is None, "PySide6 is not installed")
 class Window(unittest.TestCase):
-    """The walkthrough's gates (the sandbox page needs its box ticked; without idle detection, hours; sign-in), Finish
+    """The walkthrough's gates (the sandbox page needs its box ticked; without idle detection, hours; the games), Finish
     marking it done, the testing switch, and the listing of the local tests' project."""
 
     @classmethod
@@ -101,7 +93,7 @@ class Window(unittest.TestCase):
         from title_runs.ui.walkthrough import Walkthrough
         wizard = Walkthrough(self.engine, str(self.dumps))
         wizard.show()
-        self.assertEqual(Walkthrough.PAGES, ("what", "sandbox", "when", "dumps", "sign-in", "done"))
+        self.assertEqual(Walkthrough.PAGES, ("what", "sandbox", "when", "dumps", "done"))
         self.assertFalse(wizard.sandbox.isComplete())
         wizard.sandbox.read.setChecked(True)
         self.assertTrue(wizard.sandbox.isComplete())
@@ -111,13 +103,6 @@ class Window(unittest.TestCase):
         self.assertFalse(wizard.when.isComplete())
         wizard.when.last.setValue(7)
         self.assertTrue(wizard.dumps.isComplete())
-        self.assertFalse(wizard.sign_in.isComplete())
-        self.assertIn("It posts nothing.", wizard.sign_in.subTitle())
-        post, login = signing_in()
-        with post, login:
-            wizard.sign_in.start()
-            wizard.sign_in.poll()
-        self.assertTrue(wizard.sign_in.isComplete())
         self.assertFalse(self.engine.client.onboarded())
         self.assertEqual(self.engine.readiness()[0], False)
         wizard.accept()
@@ -125,23 +110,7 @@ class Window(unittest.TestCase):
         self.assertEqual(self.engine.config.schedule["hours"], [1, 7])
         self.assertFalse(self.engine.config.schedule["idle_only"])
         self.assertEqual(list(self.engine.config.titles), ["PPSA04263"])
-        self.assertEqual(self.engine.readiness(), (True, "", ""))  # nothing left to set up
-
-    def test_the_sign_in_page_slows_down_when_github_says_so(self):
-        from title_runs.ui.walkthrough import Walkthrough
-        wizard = Walkthrough(self.engine, str(self.dumps))
-        page = wizard.sign_in
-        with mock.patch("title_runs.auth.DeviceFlow._post", return_value=dict(DEVICE)):
-            page.start()
-        self.assertEqual(page.timer.interval(), (page.device["interval"] + 1) * 1000)
-
-        def slow_down(device):
-            device["interval"] = 10
-            return None
-        with mock.patch.object(self.engine.client.flow(), "poll", side_effect=slow_down):
-            page.poll()
-        self.assertEqual(page.timer.interval(), 11000)
-        self.assertTrue(page.timer.isActive())
+        self.assertEqual(self.engine.readiness(), (True, "", ""))  # nothing left to set up, and nothing to sign in to
 
     def test_the_testing_switch(self):
         from title_runs import config as configs
@@ -217,8 +186,8 @@ class Window(unittest.TestCase):
 
 @unittest.skipIf(QApplication is None, "PySide6 is not installed")
 class LocalTestsInTheWindow(unittest.TestCase):
-    """Signed in with the config's App, ready with nothing else to set up; Home shows the heads waiting and the results;
-    Add on All pull requests puts a pull request on the local tests list."""
+    """Ready once the walkthrough is done; Home shows the heads waiting and the results; Add on All pull requests puts a
+    pull request on the local tests list."""
 
     @classmethod
     def setUpClass(cls):
@@ -235,14 +204,11 @@ class LocalTestsInTheWindow(unittest.TestCase):
         store.data["prs"] = {str(pr["number"]): listing.shape(pr) for pr in (make_pr(6488, "a" * 40, body="- [x] Unblocks: PPSA04263"),
                                                                            make_pr(4287, "7" * 40))}
         store.save()
-        self.config = make_config(github_app="Iv23testapp", local_repository="boykopovar/AnyPS5", local_prs=[4287])
+        self.config = make_config(local_repository="boykopovar/AnyPS5", local_prs=[4287])
         self.engine = app.Engine(self.config, listing=self.listing)
         self.engine.client.finish_onboarding({"idle": "hours"})
-        self.engine.client.flow().store({"login": "CPritch", "access_token": "t", "client_id": "Iv23testapp"})
 
-    def test_signed_in_with_the_configs_app(self):
-        self.assertEqual(self.engine.client.flow().client_id, "Iv23testapp")
-        self.assertEqual(self.engine.client.tester(), "CPritch")
+    def test_ready_after_the_walkthrough(self):
         self.assertEqual(self.engine.client.ready(), (True, ""))
         self.assertEqual(self.engine.readiness(), (True, "", ""))
 
@@ -320,7 +286,7 @@ class MainScreenModel(unittest.TestCase):
         running = {"state": "running", "job": {"pr": 1, "title": "perf: x"}, "progress": "PR run 1, 2/4"}
         self.assertEqual(model.header(running, True, "", "schedule", True, "", best)["detail"], "Run 2 of 4: with the change")
         self.assertEqual(model.header(running, True, "", "off", True, "", best)["kind"], "running")  # Off starts nothing; Stop ends a test
-        self.assertEqual(model.header({}, False, "not signed in", "schedule", True, "", best)["detail"], "Sign in with GitHub.")
+        self.assertEqual(model.header({}, False, "no titles are set up", "schedule", True, "", best)["detail"], "Add a game you own.")
         self.assertEqual(model.header({}, True, "", "schedule", True, "", None)["kind"], "idle")
         self.assertEqual(model.header({}, True, "", "off", True, "", best)["kind"], "off")
         waiting = model.header({}, True, "", "schedule", False, "outside the hours 01-07", best)

@@ -70,9 +70,8 @@ def config_data(config):
         titles[title_id] = entry
     return {
         "state_dir": str(config.state_dir),
-        "tester": {"name": config.tester, "machine": config.machine},
+        "tester": {"machine": config.machine},
         "machine": dict(config.machine_info),
-        "github": {"app": config.github_app},
         "schedule": dict(config.schedule),
         "client": {"testing": config.testing, "tray": config.tray, "text_size": config.text_size, "view": config.view},
         "source": {"repo_dir": str(config.repo_dir), "remote": config.remote, "cmake_args": list(config.cmake_args)},

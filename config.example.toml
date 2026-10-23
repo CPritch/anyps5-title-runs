@@ -5,11 +5,6 @@
 # same file system as your dumps. Default: ~/.local/share/anyps5-title-runs (Linux), %LOCALAPPDATA% (Windows).
 # state_dir = "/path/to/a/big/disk/anyps5-title-runs"
 
-[github]
-# The GitHub App you sign in with (its client ID). The tool reads the project's pull requests with the sign-in and
-# posts nothing; the App needs no permissions for that. Leave it out for the tool's own App.
-# app = "Iv23liikPAbKjFujfrIB"
-
 [local]
 # Local tests: the project, and the pull requests to test (the Local tests page sets these too). Each head a pull
 # request's own author pushes is tested once, against the project's main.
@@ -21,7 +16,7 @@ prs = []
 # fixes = []
 
 [tester]
-# This machine's name, as the window shows it. Your GitHub account comes from signing in.
+# This machine's name, as the window shows it.
 machine = "my-pc"
 
 [schedule]

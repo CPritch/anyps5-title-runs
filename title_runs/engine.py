@@ -69,8 +69,7 @@ class Engine:
         ready, why = self.client.ready()
         if ready:
             return True, "", ""
-        fix = {"the first-run walkthrough is not done": "Finish the walkthrough", "no titles are set up": "Finish the walkthrough",
-               "not signed in": "Sign in…"}.get(why, "")
+        fix = {"the first-run walkthrough is not done": "Finish the walkthrough", "no titles are set up": "Finish the walkthrough"}.get(why, "")
         return False, why, fix
 
     def local_notice(self):
@@ -474,8 +473,7 @@ def report_state(entry, data):
 
 def new_config(path, state_dir=None):
     """A starting config for the walkthrough to fill: the state directory (the user's data folder unless given), the
-    App to sign in with, the schedule and the sandbox."""
+    schedule and the sandbox."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    data = {"state_dir": str(state_dir or configs.user_dirs()[1]), "github": {"app": configs.DEFAULT_APP},
-            "schedule": dict(configs.SCHEDULE), "sandbox": {"mode": "bwrap"}}
+    data = {"state_dir": str(state_dir or configs.user_dirs()[1]), "schedule": dict(configs.SCHEDULE), "sandbox": {"mode": "bwrap"}}
     Path(path).write_text("# anyps5-title-runs: written by the title-runs window. config.example.toml explains every key.\n\n" + configfile.dumps(data))

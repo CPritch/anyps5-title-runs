@@ -1,8 +1,8 @@
 """The tester's client: the status file the window, the tray and the command line read (the test running, a Stop asked
-for), the sign-in, the first-run walkthrough, and whether a test may start now.
+for), the first-run walkthrough, and whether a test may start now.
 
-Nothing runs until the tester has been through the walkthrough and signed in (ready()); then a test starts only when
-the schedule allows it (allowed_now()), or whatever it says when testing is Now.
+Nothing runs until the tester has been through the walkthrough (ready()); then a test starts only when the schedule
+allows it (allowed_now()), or whatever it says when testing is Now.
 """
 
 import datetime
@@ -11,7 +11,7 @@ import os
 import re
 from pathlib import Path
 
-from . import auth, formats, locks, platform_info
+from . import formats, locks, platform_info
 
 UNSAFE = re.compile(r"[<>`|\r\n\x00-\x08\x0b-\x1f]")
 
@@ -59,17 +59,13 @@ class Client:
         self.status = Status(self.dir / "status.json")
         self.info = info or config.machine_info or platform_info.machine_info()
         self.machine_class = formats.machine_class(self.info["gpu"], self.info["os"], self.info.get("driver", ""))
-        self._flow = None
+        for old in ("github-token.json", "github-token.json.lock"):  # the sign-in before 2026-10-23: nothing reads it now
+            if (self.dir / old).exists():
+                (self.dir / old).unlink()
+                if old.endswith(".json"):
+                    self.log("removed the old GitHub sign-in: the tool reads GitHub without one")
 
-    # -- sign-in and the walkthrough -----------------------------------------------------------------------------------
-
-    def flow(self):
-        if self._flow is None:
-            self._flow = auth.DeviceFlow(self.config.github_app, self.dir / "github-token.json")
-        return self._flow
-
-    def tester(self):
-        return self.flow().login()
+    # -- the walkthrough -----------------------------------------------------------------------------------------------
 
     def onboarded(self):
         return (self.dir / "onboarding.json").exists()
@@ -79,13 +75,11 @@ class Client:
         (self.dir / "onboarding.json").write_text(json.dumps({"completed": formats.iso(formats.now()), **answers}, indent=1))
 
     def ready(self):
-        """(True, "") once the tester has been through the walkthrough, has a game set up and is signed in."""
+        """(True, "") once the tester has been through the walkthrough and has a game set up."""
         if not self.onboarded():
             return False, "the first-run walkthrough is not done"
         if not self.config.titles:
             return False, "no titles are set up"
-        if not self.tester():
-            return False, "not signed in"
         return True, ""
 
     def allowed_now(self, at=None):

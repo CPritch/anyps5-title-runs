@@ -5,8 +5,7 @@
   title-runs window --screenshots DIR [--config FILE] [--listing FILE]   render the window's screens to DIR (offscreen)
 
 --listing: the PR listing the All pull requests page shows (default: the listing of the local tests' project, kept in the
-state directory's cache and refreshed with the tester's sign-in every 15 minutes or on request). --auto: the switch On
-schedule.
+state directory's cache and read again when the tester presses Refresh). --auto: the switch On schedule.
 All git and build work happens on the engine's worker thread; the UI reads the status file and cached data.
 """
 

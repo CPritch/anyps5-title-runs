@@ -1,6 +1,7 @@
-"""GitHub's REST API, read only, with the tester's sign-in: a project's open pull requests, a pull request's head and
-state, the workflow runs that tell who pushed a head (local_tests.py), and who signed in (auth.py). Nothing here
-writes to GitHub."""
+"""GitHub's REST API, read only and without a sign-in: a project's open pull requests (listing.py), a pull request's head
+and state, the workflow runs that tell who pushed a head, and a person's open pull requests (local_tests.py). Nothing
+here writes to GitHub. Without a sign-in GitHub allows 60 requests an hour per IP address, and 10 a minute for its
+search; RateLimited says until when when they're used up."""
 
 import datetime
 import json
@@ -40,18 +41,14 @@ def limited(error, now=None):
 
 
 class GitHubRepo:
-    """One repository, read with a token (or without one: GitHub then allows 60 requests an hour)."""
+    """One repository, read without a sign-in."""
 
-    def __init__(self, repository, token=None):
+    def __init__(self, repository):
         self.repository = repository
-        self.token = token
-        self._login = None
 
     def call(self, path, params=None):
         url = f"{API}{path}" + (f"?{urllib.parse.urlencode(params)}" if params else "")
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as response:
                 return json.loads(response.read() or b"null")
@@ -67,12 +64,6 @@ class GitHubRepo:
             if len(items) < 100:
                 break
         return out
-
-    def login(self):
-        """The signed-in account."""
-        if self._login is None and self.token:
-            self._login = self.call("/user")["login"]
-        return self._login
 
     def pull(self, number):
         """{"number", "title", "author", "head", "head_ref", "state" (open, closed or merged), "labels"}."""

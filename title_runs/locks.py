@@ -2,7 +2,7 @@
 one state folder and one config file.
 
 held(path): a file lock (<file>.lock beside it) for a read, change and write of a shared file: the status file, the
-local tests list, the config, the sign-in.
+local tests list and the config.
 
 Runner: state/client/runner.lock, held by the one process running a test on this computer, so two never run at once.
 The holder writes its process ID into the file, so another process can say who is testing. While it holds the lock it

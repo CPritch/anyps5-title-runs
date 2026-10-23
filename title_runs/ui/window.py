@@ -216,15 +216,8 @@ class SettingsTab(QWidget):
         self.engine = engine
         config = engine.config
         layout = QVBoxLayout(self)
-        machine = QGroupBox("You and this machine")
+        machine = QGroupBox("This machine")
         form = QFormLayout(machine)
-        account = QHBoxLayout()
-        self.account = QLabel("")
-        account.addWidget(self.account, 1)
-        self.sign = QPushButton("")
-        self.sign.clicked.connect(self.sign_in_or_out)
-        account.addWidget(self.sign)
-        form.addRow("GitHub account", account)
         self.machine = QLineEdit(config.machine)
         form.addRow("Machine name", self.machine)
         info = engine.client.info
@@ -271,17 +264,7 @@ class SettingsTab(QWidget):
         self.logs_group = logs
 
     def refresh(self):
-        login = self.engine.client.tester()
-        self.account.setText(f"Signed in as {login}" if login else "not signed in")
-        self.sign.setText("Sign out" if login else "Sign in…")
         self.log.setPlainText(self.engine.log_tail())
-
-    def sign_in_or_out(self):
-        if self.engine.client.tester():
-            self.engine.client.flow().sign_out()
-            self.refresh()
-        else:
-            self.engine.window.walkthrough("sign-in")
 
     def self_test(self):
         self.sandbox_label.setText(self.engine.sandbox_self_test())
@@ -335,7 +318,7 @@ class AppTab(QWidget):
 
 
 class SettingsPage(QScrollArea):
-    """One page of sections: you and this machine, when to test, your games, the app, the sandbox and logs."""
+    """One page of sections: this machine, when to test, your games, the app, the sandbox and logs."""
 
     def __init__(self, engine):
         super().__init__()
@@ -437,9 +420,8 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def fix_readiness(self):
-        """Home's Finish setting up: the walkthrough, or its sign-in."""
-        _, _, fix = self.engine.readiness()
-        self.walkthrough({"Finish the walkthrough": "what", "Sign in…": "sign-in"}.get(fix, "what"))
+        """Home's Finish setting up: the walkthrough."""
+        self.walkthrough()
 
     def open_report(self, number):
         """A local test's report: the PR's link first, the text to copy, Mark as posted. Nothing is posted from here."""

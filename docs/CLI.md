@@ -12,7 +12,7 @@ This computer
   testing           Show or set the testing switch: off, schedule or now.
   stop              End the running test now, and set testing to off.
   run               Run tests here without the window, as the switch and the schedule allow, until stopped.
-  check             Check this computer can test: the sandbox, your games and the sign-in.
+  check             Check this computer can test: the sandbox and your games.
   log               The last lines of this computer's log, and of the latest test's.
 
 Local tests: pull requests you pick, tested on this computer. Nothing is posted.
@@ -29,16 +29,14 @@ Local tests: pull requests you pick, tested on this computer. Nothing is posted.
   local main        What local tests are measured against now (--latest: main afresh at the next test).
   local repository  Show or set the project whose pull requests your local tests come from.
 
-Your account, your games and the window
-  sign-in           Sign in with GitHub: shows a code to type at github.com/login/device, then waits.
-  sign-out          Forget the sign-in on this computer.
+Your games and the window
   games list        Your games: each one's test, scenario and folder.
   games scenario    Show or choose the scenario a game is timed in.
   window            Open the window (the first-run walkthrough if the config is new).
 
 Options
   --config FILE   the config (default: $TITLE_RUNS_CONFIG, else anyps5-title-runs/config.toml in your config folder)
-  --json          print JSON: one object, or one per line for run and sign-in
+  --json          print JSON: one object, or one per line for run
 
 Exit codes: 0 done, 1 couldn't (the message says why), 2 the command was written wrong.
 Nothing here posts anything or writes to GitHub: you post reports yourself.
@@ -63,7 +61,7 @@ options:
   -h, --help  show this help message and exit
 
 Changes: Nothing.
-JSON (--json): {"headline", "detail", "kind": "running|setup|off|idle|waiting|ready|error", "testing", "running": {"pr", "head", "title", "step", "progress"} or null, "busy_elsewhere", "next": {"pr", "title", "head"} or null, "notes": [...], "signed_in", "machine", "project", "config", "state"}
+JSON (--json): {"headline", "detail", "kind": "running|setup|off|idle|waiting|ready|error", "testing", "running": {"pr", "head", "title", "step", "progress"} or null, "busy_elsewhere", "next": {"pr", "title", "head"} or null, "notes": [...], "machine", "project", "config", "state"}
 
 Examples:
   title-runs status
@@ -151,12 +149,12 @@ Examples:
 
 ### `title-runs check`
 
-Check this computer can test: the sandbox, your games and the sign-in.
+Check this computer can test: the sandbox and your games.
 
 ```
 usage: title-runs check [-h]
 
-Check this computer can test: the sandbox, your games and the sign-in.
+Check this computer can test: the sandbox and your games.
 
 Runs the sandbox's self-test (no internet and none of your files inside; the graphics card available
 to the game) and says whether anything else keeps tests from starting.
@@ -165,7 +163,7 @@ options:
   -h, --help  show this help message and exit
 
 Changes: Nothing.
-JSON (--json): {"sandbox", "sandbox_ok", "ready", "why", "games": [{"title_id", "name", "test", "scenario", "folder"}], "signed_in"}
+JSON (--json): {"sandbox", "sandbox_ok", "ready", "why", "games": [{"title_id", "name", "test", "scenario", "folder"}]}
 
 Examples:
   title-runs check
@@ -495,48 +493,7 @@ Examples:
   title-runs local repository boykopovar/AnyPS5
 ```
 
-## Your account, your games and the window
-
-### `title-runs sign-in`
-
-Sign in with GitHub: shows a code to type at github.com/login/device, then waits.
-
-```
-usage: title-runs sign-in [-h]
-
-Sign in with GitHub: shows a code to type at github.com/login/device, then waits.
-
-The sign-in reads the project's pull requests for your local tests (GitHub allows 60 requests an
-hour without one). Nothing is posted with it.
-
-options:
-  -h, --help  show this help message and exit
-
-Changes: Keeps the sign-in on this computer.
-JSON (--json): one object per line: {"verification_uri", "user_code"}, then {"signed_in": LOGIN}
-
-Examples:
-  title-runs sign-in
-```
-
-### `title-runs sign-out`
-
-Forget the sign-in on this computer.
-
-```
-usage: title-runs sign-out [-h]
-
-Forget the sign-in on this computer.
-
-options:
-  -h, --help  show this help message and exit
-
-Changes: Removes the sign-in from this computer.
-JSON (--json): {"signed_in": null}
-
-Examples:
-  title-runs sign-out
-```
+## Your games and the window
 
 ### `title-runs games list`
 
