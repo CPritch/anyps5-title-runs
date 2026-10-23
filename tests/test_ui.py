@@ -22,9 +22,8 @@ HEAD = "69ac2e155ad018ed1fb9028d2028d15999a8571e"
 DEVICE = {"device_code": "d", "user_code": "WDJB-MJHT", "verification_uri": "https://github.com/login/device", "interval": 5, "expires_in": 900}
 
 
-def listed(number, title="t", body="", labels=(), author="someuser", draft=False, state="OPEN"):
-    return {"number": number, "title": title, "body": body, "state": state, "isDraft": draft, "author": {"login": author}, "headRefOid": HEAD,
-            "labels": {"nodes": [{"name": n} for n in labels]}}
+def listed(number, title="t", body="", labels=(), author="someuser", draft=False):
+    return {"number": number, "title": title, "body": body, "draft": draft, "author": author, "head": HEAD, "labels": list(labels)}
 
 
 def signing_in(login="tester"):
@@ -37,7 +36,7 @@ def signing_in(login="tester"):
 class Model(unittest.TestCase):
     def test_four_sections(self):
         prs = [listed(8104, labels=["perf"]), listed(6488, body="- [x] Unblocks: PPSA04263"), listed(7000, labels=["agc"]), listed(7001),
-               listed(7002, draft=True), listed(7003, state="CLOSED")]
+               listed(7002, draft=True)]
         sections = model.pr_sections(prs, {8104}, {"PPSA04263": "GTA V"})
         self.assertEqual([[r["number"] for r in sections[name]] for name in model.SECTIONS], [[8104], [6488], [7000], [7001]])
         mine = sections[model.SECTIONS[0]][0]
@@ -208,14 +207,11 @@ class Window(unittest.TestCase):
         other.data["prs"]["6321"] = {"number": 6321}
         other.save()
         self.assertEqual(self.engine.listing(), [])  # another repository's listing is not shown
-        self.assertEqual(self.engine.listing_note(), "Pull requests of CPritch/AnyPS5: not listed yet")
-        pages = {"repository": {"pullRequests": {"nodes": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}
-        with mock.patch.object(self.engine.client, "tester", return_value="tester"), \
-                mock.patch("title_runs.listing.GraphQL.query", return_value=pages) as query:
-            self.engine.refresh_listing()
-            self.engine.refresh_listing()  # fresh: not listed again
-        self.assertEqual(query.call_count, 1)
-        self.assertEqual(query.call_args[0][1]["owner"], "CPritch")
+        self.assertEqual(self.engine.listing_note(), "Pull requests of CPritch/AnyPS5: not listed yet, Refresh reads them")
+        with mock.patch("title_runs.gh.GitHubRepo.pages", return_value=[make_pr(6321, "a" * 40)]) as pages:
+            self.engine.refresh_listing()  # Refresh
+        self.assertEqual(pages.call_args.args[0], "/repos/CPritch/AnyPS5/pulls")
+        self.assertEqual([pr["number"] for pr in self.engine.listing()], [6321])
         self.assertIn("Pull requests of CPritch/AnyPS5, listed", self.engine.listing_note())
 
 
@@ -236,7 +232,8 @@ class LocalTestsInTheWindow(unittest.TestCase):
         self.listing = Path(tempfile.mkdtemp()) / "listing.json"
         store = listing.Listing(self.listing)
         store.data["repository"] = "boykopovar/AnyPS5"
-        store.merge([make_pr(6488, "a" * 40, body="- [x] Unblocks: PPSA04263"), make_pr(4287, "7" * 40)])
+        store.data["prs"] = {str(pr["number"]): listing.shape(pr) for pr in (make_pr(6488, "a" * 40, body="- [x] Unblocks: PPSA04263"),
+                                                                           make_pr(4287, "7" * 40))}
         store.save()
         self.config = make_config(github_app="Iv23testapp", local_repository="boykopovar/AnyPS5", local_prs=[4287])
         self.engine = app.Engine(self.config, listing=self.listing)

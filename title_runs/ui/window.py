@@ -32,7 +32,8 @@ class PullRequestsTab(QWidget):
         self.note = bold("")
         top.addWidget(self.note)
         refresh = QPushButton("Refresh")
-        refresh.setToolTip("List the pull requests again now (otherwise every 15 minutes)")
+        refresh.setToolTip("Read the project's open pull requests from GitHub now. Each 100 is one of the 60 requests an hour "
+                           "GitHub allows without a sign-in, so this page doesn't refresh by itself.")
         refresh.clicked.connect(lambda: engine.work.put(("listing", None)))
         top.addWidget(refresh)
         self.added = theme.mark(QLabel(""), role="muted")

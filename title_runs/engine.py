@@ -100,8 +100,6 @@ class Engine:
             import webbrowser
             webbrowser.open(url)
 
-    LISTING_MINUTES = 15
-
     def listing_store(self):
         """The listing of the local tests' project."""
         if self.listing_file:
@@ -117,21 +115,23 @@ class Engine:
     def listing_note(self):
         store = self.listing_store()
         when = store.refreshed()
-        return (f"Pull requests of {self.repository}, listed {formats.parse_time(when).astimezone():%H:%M}" if when
-                else f"Pull requests of {self.repository}: not listed yet")
+        note = (f"Pull requests of {self.repository}, listed {formats.parse_time(when).astimezone():%H:%M}" if when
+                else f"Pull requests of {self.repository}: not listed yet, Refresh reads them")
+        if self.github_wait and formats.now() < self.github_wait:
+            note += f" (GitHub's limit is used up until {self.github_wait.astimezone():%H:%M})"
+        return note
 
-    def refresh_listing(self, force=False):
-        """Bring the listing up to date with the tester's sign-in (the worker thread only)."""
-        if self.listing_file or not self.client.tester() or "/" not in (self.repository or ""):
+    def refresh_listing(self):
+        """Read the project's open pull requests again (the worker thread only, when the tester presses Refresh)."""
+        if self.listing_file or "/" not in (self.repository or ""):
             return
-        store = self.listing_store()
-        when = store.refreshed()
-        if not force and when and formats.now() - formats.parse_time(when) < datetime.timedelta(minutes=self.LISTING_MINUTES):
+        if self.github_wait and formats.now() < self.github_wait:
             return
-        owner, name = self.repository.split("/")
         try:
-            store.refresh(listings.GraphQL(self.client.flow().token, reserve=200), owner, name, max_pages=20)
-            store.save()
+            count = self.listing_store().refresh(gh.GitHubRepo(self.repository))
+            self.log(f"listed {count} open pull requests of {self.repository}")
+        except gh.RateLimited as error:
+            self.limited(error)
         except Exception as error:  # noqa: BLE001 (the listing is a convenience; local tests do not depend on it)
             self.log(f"could not list the pull requests of {self.repository}: {error}")
 
@@ -447,14 +447,13 @@ class Engine:
             try:
                 self.sync_config()
                 if kind == "listing":
-                    self.refresh_listing(force=True)
+                    self.refresh_listing()
                 else:
                     if kind == "local":  # the list changed: read it from GitHub before anything starts
                         self.refresh_local(force=True)
                     if self.config.testing != "off":
                         self.log(self.next_test())
                 if kind != "listing" and not self.quitting:
-                    self.refresh_listing()
                     self.refresh_local()
             except locks.Busy as error:  # another process is testing here: its status stays as it is
                 self.log(str(error))

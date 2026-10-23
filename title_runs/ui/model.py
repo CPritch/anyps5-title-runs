@@ -24,16 +24,17 @@ def short_name(name):
 
 def pr_sections(listing_prs, listed, titles, query="", dismissed=()):
     """The All pull requests page: {section: [row]} with row {"number", "title", "author", "head", "titles", "badge",
-    "add"}; add is True for a PR not on the local tests list (listed, its numbers)."""
+    "add"}, from the listing's open pull requests (listing.shape); add is True for a PR not on the local tests list
+    (listed, its numbers)."""
     query = query.strip().lower()
     out = {name: [] for name in SECTIONS}
     for pr in sorted(listing_prs, key=lambda p: -p["number"]):
-        if pr.get("state") != "OPEN" or pr.get("isDraft"):
+        if pr.get("draft"):
             continue
-        text = f"#{pr['number']} {pr['title']} {(pr.get('author') or {}).get('login', '')}".lower()
+        text = f"#{pr['number']} {pr['title']} {pr.get('author', '')}".lower()
         if query and query not in text:
             continue
-        row = {"number": pr["number"], "title": pr["title"], "author": (pr.get("author") or {}).get("login", ""), "head": pr.get("headRefOid", ""),
+        row = {"number": pr["number"], "title": pr["title"], "author": pr.get("author", ""), "head": pr.get("head", ""),
                "titles": "", "badge": "", "add": True}
         if pr["number"] in listed:
             row.update(add=False, badge="✓ on your list")

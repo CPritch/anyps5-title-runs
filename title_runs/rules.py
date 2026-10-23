@@ -17,5 +17,5 @@ def unblocks(body):
 
 
 def labels(pr):
-    return {label["name"] for label in (pr.get("labels") or {}).get("nodes", [])}
+    return set(pr.get("labels") or [])
 
