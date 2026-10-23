@@ -537,3 +537,34 @@ nothing posts.
    setup's maintainer there, and doesn't start or warn about its relay.
 4. **Up next** labels a local test "Local test".
 
+
+## The command line (2026-10-23)
+
+For people and for agents driving the tool (a maintainer's agent asking for and tracking tests, a tester's agent
+running local tests and fetching their reports). The first round's poller and bot poster are gone with it: nothing in
+the tool posts a local result, and nothing reads through the gh command line but the relay fallback below.
+
+1. **One table** (`cli.COMMANDS`): each command's group, summary, description, what it changes, its JSON and examples.
+   The parser, `title-runs help`, each command's `--help` and docs/CLI.md are made from it, and a test checks
+   docs/CLI.md matches, so the help can't drift from the commands. Commands are words a person would use: `status`,
+   `testing now`, `local add 4287`, `local report 4287`, `run --once`, `stop`.
+2. **What it changes**, in every command's help ("Changes: ..."), and the commands that write to GitHub marked
+   `[writes to GitHub]` in the list: `queue add`, `machines approve` and `decline`, `register` (as you), and `relay`
+   (the workflow, as the App). Everything else changes at most this computer's settings and lists.
+3. **For scripts and agents**: `--json` on every command (one object; one per line for `run` and `sign-in`, which go on
+   for a while), exit codes 0 (done), 1 (couldn't, with why) and 2 (written wrong), no prompts.
+4. **The same engine as the window.** The window's logic moved to `engine.py`, which has no Qt; the window
+   (`ui/app.py`) adds only opening links through the desktop. The command line works without PySide6, but `window`.
+5. **The window and the command line at once**, on one state folder and one config (`locks.py`):
+   - the status file, the local tests list, the config and the sign-in's refresh are each changed under a file lock
+     (GitHub replaces the refresh token, so two processes must not both use it);
+   - one test runs on a computer at a time (the runner lock, which names the process holding it); a process that
+     isn't testing leaves the status file to the one that is;
+   - a stop asked for in either (Stop in the window, `title-runs stop`) ends the test where it runs: the holder of the
+     runner lock watches the status file for it;
+   - a setting changed on the command line reaches the open window within two seconds, and a save by the window keeps
+     it: the window takes the settings changed on disk since it last read or wrote the file, except those it changed
+     itself.
+6. **The relay fallback.** A maintainer's open window starts the relay workflow when GitHub's schedule hasn't run it
+   for 6 minutes: with the App sign-in, else with `gh workflow run` (the maintainer's gh login). It is the one place
+   the tool uses the gh command line.
