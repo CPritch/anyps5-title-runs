@@ -470,6 +470,53 @@ class MainScreenModel(unittest.TestCase):
 
 
 @unittest.skipIf(QApplication is None, "needs PySide6")
+@unittest.skipIf(QApplication is None, "PySide6 not installed")
+class ReportWindowTraces(unittest.TestCase):
+    """The report window lists the result's traces to drag into the comment, all selected; one over GitHub's limit is
+    listed, can't be dragged, and the window says the report lacks what the form asks for."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def dialog(self, files):
+        import tempfile
+        import types
+        from title_runs.ui.local import ReportDialog
+        folder = Path(tempfile.mkdtemp())
+        for item in files:
+            if item["fits"]:
+                item["file"] = folder / item["name"]
+                item["file"].write_bytes(b"")
+        entry = {"pr": 4287, "head": "7" * 40, "main": "4" * 40, "at": "2026-10-23T12:00:00Z", "job": "4287-777777777777-prologue"}
+        engine = types.SimpleNamespace(local_results=lambda number: [{"entry": entry, "text": "Ran this on ...", "stale": "", "link": "https://example.org/pull/4287"}],
+                                       local_attachments=lambda entry: (folder, files))
+        return ReportDialog(engine, 4287)
+
+    def test_the_traces_are_selected_to_drag_together(self):
+        files = [{"name": f"aps5-trace-c49fa17ee046-3-PPSA04263-main-{n}.json.gz", "size": 19_400_000, "fits": True} for n in (1, 2)]
+        dialog = self.dialog(files)
+        self.assertEqual(dialog.files.count(), 2)
+        self.assertEqual(dialog.files.item(0).text(), "aps5-trace-c49fa17ee046-3-PPSA04263-main-1.json.gz   19.4 MB")
+        urls = dialog.files.mimeData(dialog.files.selectedItems()).urls()
+        self.assertEqual([url.toLocalFile() for url in urls], [str(f["file"]) for f in files])
+        self.assertTrue(dialog.too_big.isHidden())
+
+    def test_a_trace_over_githubs_limit_is_listed_and_not_dragged(self):
+        files = [{"name": "aps5-trace-c49fa17ee046-3-PPSA04263-main-1.json.gz", "size": 19_400_000, "fits": True},
+                 {"name": "aps5-trace-c49fa17ee046-3-PPSA04263-main-2.json.gz", "size": 35_600_000, "fits": False}]
+        dialog = self.dialog(files)
+        big = dialog.files.item(1)
+        self.assertEqual(big.text(), "aps5-trace-c49fa17ee046-3-PPSA04263-main-2.json.gz   35.6 MB, over GitHub's 25 MB")
+        self.assertFalse(big.flags() & Qt.ItemIsDragEnabled)
+        self.assertEqual(len(dialog.files.selectedItems()), 1)
+        self.assertIn("1 of these traces can't be attached", dialog.too_big.text())
+        self.assertFalse(dialog.too_big.isHidden())
+
+    def test_no_traces_no_list(self):
+        self.assertTrue(self.dialog([]).files_box.isHidden())
+
+
 class GameViewFinding(unittest.TestCase):
     """The game's window is found by its class (the title ID), whenever it opened: on 2026-10-22 the view missed every
     run of a test because the window opened before the view took its list of windows, and XWayland gave each later

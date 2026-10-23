@@ -1,12 +1,14 @@
 """The Local tests page and the report window: pull requests the tester picks, tested on this computer against the
 project's main (with any fixes carried on both sides), each result with a report the tester may post themselves.
-Nothing here posts anything: the report window gives the pull request's link, the text to copy, and Mark as posted.
-Data from app.Engine (local_rows, local_results and the local_* actions)."""
+Nothing here posts anything: the report window gives the pull request's link, the text to copy, the traces to drag
+into the comment, and Mark as posted. Data from app.Engine (local_rows, local_results and the local_* actions)."""
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import QMimeData, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication
-from PySide6.QtWidgets import (QComboBox, QDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPlainTextEdit,
-                               QPushButton, QTableWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+                               QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QTableWidget, QVBoxLayout, QWidget)
+
+from .. import protocol
 
 from ..relay.render import utc
 from . import theme
@@ -173,8 +175,24 @@ class LocalTestsPage(QWidget):
         self.table.resizeRowsToContents()
 
 
+class FileList(QListWidget):
+    """Files dragged out of the app, into a GitHub comment: each item carries its file's path (Qt.UserRole)."""
+
+    def __init__(self):
+        super().__init__()
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragOnly)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+
+    def mimeData(self, items):
+        data = QMimeData()
+        data.setUrls([QUrl.fromLocalFile(str(item.data(Qt.UserRole))) for item in items if item.data(Qt.UserRole)])
+        return data
+
+
 class ReportDialog(QDialog):
-    """One PR's report: the link to post it on first, the text (editable), Copy, Open the pull request, Mark as posted."""
+    """One PR's report: the link to post it on first, the text (editable), the traces to attach, Copy, Open the pull
+    request, Mark as posted."""
 
     def __init__(self, engine, number, parent=None):
         super().__init__(parent)
@@ -202,6 +220,24 @@ class ReportDialog(QDialog):
         self.text = QPlainTextEdit()
         self.text.setLineWrapMode(QPlainTextEdit.WidgetWidth)
         layout.addWidget(self.text, 1)
+        self.files_box = QWidget()
+        files = QVBoxLayout(self.files_box)
+        files.setContentsMargins(0, 0, 0, 0)
+        heading = QHBoxLayout()
+        heading.addWidget(theme.mark(QLabel("Traces to attach"), role="heading"))
+        heading.addStretch(1)
+        self.open_folder = QPushButton("Open the folder")
+        self.open_folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.folder))))
+        heading.addWidget(self.open_folder)
+        files.addLayout(heading)
+        self.too_big = amber()
+        files.addWidget(self.too_big)
+        self.files_hint = rich("The project's form asks for each trace. Drag them into your comment under Traces, or from the folder.", role="muted")
+        files.addWidget(self.files_hint)
+        self.files = FileList()
+        files.addWidget(self.files)
+        layout.addWidget(self.files_box)
+        self.folder = None
         buttons = QHBoxLayout()
         self.copy = theme.mark(QPushButton("Copy report"), primary="true")
         self.copy.clicked.connect(self.copy_text)
@@ -230,12 +266,40 @@ class ReportDialog(QDialog):
             self.mark.setEnabled(False)
             return
         self.text.setPlainText(result["text"])
+        self.show_files(result["entry"])
         self.stale.setText(f"<b>Stale</b>: {result['stale']}. Test it again before posting." if result["stale"] else "")
         self.stale.setVisible(bool(result["stale"]))
         posted = result["entry"].get("posted")
         self.posted_note.setText(f"You marked this posted on {utc(posted['at'])}." if posted else "")
         self.posted_note.setVisible(bool(posted))
         self.mark.setText("Mark as not posted" if posted else "Mark as posted")
+
+    def show_files(self, entry):
+        """The result's traces (LocalTests.attach), selected so one drag takes them all; one over GitHub's limit is
+        listed but can't be dragged."""
+        self.folder, files = self.engine.local_attachments(entry)
+        self.files.clear()
+        self.files_box.setVisible(bool(files))
+        limit = f"GitHub's {protocol.ATTACH_LIMIT // 1_000_000} MB"
+        for item in files:
+            size = f"{item['size'] / 1e6:.1f} MB" if item["size"] is not None else "no trace kept"
+            row = QListWidgetItem(f"{item['name']}   {size}" + ("" if item["fits"] or item["size"] is None else f", over {limit}"))
+            if item.get("file"):
+                row.setData(Qt.UserRole, str(item["file"]))
+            else:
+                row.setFlags(Qt.ItemIsEnabled)
+                row.setForeground(self.palette().placeholderText())
+            self.files.addItem(row)
+            row.setSelected(bool(item.get("file")))
+        attachable = [item for item in files if item.get("file")]
+        self.files.setFixedHeight(self.files.sizeHintForRow(0) * max(1, len(files)) + 2 * self.files.frameWidth() + 8 if files else 0)
+        self.open_folder.setEnabled(bool(attachable))
+        self.files_hint.setVisible(bool(attachable))
+        big = [item for item in files if item["size"] is not None and not item["fits"]]
+        which = "None of these traces can" if len(big) == len(files) else f"{len(big)} of these traces can't"
+        self.too_big.setText(f"<b>{which} be attached</b>: over {limit} for a file, so this report doesn't have what the "
+                             "project's form asks for. Test it again for traces that fit." if big else "")
+        self.too_big.setVisible(bool(big))
 
     def copy_text(self):
         QGuiApplication.clipboard().setText(self.text.toPlainText())

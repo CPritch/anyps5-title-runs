@@ -303,6 +303,10 @@ class Engine(QObject):
         from ..local_tests import stale
         return [{"entry": e, "text": self.local.report(e), "stale": stale(e, data), "link": self.local.pull_url(number)} for e in done]
 
+    def local_attachments(self, entry):
+        """(folder, files): a result's traces for its report, linked into one folder (LocalTests.attach)."""
+        return self.local.attach(entry)
+
     def local_add(self, text):
         number, why = self.local.parse(text)
         if number is None:
