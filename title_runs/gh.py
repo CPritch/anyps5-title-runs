@@ -142,10 +142,6 @@ class GitHubRepo(Repo):
         return sorted(({"created_at": r["created_at"], "actor": (r.get("actor") or {}).get("login"), "event": r["event"], "head_sha": r["head_sha"]}
                        for r in runs), key=lambda r: r["created_at"])
 
-    def dispatch(self, workflow, ref="main"):
-        """Start a workflow_dispatch run (needs Actions: write for the token)."""
-        self.call("POST", f"/repos/{self.repository}/actions/workflows/{workflow}/dispatches", {"ref": ref})
-
     def label_actor(self, number, label):
         events = self.pages(f"/repos/{self.repository}/issues/{number}/events", limit=3)
         added = [e for e in events if e["event"] == "labeled" and (e.get("label") or {}).get("name") == label]

@@ -542,7 +542,7 @@ nothing posts.
 
 For people and for agents driving the tool (a maintainer's agent asking for and tracking tests, a tester's agent
 running local tests and fetching their reports). The first round's poller and bot poster are gone with it: nothing in
-the tool posts a local result, and nothing reads through the gh command line but the relay fallback below.
+the tool posts a local result, and nothing uses the gh command line.
 
 1. **One table** (`cli.COMMANDS`): each command's group, summary, description, what it changes, its JSON and examples.
    The parser, `title-runs help`, each command's `--help` and docs/CLI.md are made from it, and a test checks
@@ -565,6 +565,7 @@ the tool posts a local result, and nothing reads through the gh command line but
    - a setting changed on the command line reaches the open window within two seconds, and a save by the window keeps
      it: the window takes the settings changed on disk since it last read or wrote the file, except those it changed
      itself.
-6. **The relay fallback.** A maintainer's open window starts the relay workflow when GitHub's schedule hasn't run it
-   for 6 minutes: with the App sign-in, else with `gh workflow run` (the maintainer's gh login). It is the one place
-   the tool uses the gh command line.
+6. **No relay fallback.** A maintainer's open window used to start the relay workflow with `gh workflow run` (the
+   maintainer's gh login) when GitHub's schedule hadn't run it for 6 minutes. It is gone: the tool doesn't use the gh
+   command line or anyone's gh login. Until the relay has another way to start, it runs when GitHub's schedule runs it
+   (11 times from 21 to 23 October, 2 to 6 hours apart).

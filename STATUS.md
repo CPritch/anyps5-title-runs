@@ -27,8 +27,8 @@ Where the tool stands. DESIGN.md has the decisions and why; README.md how to use
   92.0 ms). Repeatable runs need saves in missions, and none are published decrypted: they would come from play, as
   would recorded input for longer runs.
 - **Dragging traces from the window into a browser** is untested (the window and Chrome are both X11 windows here).
-- **GitHub's schedule doesn't run the relay reliably**: a maintainer's open window starts it, with the App sign-in or,
-  failing that, `gh workflow run` (in use on this laptop).
+- **GitHub's schedule runs the relay hours apart** (11 runs from 21 to 23 October, 2 to 6 hours apart, for a schedule of
+  every 5 minutes). The window no longer starts it with `gh workflow run`, so a label waits for the next of those runs.
 - **Not built yet**: posting a report through a narrowly scoped App with the tester's approval for each post, spotting
   reports posted by hand, and a packaged release.
 - **Not run yet**: Windows.

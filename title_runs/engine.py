@@ -533,37 +533,6 @@ class Engine:
         except Exception as error:  # noqa: BLE001
             self.log(f"could not read the local tests list: {error}")
 
-    RELAY_STALE = datetime.timedelta(minutes=6)
-    RELAY_EVERY = datetime.timedelta(minutes=5)
-
-    def keep_relay_going(self, now=None):
-        """GitHub's schedule for the relay can fail to fire at all (it did on the first real repository). While a
-        maintainer's app is open, it starts the relay itself when the last run is over 6 minutes old, at most every 5
-        minutes: with the maintainer's own sign-in (if the App may start workflows), else the gh command line. Returns
-        how it was started, or None."""
-        now = now or formats.now()
-        if not self.client.maintainer():
-            return None
-        last = self.client.repo.cursors().get("last_run")
-        if last and now - formats.parse_time(last) < self.RELAY_STALE:
-            return None
-        if getattr(self, "_dispatched", None) and now - self._dispatched < self.RELAY_EVERY:
-            return None
-        self._dispatched = now
-        repository = self.results_repository()
-        try:
-            from . import gh
-            gh.GitHubRepo(repository, token=self.client.flow().token()).dispatch("relay.yml")
-            how = "the App sign-in"
-        except Exception:  # noqa: BLE001 (the App may not have Actions: write; gh is the fallback)
-            done = subprocess.run(["gh", "workflow", "run", "relay.yml", "-R", repository], capture_output=True, text=True)
-            if done.returncode != 0:
-                self.log(f"could not start the relay: {done.stderr.strip()[:200]}")
-                return None
-            how = "gh"
-        self.log(f"started the relay workflow ({how}): its last run was {last or 'never'}")
-        return how
-
     # -- the worker thread ---------------------------------------------------------------------------------------------
 
     def adopt_old_pause(self):
@@ -640,10 +609,6 @@ class Engine:
                 self.log(f"error: {error}")
             if not self.quitting:
                 self.load(sync=True)
-                try:
-                    self.keep_relay_going()
-                except Exception as error:  # noqa: BLE001 (a convenience; never stops the worker)
-                    self.log(f"relay check: {error}")
 
 
 def report_state(entry, data):
