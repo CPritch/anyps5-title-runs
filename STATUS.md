@@ -10,6 +10,11 @@ Where the tool stands. DESIGN.md has the decisions and why; README.md how to use
   the traces named by run and linked into one folder to drag into the comment. First used on #4287 on 2026-10-23.
 - **Scenarios**: GTA V's prologue (the default, no save) and Franklin's front door (a PS4 100% save, downloaded and
   checked against its sha256), each run checked to be in its scene.
+- **Recording a scenario** (2026-10-23): a controller's play recorded from a scenario's scene and played back in every
+  run of the new scenario (DESIGN.md, "Recorded play"). Tested in GTA V with a scripted controller: the input walks
+  Franklin out of his house, and the playback follows it. Not yet with a real controller, and no timed A/B has run in a
+  recorded scenario yet. GTA V's autosave prompt stops a walk out of Franklin's house about 25 s in, unless autosave is
+  off in the profile save.
 - **Reading GitHub without a sign-in**: heads from git; a refresh of 17 pull requests and a fix cost one API request
   on 2026-10-23, and All pull requests' Refresh 14 (AnyPS5's 1,314 open pull requests, in 14.5 s).
 - **The window**: Home, Local tests, All pull requests (with Add, read on Refresh) and Settings; the game shown inside
@@ -29,8 +34,8 @@ still runs on GitHub's schedule, hours apart.
 ## Open
 
 - **The house scenario isn't fit for verdicts**: GTA V picks a camera framing at each load (main's two runs 86.8 and
-  92.0 ms). Repeatable runs need saves in missions, and none are published decrypted: they would come from play, as
-  would recorded input for longer runs.
+  92.0 ms). Recorded play from it (longer, so more of each run is the same) is the next thing to try; saves in
+  missions would come from play too, as none are published decrypted.
 - **Dragging traces from the window into a browser** is untested (the window and Chrome are both X11 windows here).
 - **Not built yet**: spotting reports posted by hand, a packaged release, and renting machines (Vast).
 - **Not run yet**: Windows.

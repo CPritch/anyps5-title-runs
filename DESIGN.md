@@ -353,3 +353,18 @@ tool already do decided how:
   so a recording is at least 100 s. After the track ends, the starting scenario's still button carries on. A run whose
   scene never showed, so the track never started, doesn't count. Recorded scenarios are kept in the state folder
   (`scenarios/<TITLE ID>/<id>.json`), next to the tool's own.
+
+The first test (2026-10-23, main 15e71dbe1, Franklin's front door, a scripted controller in place of a real one: walk
+5 s, look right 2 s, walk 6 s, then nothing until 100 s):
+
+- **The input reaches the game.** Stick commands through the pad file walked Franklin out of his front door to his car.
+- **Playback follows the recording**, with two differences. The camera's framing at the load is GTA V's own each time
+  (known from the house), so the same walk is seen from a little further back or closer. And the recording session's
+  cache was cold where the walk went: a 16 s stall while it built pipelines swallowed part of the walk, where the
+  playback, warmer, stalled less and went further (by 19 s, Franklin was beside the car rather than at the door). So a
+  recording is best made with the cache already warm along the way: the same walk once before the one kept.
+- **GTA V asks about its autosave.** About 25 s after walking out, both runs stopped at an Alert, "The autosave slot
+  already contains '(Autosave) A Starlet In Vinewood (100.0%)' ... overwrite", and stayed there. Standing at the door
+  (the house scenario's runs) never brought it up. A player answers it, but a recorded answer only lands if it comes at
+  the same moment; turning autosave off in the game's settings (they are in the profile save the title's seed copies
+  in) keeps it from asking.

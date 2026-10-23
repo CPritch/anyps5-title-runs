@@ -128,6 +128,27 @@ which each run is checked against. A title runs in one scenario (`scenario = "<i
 page), its default when none is named. GTA V's are `prologue` (the default: a new game, no save) and `franklins-house`
 (Franklin at his front door in Vinewood Hills, from Apollo's PS4 100% save).
 
+### Recording a scenario
+
+A scenario can carry play recorded from a controller, so each run plays the same part of the game, not just stands
+in one place: Settings, Your games, **Record a scenario…**, or
+
+```
+title-runs games record PPSA04263 --from franklins-house --name "Out of the house" --scene "Franklin walks to the road"
+title-runs games scenario PPSA04263 out-of-the-house       # tests of GTA V then run in it
+```
+
+The game starts on main's build (a local test builds it) in the scenario you start from and gets to its scene by
+itself. Then it's yours: the first second is ignored, and everything the controller does goes to the game and is
+recorded, for 100 to 600 s (the timed window opens about 30 s in and lasts up to 60). Stop ends it with nothing saved.
+Every run in the new scenario plays the recording back from the first frame in that scene, at the same times; a run
+where the scene never shows doesn't count. Recorded scenarios are kept in the state folder,
+`scenarios/<TITLE ID>/<id>.json`, and can be copied into this repository's `scenarios/` to share.
+
+The controller is read from Linux's evdev, which systemd lets the logged-in user read; `title-runs check` says which
+one it finds. Any controller with the Linux gamepad layout works: its Select (Create, or Xbox's View) is the touchpad.
+DESIGN.md ("Recorded play") says why it works this way.
+
 ## The trust model
 
 A pull request's code runs on the tester's machine. What stands between that code and the machine:
