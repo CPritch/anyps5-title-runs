@@ -474,3 +474,37 @@ How it works (scenarios.py):
 The camera in the house, from Charlie (2026-10-23): don't fight the framing at the load. Play for longer instead (walk
 out of the house and on), so more of each run is the same than differs; that needs input recorded from his play and
 replayed. Saves in missions are the better way to repeatable tests, and open-world play has to work too.
+
+## Reports with their traces (2026-10-23)
+
+The project's performance form requires each trace attached (Traces: "Attach each aps5-trace-<commit>-<pid>.json.gz"),
+asks for its digest (`tools/trace_digest.py`), and has the summary lines; its capture rules are warm caches, no other
+`APS5_TRACE_*` or `APS5_PROFILE_*` switch, and the log not redirected. GitHub takes attached files other than images and
+videos up to 25 MB, and comments up to 65,536 characters. Our reports had the summary lines only, and every trace so far
+was over the limit: 700 presents of the prologue made 32 to 36 MB.
+
+What a trace's size follows (the 100 traces of 2026-10-21 and 22, this laptop): one slice per draw stage, about 4,400
+events per present in the prologue, 74 % of the bytes on the queue worker and 24 % on the draw committer. The prologue
+was 46 to 52 kB per present, the house 47 to 60 (where the camera looked further). None of that can be cut without
+another switch, so the window is what changes.
+
+1. **The window**: 60 s, or as many presents as fit a 20 MB trace at the most bytes per present of the scenario's
+   earlier timed traces on this machine, whichever is fewer (`protocol.trace_presents`), in tens and at least 100.
+   Without an earlier trace it takes 61 kB per present (GTA V's heaviest so far): 320 presents. With traces of its own
+   the prologue gets 380 presents (about 30 s), the house 330. The 5 MB left under the limit is for a stretch heavier
+   than any seen; the house's heaviest trace was a quarter above its other three. Each timed run's meta says how its
+   window was sized.
+2. **What a shorter window costs**, from the first N presents of the 20 complete prologue A/Bs (same start, p50 of the
+   present intervals, the verdict rule as it is): the larger side's spread, median 0.30 ms at 700 presents, 0.35 at 400,
+   0.40 at 350, 0.50 at 300, 0.70 at 250; no verdict changed at any of them. 1 % of main is 0.78 ms there.
+3. **The report** has, after the summary lines, a Traces line with room under it for the files, and each trace's digest
+   folded (`<details>`), in the order of the summary lines. A trace over 25 MB is named as not attached, with its
+   size. When the digests would take the report over 65,536 characters they are left out, and the report says so.
+4. **The names.** In the sandbox the game is the same process ID in every run, so a side's two traces have the same
+   name (`aps5-trace-c49fa17ee046-3.json.gz` twice). The files to attach are AnyPS5's names with the title and the run
+   added: `aps5-trace-c49fa17ee046-3-PPSA04263-main-1.json.gz`, and `-pr-1` for the runs with the PR. They are hard
+   links in `local-tests/attach/<job>/`, so they take no more space.
+5. **The report window** lists the traces under Traces to attach, all selected, so one drag from the app takes them all
+   into the comment; Open the folder opens them in the file manager. A trace over the limit is listed with its size,
+   can't be dragged, and the window says the report doesn't have what the project's form asks for, and to test it again.
+   The drag from the app (an X11 window) into Chrome (also X11 here) is untested.

@@ -114,11 +114,12 @@ written but not run against GitHub, and the fake.
 6. **Run**, per title, in the sandbox (below):
    - a title with a route (`routes/<ID>.json`): the harness's measurement protocol, main against the PR:
      warm-ups only for a build whose caches are cold, each running the route and then staying in the scene until its
-     last 60 s built no pipelines (at most 20 minutes); one 60 s window from the settle points; two counted runs per
-     side in the order A B A B, checked by the harness's `capture.py` (one window summary line, complete totals, no
-     load frame, no pipeline build in the window, frame dumps stopped before the window), a run that does not count
-     repeated once; main's `tools/performance_compare.py` per pair. The verdict rule: a difference counts when it is
-     larger than both sides' spreads.
+     last 60 s built no pipelines (at most 20 minutes); one window from the settle points, 60 s or as many presents
+     as fit a 20 MB trace (GitHub takes attached files up to 25 MB, and the project's form asks for each trace); two
+     counted runs per side in the order A B A B, checked by the harness's `capture.py` (one window summary line,
+     complete totals, no load frame, no pipeline build in the window, frame dumps stopped before the window), a run
+     that does not count repeated once; main's `tools/performance_compare.py` per pair. The verdict rule: a
+     difference counts when it is larger than both sides' spreads.
    - a title without a route: #7264's `prepare()` and `run_title()`, unchanged: boot twice (cold, then warm) for the
      title's `boot_seconds` (default: titles.json's `seconds`, else 60) and classify each run (`relink-failed`,
      `crashed`, `exited`, `stalled`, `blank`, `rendering`). `run_title()` is given a wrapper that starts the title
