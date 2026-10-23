@@ -1,24 +1,86 @@
 # anyps5-title-runs
 
-Volunteers who own game dumps follow AnyPS5 pull requests. Every new head of a followed PR is built and run on their
-titles automatically, and a bot keeps one comment per PR and machine up to date with the results. Developers get title
-runs on hardware and games they do not have, without asking each time.
+Test AnyPS5 pull requests on your own games and hardware. A pull request's head is built, run in a sandbox on a game
+you own, and timed against main the way the project's performance reports ask; the result goes to the pull request,
+or stays on your computer until you post it yourself. Developers get timings on hardware and games they don't have.
 
-Python 3.11 or later; the engine and the workflows use the standard library only, the tray and the window PySide6.
-Linux (bubblewrap for the sandbox); the client's platform code has Windows paths written but not yet run.
+Python 3.11 or later, the standard library only; the window needs PySide6. Linux, with bubblewrap for the sandbox; the
+Windows paths are written but not run yet.
 
-DESIGN.md describes the tool we are aiming for, FORMATS.md the results repository's files and the testers' comments.
 Tests come from two places:
 
-- **The queue** (below): maintainers install one GitHub App and keep one public results repository with one scheduled
-  workflow. They queue a PR's head with a label or a `/title-test` command. Testers sign in through the App, register
-  their machine, and report as comments on per-job issues. `title-runs standin` plays GitHub, the results repository
-  and its workflow on one machine, for development.
-- **Local tests**: pull requests a tester picks, tested on their computer against the project's main, with a report
-  in the project's own form that stays there until they post it themselves. A project that hasn't set up the queue
-  gets local tests only.
+- **The queue**: maintainers install one GitHub App and keep one public results repository with one scheduled
+  workflow. They queue a pull request's head with a label or a `/title-test` command. Testers sign in through the App,
+  register their machine, and report as comments on per-job issues.
+- **Local tests**: pull requests you pick, tested on your computer against the project's main, with a report in the
+  project's own form that stays there until you post it. A project that hasn't set up the queue gets local tests only.
 
-## The client and the results repository
+DESIGN.md says what the tool is for and why it is as it is, FORMATS.md describes the results repository's files and
+the testers' comments, and docs/CLI.md every command.
+
+## Getting started
+
+```
+git clone https://github.com/CPritch/anyps5-title-runs ~/src/anyps5-title-runs
+sudo pacman -S bubblewrap                    # or your distribution's package; and PySide6 for the window
+~/src/anyps5-title-runs/title-runs window    # a new config: the first-run walkthrough sets it up
+```
+
+The walkthrough covers what the tool does and what leaves the computer, the sandbox and what it doesn't protect
+against, when tests may run (idle where the computer can tell, otherwise set hours; on mains power; a pause while
+something is fullscreen), your games and the AnyPS5 clone, signing in with GitHub, and registering the machine.
+Nothing runs before it is done.
+
+For a project that hasn't set up the queue, a config with `[results] url = ""` and `app` (the GitHub App to sign in
+with) runs local tests only: nothing to register, nothing sent (DESIGN.md, "Local tests only"). Open it with
+`title-runs window --config FILE`.
+
+## The command line
+
+`title-runs` does what the window does, from the same config and state folder, with the window open or without it:
+
+```
+title-runs status                    what this computer is doing, and anything to fix
+title-runs testing now               the testing switch: off, schedule or now
+title-runs local add 4287            a pull request for your local tests
+title-runs run --once                one test now, whatever the switch says
+title-runs local report 4287         its report: the link to post it on first, then the text
+title-runs local files 4287          the traces to drag into the comment
+title-runs local posted 4287         record that you posted it
+title-runs help local report         what a command does, what it changes, its JSON and examples
+```
+
+For agents and scripts: every command takes `--json` (one object; one per line for `run` and `sign-in`), and exits
+0 when done, 1 when it couldn't (the message says why) and 2 when it was written wrong. The commands that write to
+GitHub, as you, are marked in `title-runs help`; nothing else posts anything. A setting changed on the command line
+reaches an open window within a few seconds, one test runs on a computer at a time, and `title-runs stop` ends a test
+the window started. docs/CLI.md has every command, made from the commands themselves.
+
+## The window
+
+- **Home**: the testing switch (Off, On schedule, Now), the test running with its step and the game itself inside the
+  window, what's next, and the results.
+- **Local tests**: add a pull request by number or link, follow people, test again, the fixes carried on both sides
+  and the main they're measured against. Each result has a report window: the link to post it on, the text to copy,
+  the traces to drag into the comment, and Mark as posted.
+- **All pull requests** (the advanced view) and **Settings**: your account and the machine's registration, the testing
+  link, the sandbox check, what's shared, when to test, your games and their scenarios, and the logs.
+- **Maintainer tools**, for maintainers: the queue with what each test still wants, the machines and when each last
+  reported, and registrations to approve or decline.
+
+Closing the window quits and ends a running test, unless it is set to keep running in the tray. The screenshots in
+`docs/screens/` are of the round-3 window, which has changed since.
+
+## Local tests
+
+Main is pinned for 12 hours, so the pull requests tested together are measured against the same main, built and warmed
+up once. Fixes (pull requests main needs to run your games) are merged onto both sides. Only a head its author pushed
+is tested. The report is in the project's form: what ran where, main against main plus the pull request in the order
+A B A B, the summary lines, one trace per run under GitHub's 25 MB and each trace's digest. Posting is yours: a result
+not posted goes stale when the pull request gets a new head, closes or merges, or after 48 hours. Testing a head again
+keeps the earlier result. DESIGN.md has the details ("Local tests and the testing switch", "Reports with their traces").
+
+## The queue (maintainers)
 
 What a maintainer sets up (`results_repo/README.md`, and `docs/first-real-test.md` for the first one): one GitHub App
 made from its manifest with `title-runs app create` (no webhook, device flow on; Actions read, Issues and Pull
@@ -57,28 +119,6 @@ The client (`title_runs/client.py`) reads the results repository's public checko
 the best-scoring job (`schedule.py`), claims it with a comment, fetches the approved SHA and main, merges them
 locally, checks the queue again, builds and runs in the sandbox, and reports with a comment.
 
-### The window
-
-`title-runs ui --config FILE` starts the tray and the window. On first open (`--config NEW --results URL` makes a new
-config) it shows the walkthrough. The walkthrough covers what the tool does and what leaves the machine, the sandbox
-and what it doesn't protect against, and when work may run: idle where the machine can tell, otherwise set hours,
-plus mains power and a fullscreen pause. Then come the dumps and the AnyPS5 clone, signing in with GitHub by device
-code, and registering the machine. Nothing runs until the walkthrough is done, the tester is signed in and a
-maintainer has approved the machine.
-
-The window has six tabs:
-- **Queue:** a banner says what keeps the machine from taking jobs, then running, up next with the score's reasons,
-  waiting for you and recently posted.
-- **Overview:** the maintainers' view, as above, with Approve and Decline for maintainers.
-- **Pull requests**, **Schedule** and **Titles**.
-- **Settings:** account, registration, the results repository, the sandbox self-test, trusted authors and logs.
-
-`Run…` on a PR no maintainer queued opens the trust dialog. Screenshots are in `docs/screens/`. Without the window:
-`title-runs client --config FILE status|sign-in|register|use OWNER/NAME|queue|next|run-once|daemon`. The client has
-no built-in results repository; `use` (or the Settings field) switches to another one. For a project that hasn't set
-up testing with this tool, a config with `[results] url = ""` and `app` (the GitHub App to sign in with) runs local
-tests only: nothing to register, nothing sent (DESIGN.md, "Local tests only").
-
 ### The stand-in
 
 ```
@@ -88,13 +128,13 @@ python3 -I title-runs standin codes --root DIR                            # devi
 python3 -I title-runs standin authorize CODE --as LOGIN --root DIR        # a tester enters the code on GitHub
 python3 -I title-runs standin approve ISSUE --by CPritch --root DIR       # a maintainer's approved label
 python3 -I title-runs standin push 8104 SHA --by Celegans12 --root DIR    # a push to the PR, with its workflow run
-python3 -I title-runs client --config FILE run-once --ignore-schedule      # claim, build, run, report
+python3 -I title-runs --config FILE run --once                            # claim, build, run, report
 ```
 
 `title_runs/standin.py` keeps a fake GitHub (`github.json`: both repositories, accounts, permissions, the device
 flow), the results repository (`results.git`), a stand-in AnyPS5 remote, and the outbox, where every write anyone
-makes is recorded with who made it. `title_runs/gh.py` is the one interface to GitHub. It has a REST implementation,
-written but not run against GitHub, and the fake.
+makes is recorded with who made it. `title_runs/gh.py` is the one interface to GitHub. It has the REST implementation
+the workflow and the client use on GitHub, and the fake.
 
 ## What a test does
 
@@ -121,15 +161,9 @@ A test is one head of a pull request, from the queue (a maintainer approved it) 
    account, and the workflow puts it on the PR. A local test's report, in the project's own form with its traces,
    stays on this computer; the tester posts it themselves, or not.
 
-## Setup
+## The config
 
-```
-git clone <this repository> ~/src/anyps5-title-runs
-sudo pacman -S bubblewrap                    # or your distribution's package
-./title-runs ui --config ~/.config/title-runs/config.toml   # a new config: the walkthrough sets it up
-```
-
-`source.repo_dir` is a clone of the repository with its submodules checked out; jobs make worktrees from it and fill
+The window writes it; `config.example.toml` explains every key. `source.repo_dir` is a clone of the repository with its submodules checked out; jobs make worktrees from it and fill
 their submodules from its submodule repositories at each side's pins (nested ones included). Without a `.git` in the
 worktree's `3rdparty/ffmpeg-core`, CMake needs `-DFFMPEG_PREBUILT_DIR=<an unpacked ffmpeg package for the pin>` in
 `source.cmake_args`.
