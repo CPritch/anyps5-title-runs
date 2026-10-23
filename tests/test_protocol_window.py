@@ -37,7 +37,13 @@ class TracePresents(unittest.TestCase):
         timed_run(self.dir, "warm", 700, 90_000_000, lines=0)  # no window line: not a timed run's trace
         timed_run(self.dir, "twice", 700, 90_000_000, lines=2)  # two window lines: not counted, and not read
         self.assertEqual(protocol.trace_presents(self.dir),
-                         (380, "at most 380 presents fit a 20 MB trace at 51.5 kB per present, the most of 2 earlier traces here"))
+                         (380, "at most 380 presents fit a 20 MB trace at 51.5 kB per present, the most of the last 2 traces here"))
+
+    def test_the_last_eight_traces_so_the_window_follows_main(self):
+        timed_run(self.dir, "20261022-133519-A1", 700, 36_050_000)  # an older main's heavier traces
+        for n in range(8):
+            timed_run(self.dir, f"20261023-17{n:02d}00-B{n}", 320, 13_300_000)  # 41.5 kB per present on a newer main
+        self.assertEqual(protocol.trace_presents(self.dir)[0], 480)
 
     def test_at_least_100_presents(self):
         timed_run(self.dir, "A1", 100, 40_000_000)
@@ -58,7 +64,7 @@ class Window(unittest.TestCase):
         with mock.patch.object(protocol, "call", return_value=(0, "3300:700 103 warm-a,warm-b\n")):
             window = p.window()
         self.assertEqual(window, ("3300:380", 103, "warm-a,warm-b"))
-        self.assertEqual(p.window_record(window)["sized"], "at most 380 presents fit a 20 MB trace at 51.5 kB per present, the most of 1 earlier trace here")
+        self.assertEqual(p.window_record(window)["sized"], "at most 380 presents fit a 20 MB trace at 51.5 kB per present, the one earlier trace here")
 
     def test_60_s_when_that_is_fewer(self):
         runs_dir = Path(tempfile.mkdtemp())

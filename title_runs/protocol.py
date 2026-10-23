@@ -39,6 +39,7 @@ TRACE_EVENTS = 4194304
 ATTACH_LIMIT = 25_000_000  # GitHub's largest attached file other than an image or a video (25 MB)
 TRACE_TARGET = 20_000_000  # the size a window is chosen for, with room for a heavier stretch than any earlier trace had
 BYTES_PER_PRESENT = 61_000  # without an earlier trace of the scenario: GTA V's heaviest so far (Franklin's house, 60.1 kB)
+RECENT_TRACES = 8  # the window follows the scenario's last few traces (both sides of the last two tests), as main changes
 WARM_HOLD_S = 30
 WARM_MAX_S = 1200
 CAPTURE_TIMEOUT_S = 1500
@@ -360,16 +361,19 @@ class Protocol:
 
 def trace_presents(runs_dir):
     """(presents, why): how many presents fit a trace of TRACE_TARGET bytes, in tens and at least 100, at the most bytes
-    per present of the timed traces already in runs_dir (a scenario's own runs), else at BYTES_PER_PRESENT. A trace is
-    one slice per draw stage, so its size follows the scene: GTA V's prologue 46 to 52 kB per present, the house 47 to 60."""
-    most, seen = 0.0, 0
-    for trace in Path(runs_dir).glob("*/aps5-trace-*.json.gz"):
+    per present of the last RECENT_TRACES timed traces in runs_dir (a scenario's own runs; run folders are named by
+    their start), else at BYTES_PER_PRESENT. A trace is one slice per draw stage, so its size follows the scene and the
+    build: GTA V's prologue was 46 to 52 kB per present on mains of 2026-10-21 and 22, and 40 to 41.5 on 15e71dbe1."""
+    per_present = []
+    for trace in sorted(Path(runs_dir).glob("*/aps5-trace-*.json.gz")):
         lines = capture.window_line(trace.parent)
         if len(lines) == 1 and lines[0].get("presents"):
-            most, seen = max(most, trace.stat().st_size / lines[0]["presents"]), seen + 1
-    per = most or BYTES_PER_PRESENT
+            per_present.append(trace.stat().st_size / lines[0]["presents"])
+    recent = per_present[-RECENT_TRACES:]
+    per = max(recent, default=0) or BYTES_PER_PRESENT
     presents = max(100, int(TRACE_TARGET / per) // 10 * 10)
-    source = f"the most of {seen} earlier trace{'s' if seen != 1 else ''} here" if seen else "with no earlier trace here"
+    seen = len(recent)
+    source = (f"the most of the last {seen} traces here" if seen > 1 else "the one earlier trace here") if seen else "with no earlier trace here"
     return presents, f"at most {presents} presents fit a {TRACE_TARGET / 1e6:.0f} MB trace at {per / 1000:.1f} kB per present, {source}"
 
 
