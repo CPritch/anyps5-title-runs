@@ -516,3 +516,24 @@ another switch, so the window is what changes.
    25 s). Traces of 12.7 to 13.3 MB; main 75.9 and 75.4 ms, with #4287 70.7 and 70.4 ms, faster by 5.11 ms (6.8 %), as
    on 2026-10-22 with 700 presents on main 4777caca3 + #9730 (79.1, 79.0 against 73.8, 74.0). The report is 25,592
    characters with its four digests. The next prologue test gets 480 presents.
+
+## Local tests only (2026-10-23)
+
+For a project that hasn't set up testing with this tool (AnyPS5 today), the tester launches the app with a config of its
+own: no results repository (`[results] url = ""`) and the GitHub App to sign in with (`[results] app`, its client ID),
+which a results repository's config.json names otherwise. The sign-in reads the project's pull requests for local tests;
+nothing posts.
+
+1. **Ready without registering.** Walkthrough done, a game set up and signed in is all a local test needs; there is no
+   queue to take tests from and no machine to approve. A config with neither a results repository nor an App is a new
+   tester who hasn't joined one yet, as before.
+2. **The app says so**, in its words: Home has "AnyPS5 hasn't set up automated testing with this tool, so only your
+   local tests run here." (the project's name from the Local tests repository), Settings says "Nothing to register:
+   local tests only" and that nothing is sent by itself, and the walkthrough has no testing link to paste, says the
+   sign-in posts nothing, and has nothing to register.
+3. **One state folder for both configs.** Builds, warm caches, the sign-in (the same App) and the Local tests list are
+   the same either way, so switching is launching the app with the other config file; run one at a time. A local-only
+   config reads no results checkout, so the other setup's checkout in the same folder is never read: it is not that
+   setup's maintainer there, and doesn't start or warn about its relay.
+4. **Up next** labels a local test "Local test".
+
