@@ -488,10 +488,11 @@ events per present in the prologue, 74 % of the bytes on the queue worker and 24
 was 46 to 52 kB per present, the house 47 to 60 (where the camera looked further). None of that can be cut without
 another switch, so the window is what changes.
 
-1. **The window**: 60 s, or as many presents as fit a 20 MB trace at the most bytes per present of the scenario's
-   earlier timed traces on this machine, whichever is fewer (`protocol.trace_presents`), in tens and at least 100.
-   Without an earlier trace it takes 61 kB per present (GTA V's heaviest so far): 320 presents. With traces of its own
-   the prologue gets 380 presents (about 30 s), the house 330. The 5 MB left under the limit is for a stretch heavier
+1. **The window**: 60 s, or as many presents as fit a 20 MB trace at the most bytes per present of the scenario's last
+   eight timed traces on this machine (both sides of its last two tests), whichever is fewer (`protocol.trace_presents`),
+   in tens and at least 100. The last eight, not all, because a trace's size follows main too: the prologue was 46 to
+   52 kB per present on the mains of 2026-10-21 and 22, and 40 to 41.5 on 15e71dbe1. Without an earlier trace it takes
+   61 kB per present (GTA V's heaviest so far): 320 presents. The 5 MB left under the limit is for a stretch heavier
    than any seen; the house's heaviest trace was a quarter above its other three. Each timed run's meta says how its
    window was sized.
 2. **What a shorter window costs**, from the first N presents of the 20 complete prologue A/Bs (same start, p50 of the
@@ -508,3 +509,8 @@ another switch, so the window is what changes.
    into the comment; Open the folder opens them in the file manager. A trace over the limit is listed with its size,
    can't be dragged, and the window says the report doesn't have what the project's form asks for, and to test it again.
    The drag from the app (an X11 window) into Chrome (also X11 here) is untested.
+6. **The first test with it** (2026-10-23, #4287 at 7aea3fe29 against main 15e71dbe1, which has #9730, through
+   `LocalTests.run` with the app closed): the prologue's first test in its own runs folder, so 320 presents (24 to
+   25 s). Traces of 12.7 to 13.3 MB; main 75.9 and 75.4 ms, with #4287 70.7 and 70.4 ms, faster by 5.11 ms (6.8 %), as
+   on 2026-10-22 with 700 presents on main 4777caca3 + #9730 (79.1, 79.0 against 73.8, 74.0). The report is 25,592
+   characters with its four digests. The next prologue test gets 480 presents.
