@@ -17,7 +17,8 @@ against main, the way the project's performance reports ask, and post the report
 1. **The tester decides what runs.** Only pull requests they add, or open ones by people they follow, and of those only
    a head the pull request's own author pushed. Nobody else can make their machine run anything.
 2. **Nothing is posted for them.** Each result stays on their computer with a report they may post by hand.
-3. **Nothing for the project to do.** No App to install, no repository to keep, no labels.
+3. **Nothing for the project to do, nothing to sign in to.** No App to install, no repository to keep, no labels, no
+   account for the tool.
 4. **The project's reporting requirements come first.** A report has what the project's performance form asks for:
    the protocol (warm caches, A B A B, counted windows), the summary lines as AnyPS5 wrote them, and each trace
    attached. Where it can't (a trace over GitHub's limit), it says so.
@@ -37,9 +38,8 @@ against main, the way the project's performance reports ask, and post the report
 - **A test** (`job.py`, `sources.py`, `build.py`, `game.py`, `protocol.py`, `route.py`, `scenarios.py`): the head merged
   onto main locally, both built in the build sandbox, then timed main against the pull request on the tester's games
   in the title sandbox (`sandbox.py`).
-- **The sign-in** (`auth.py`, `gh.py`): GitHub's device flow through a GitHub App, the tool's own (`title-runs-dev`) or
-  the one the config names. The tool reads the project's pull requests with it; GitHub allows 60 requests an hour
-  without one. The App needs no permissions to read public repositories, so the sign-in can't write anything.
+- **Reading GitHub** (`gh.py`, `sources.pull_heads`): without a sign-in, read only. Heads come from git; the API is
+  asked only what git can't tell ("Reading GitHub without a sign-in").
 - **The verdicts** (`verdict.py`) and **the listing** of the project's pull requests (`listing.py`).
 
 ## Trust and safety
@@ -85,7 +85,6 @@ Nothing runs until the tester has been through it once. One page each:
    hours instead. Mains power only; pause while a fullscreen program or a named program runs.
 4. **Your games**: the folder the dumps are in, which have a full test and which a start-up check, and the AnyPS5 clone
    builds take main and the change from.
-5. **Sign in with GitHub**: a code to type at github.com/login/device; it reads pull requests and posts nothing.
 
 The last page sums it up and says to add pull requests on the Local tests page.
 
@@ -120,7 +119,7 @@ A sidebar with four pages:
 - **Local tests**: below ("Local tests and the testing switch").
 - **All pull requests** (the advanced view): the project's open pull requests in four sections (on your local tests,
   mentions your titles, labelled perf/agc/shader, everything else), each with Add to put it on the local tests list.
-- **Settings**: you and this machine, the sandbox check, what's shared, when to test, your games and their scenarios,
+- **Settings**: this machine, the sandbox check, what's shared, when to test, your games and their scenarios,
   the app (text size, the simple or advanced view, the tray), and in the advanced view the logs.
 
 ## Open
@@ -296,13 +295,12 @@ line.
    `testing now`, `local add 4287`, `local report 4287`, `run --once`, `stop`.
 2. **What it changes**, in every command's help ("Changes: ..."): at most this computer's settings and lists. No
    command writes to GitHub (the queue's did, until "Local tests alone").
-3. **For scripts and agents**: `--json` on every command (one object; one per line for `run` and `sign-in`, which go on
-   for a while), exit codes 0 (done), 1 (couldn't, with why) and 2 (written wrong), no prompts.
+3. **For scripts and agents**: `--json` on every command (one object; one per line for `run`, which goes on for a
+   while), exit codes 0 (done), 1 (couldn't, with why) and 2 (written wrong), no prompts.
 4. **The same engine as the window.** The window's logic moved to `engine.py`, which has no Qt; the window
    (`ui/app.py`) adds only opening links through the desktop. The command line works without PySide6, but `window`.
 5. **The window and the command line at once**, on one state folder and one config (`locks.py`):
-   - the status file, the local tests list, the config and the sign-in's refresh are each changed under a file lock
-     (GitHub replaces the refresh token, so two processes must not both use it);
+   - the status file, the local tests list and the config are each changed under a file lock;
    - one test runs on a computer at a time (the runner lock, which names the process holding it); a process that
      isn't testing leaves the status file to the one that is;
    - a stop asked for in either (Stop in the window, `title-runs stop`) ends the test where it runs: the holder of the

@@ -20,11 +20,12 @@ sudo pacman -S bubblewrap                    # or your distribution's package; a
 
 The walkthrough covers what the tool does and what leaves the computer, the sandbox and what it doesn't protect
 against, when tests may run (idle where the computer can tell, otherwise set hours; on mains power; a pause while
-something is fullscreen), your games and the AnyPS5 clone, and signing in with GitHub. Nothing runs before it is
-done. Then add the pull requests you want tested on the Local tests page, or with `title-runs local add`.
+something is fullscreen), and your games and the AnyPS5 clone. Nothing runs before it is done. Then add the pull
+requests you want tested on the Local tests page, or with `title-runs local add`.
 
-The sign-in reads the project's pull requests (GitHub allows 60 requests an hour without one) and posts nothing. It
-goes through the tool's own GitHub App unless the config's `[github] app` names another.
+There is nothing to sign in to. The tool reads GitHub as anyone can: every pull request's head from git, and from the
+API only what git can't tell, within the 60 requests an hour GitHub allows without a sign-in. All pull requests reads
+the project's open pull requests only when you press Refresh. When the limit is used up, Home says until when.
 
 ## The command line
 
@@ -41,11 +42,11 @@ title-runs local posted 4287         record that you posted it
 title-runs help local report         what a command does, what it changes, its JSON and examples
 ```
 
-For agents and scripts: every command takes `--json` (one object; one per line for `run` and `sign-in`), and exits 0
-when done, 1 when it couldn't (the message says why) and 2 when it was written wrong. No command posts anything or
-writes to GitHub. A setting changed on the command line reaches an open window within a few seconds, one test runs on
-a computer at a time, and `title-runs stop` ends a test the window started. docs/CLI.md has every command, made from
-the commands themselves.
+For agents and scripts: every command takes `--json` (one object; one per line for `run`), and exits 0 when done, 1
+when it couldn't (the message says why) and 2 when it was written wrong. No command posts anything or writes to
+GitHub. A setting changed on the command line reaches an open window within a few seconds, one test runs on a computer
+at a time, and `title-runs stop` ends a test the window started. docs/CLI.md has every command, made from the commands
+themselves.
 
 ## The window
 
@@ -56,7 +57,7 @@ the commands themselves.
   the traces to drag into the comment, and Mark as posted.
 - **All pull requests** (the advanced view): the project's open pull requests (those on your list, those that mention
   your games, those labelled perf, agc or shader, then the rest), each with Add to put it on your local tests.
-- **Settings**: your account, the sandbox check, what's shared, when to test, your games and their scenarios, the
+- **Settings**: this machine, the sandbox check, what's shared, when to test, your games and their scenarios, the
   app's look, and the logs.
 
 Closing the window quits and ends a running test, unless it is set to keep running in the tray.
@@ -154,10 +155,10 @@ What this does not protect against:
 
 ## What leaves the machine
 
-Nothing by itself. Pull requests are read from GitHub with the tester's sign-in. A report goes out only when the
-tester posts it: timings (frame times, GPU time per present), the summary lines AnyPS5 prints (build commit, GPU,
-driver, OS, CPU, memory, environment switches, top phases), and the traces and digests they attach. Never game files,
-save data or the dump's contents.
+Nothing by itself. Pull requests are read from GitHub without a sign-in. A report goes out only when the tester posts
+it: timings (frame times, GPU time per present), the summary lines AnyPS5 prints (build commit, GPU, driver, OS, CPU,
+memory, environment switches, top phases), and the traces and digests they attach. Never game files, save data or the
+dump's contents.
 
 ## Built on
 
@@ -176,7 +177,7 @@ What this repository adds is listed in `SUGGESTIONS.md`, with the parts that cou
 python3 -I -m unittest discover -s tests -t tests
 ```
 
-Local tests and their reports, the sign-in, source trees, scenarios, the verdict rules, the timed window, the
+Local tests and their reports, reading GitHub, source trees, scenarios, the verdict rules, the timed window, the
 sandboxes, the command line, two processes on one state folder, and the window's model and pages (offscreen).
 
 ## License
