@@ -97,7 +97,7 @@ class Classes(unittest.TestCase):
 
 
 class Settings(unittest.TestCase):
-    """The verdict's settings: threshold_pct and class_max (DESIGN.md, round 4 decision 7)."""
+    """The verdict's settings: threshold_pct and class_max (DESIGN.md, "Verdicts")."""
 
     def test_defaults_are_1_pct_and_3(self):
         self.assertEqual(verdict.DEFAULT, verdict.Settings(1.0, 3))
