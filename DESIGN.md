@@ -310,3 +310,20 @@ line.
    - a setting changed on the command line reaches the open window within two seconds, and a save by the window keeps
      it: the window takes the settings changed on disk since it last read or wrote the file, except those it changed
      itself.
+
+## Reading GitHub without a sign-in (Charlie, 2026-10-23)
+
+After "Local tests alone" the App's only job was reading: GitHub allows 60 API requests an hour per IP address without
+a sign-in (5,000 with one), and its GraphQL API, which All pull requests used, refuses anonymous calls. Charlie decided
+to drop the App and read without a sign-in:
+
+1. **Heads come from git.** `git ls-remote <project> 'refs/pull/*/head'` returns every pull request's head in one
+   call (8,822 of AnyPS5's in 0.3 s on 2026-10-23), and git isn't counted against the API's limit.
+2. **The API is asked only what git can't tell**: a pull request's title, author and state when its head is new to the
+   list, and every 6 hours whether it closed or merged; who pushed a new head (its first workflow run); and for each
+   person followed, their open pull requests (the search API, which has its own limit, 10 a minute without a sign-in).
+3. **All pull requests** reads the project's open pull requests with the REST API, 100 to a request (14 requests for
+   AnyPS5's 1,314 open ones on 2026-10-23), only when the tester presses Refresh.
+4. **When the limit is used up**, nothing more is read until GitHub's reset time, and Home says until when.
+5. **What goes**: the App, the sign-in and its token on disk (a token kept from before is deleted), the walkthrough's
+   sign-in page, `title-runs sign-in` and `sign-out`, and `[github] app`. Charlie can delete the App, title-runs-dev.
