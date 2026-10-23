@@ -21,6 +21,7 @@ from . import auth, config as configs, formats, gh, job, platform_info, report, 
 VERSION = "anyps5-title-runs 0.3"
 STALE_HOURS = 1  # the relay workflow last ran longer ago than this: warn
 RENEW_MINUTES = 45
+LOCAL_ONLY = "local tests only"  # ready()'s reason with no results repository: everything a local test needs is set up
 UNSAFE = re.compile(r"[<>`|\r\n\x00-\x08\x0b-\x1f]")
 STAGE = re.compile(r"^(?:[AB]: |#\d+: |not built)")  # job.run's stage lines (merge, submodules, builds): shown as progress
 
@@ -109,9 +110,16 @@ class Client:
 
     # -- sign-in, registration, the walkthrough -----------------------------------------------------------------------
 
+    def local_only(self):
+        """No results repository and an App to sign in with (results.app): the project hasn't set up testing with this
+        tool, so only the tester's local tests run, and nothing is registered. Without either, a new tester hasn't joined
+        a results repository yet."""
+        return not self.config.results_url and bool(self.config.results_app)
+
     def flow(self):
         if self._flow is None:
-            client_id = (self.repo.read("config.json", {}).get("app") or {}).get("client_id", "")
+            client_id = (self.config.results_app if self.local_only() else
+                         (self.repo.read("config.json", {}).get("app") or {}).get("client_id", ""))
             self._flow = auth.DeviceFlow(client_id, self.dir / "github-token.json", self.endpoint)
         return self._flow
 
@@ -199,6 +207,8 @@ class Client:
             return False, "no titles are set up"
         if not self.tester():
             return False, "not signed in"
+        if self.local_only():
+            return False, LOCAL_ONLY
         state, _ = self.registration()
         if state != "approved":
             return False, {"pending": "waiting for a maintainer to approve this machine", "declined": "a maintainer declined this machine",

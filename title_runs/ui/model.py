@@ -185,8 +185,9 @@ def schedule_words(rules, idle_detectable=True):
     return ", ".join(part for part in (hours, when) if part) or "at any time"
 
 
-def header(status, ready, why, testing, allowed, allowed_why, best):
-    """The main screen's header: {"kind", "headline", "detail"}; kind is running, setup, off, idle, waiting or ready."""
+def header(status, ready, why, testing, allowed, allowed_why, best, local_only=False):
+    """The main screen's header: {"kind", "headline", "detail"}; kind is running, setup, off, idle, waiting or ready.
+    local_only: no results repository, so the only tests are the tester's local ones."""
     job = status.get("job") or {}
     if status.get("state") == "running" and job:
         return {"kind": "running", "headline": f"Testing #{job.get('pr')}" + (f": {job['title']}" if job.get("title") else ""),
@@ -196,7 +197,8 @@ def header(status, ready, why, testing, allowed, allowed_why, best):
     if status.get("state") == "error":
         return {"kind": "error", "headline": "The last test went wrong", "detail": first_line(status.get("line", ""), 160)}
     if best is None:
-        return {"kind": "idle", "headline": "No tests waiting", "detail": f"New tests from {words.team()} show up here by themselves."}
+        return {"kind": "idle", "headline": "No tests waiting",
+                "detail": "New heads of your local tests show up here by themselves." if local_only else f"New tests from {words.team()} show up here by themselves."}
     if testing == "off":
         return {"kind": "off", "headline": "Testing is off", "detail": "Choose On schedule or Now to start testing."}
     if testing == "now":

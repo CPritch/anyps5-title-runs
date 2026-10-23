@@ -76,7 +76,11 @@ class Engine(QObject):
         return self.client.status.read()
 
     def load(self, sync=False):
-        """Read the results repository (sync first when asked: the worker thread only)."""
+        """Read the results repository (sync first when asked: the worker thread only). With none, local tests only."""
+        if self.client.local_only():
+            self.ranked, self.queue, self.repository, self.comments = [], {"entries": []}, self.config.local_repository, {"prs": {}}
+            words.set_team(None)
+            return
         try:
             self.ranked = self.client.ranked(sync)
             self.queue = self.client.repo.queue()
@@ -95,11 +99,18 @@ class Engine(QObject):
     def readiness(self):
         """(ready, why, the button that fixes it or "")."""
         ready, why = self.client.ready()
-        if ready:
+        if ready or why == clients.LOCAL_ONLY:
             return True, "", ""
         fix = {"the first-run walkthrough is not done": "Finish the walkthrough", "no titles are set up": "Finish the walkthrough",
                "not signed in": "Sign in…", "this machine is not registered": "Register this machine"}.get(why, "")
         return False, why, fix
+
+    def local_only_note(self):
+        """With no results repository, that the project hasn't set up testing with this tool; else ""."""
+        if not self.client.local_only():
+            return ""
+        project = (self.config.local_repository or "The project").split("/")[-1]
+        return f"{project} hasn't set up automated testing with this tool, so only your local tests run here."
 
     def stale_text(self):
         hours = self.client.stale()
@@ -122,7 +133,7 @@ class Engine(QObject):
     def ignored_mine(self):
         """The workflow answers nothing it does not use; the tester's own ignored comments are in its public cursors."""
         login = self.client.tester()
-        if not login:
+        if not login or self.client.local_only():
             return ""
         registry = self.client.repo.registry()
         settled = {m.get("issue") for state in ("machines", "pending", "declined") for m in registry.get(state, {}).values()
@@ -256,7 +267,7 @@ class Engine(QObject):
         self.save_config()
 
     def allowed_now(self):
-        return self.client.allowed_now()
+        return self.schedule_allows() if self.client.local_only() else self.client.allowed_now()
 
     # -- the main screen -----------------------------------------------------------------------------------------------
 
@@ -356,7 +367,7 @@ class Engine(QObject):
         ready, why, _ = self.readiness()
         best = next((r for r in self.up_next_rows() if r["score"] > 0), None)
         allowed, allowed_why = self.allowed_now() if ready else (False, why)
-        return model.header(self.status(), ready, why, self.config.testing, allowed, allowed_why, best)
+        return model.header(self.status(), ready, why, self.config.testing, allowed, allowed_why, best, local_only=self.client.local_only())
 
     def comment_link(self, pr):
         """The App's comment on pr: a GitHub link, or the stand-in's outbox when the results repository is local."""

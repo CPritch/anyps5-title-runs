@@ -281,6 +281,7 @@ class SettingsTab(QWidget):
         registration = QHBoxLayout()
         self.registration = QLabel("")
         self.registration.setTextFormat(Qt.RichText)
+        self.registration.setWordWrap(True)
         self.registration.setOpenExternalLinks(True)
         registration.addWidget(self.registration, 1)
         self.register = QPushButton("Register this machine")
@@ -321,9 +322,13 @@ class SettingsTab(QWidget):
         layout.addWidget(sandbox)
         posted = QGroupBox("What's shared")
         form = QFormLayout(posted)
-        form.addRow(QLabel("How fast each run was, and whether the game showed a picture. Never your game files."))
+        if engine.client.local_only():  # nothing is sent: a local test's result stays here
+            form.addRow(QLabel("Nothing is sent by itself. A local test's result stays on this computer."))
+        else:
+            form.addRow(QLabel("How fast each run was, and whether the game showed a picture. Never your game files."))
         self.screenshots = QCheckBox("Also a screenshot of the test scene")
         self.screenshots.setChecked(config.screenshots)
+        self.screenshots.setVisible(not engine.client.local_only())
         form.addRow(self.screenshots)
         layout.addWidget(posted)
         trusted = QGroupBox("People you chose to trust")
@@ -357,15 +362,19 @@ class SettingsTab(QWidget):
         login = self.engine.client.tester()
         self.account.setText(f"Signed in as {login}" if login else "not signed in")
         self.sign.setText("Sign out" if login else "Sign in…")
-        state, record = self.engine.client.registration()
-        record = record or {}
-        issue = record.get("issue")
-        link = f" (<a href='{self.engine.issue_url(issue)}'>#{issue}</a>)" if issue else ""
-        self.registration.setText({"approved": f"Approved by {record.get('approved_by', '?')}{link}",
-                                   "pending": f"Waiting for {words.team()} to approve it{link}", "declined": f"Turned down by {words.team()}{link}",
-                                   "not registered": "Not registered yet, so this machine doesn't run tests"}[state])
-        self.register.setVisible(state == "not registered")
-        self.register.setEnabled(bool(login))
+        if self.engine.client.local_only():
+            self.registration.setText("Nothing to register: local tests only")
+            self.register.hide()
+        else:
+            state, record = self.engine.client.registration()
+            record = record or {}
+            issue = record.get("issue")
+            link = f" (<a href='{self.engine.issue_url(issue)}'>#{issue}</a>)" if issue else ""
+            self.registration.setText({"approved": f"Approved by {record.get('approved_by', '?')}{link}",
+                                       "pending": f"Waiting for {words.team()} to approve it{link}", "declined": f"Turned down by {words.team()}{link}",
+                                       "not registered": "Not registered yet, so this machine doesn't run tests"}[state])
+            self.register.setVisible(state == "not registered")
+            self.register.setEnabled(bool(login))
         self.trusted.clear()
         for entry in self.engine.client.trust.entries:
             self.trusted.addItem(self.engine.client.trust.describe(entry))

@@ -7,7 +7,10 @@
 
 [results]
 # The results repository your maintainers named, as OWNER/NAME. The Settings tab or `title-runs client use` switches.
+# For a project that hasn't set up testing with this tool, leave url empty and set app to the GitHub App to sign in
+# with (its client ID), so the app can read the project's PRs: then only your local tests run, and nothing is registered.
 url = "OWNER/NAME"
+# app = "Iv23..."
 # "github". (The local stand-in, for development only, is "standin:/path/to/github.json".)
 github = "github"
 

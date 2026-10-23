@@ -471,6 +471,62 @@ class MainScreenModel(unittest.TestCase):
 
 @unittest.skipIf(QApplication is None, "needs PySide6")
 @unittest.skipIf(QApplication is None, "PySide6 not installed")
+class LocalOnly(unittest.TestCase):
+    """A config with no results repository and an App to sign in with (a project that hasn't set up testing with this
+    tool, AnyPS5 today): signed in with that App, ready with nothing to register, only local tests, and the app says why."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        from helpers import make_config
+        from title_runs.ui import app
+        self.config = make_config(results_url="", results_app="Iv23testapp", local_repository="boykopovar/AnyPS5", local_prs=[4287])
+        self.engine = app.Engine(self.config)
+        self.engine.client.finish_onboarding({"idle": "hours"})
+        self.engine.client.flow().store({"login": "CPritch", "access_token": "t", "client_id": "Iv23testapp"})
+
+    def test_signed_in_with_the_configs_app_and_nothing_to_register(self):
+        from title_runs import client as clients
+        self.assertTrue(self.engine.client.local_only())
+        self.assertEqual(self.engine.client.flow().client_id, "Iv23testapp")
+        self.assertEqual(self.engine.client.tester(), "CPritch")
+        self.assertEqual(self.engine.client.ready(), (False, clients.LOCAL_ONLY))  # no queue to take tests from
+        self.assertEqual(self.engine.readiness(), (True, "", ""))  # but nothing left to set up for local tests
+        self.assertEqual(self.engine.local_only_note(), "AnyPS5 hasn't set up automated testing with this tool, so only your local tests run here.")
+        self.engine.load(sync=True)  # no results repository to read: nothing tried, nothing logged
+        self.assertEqual((self.engine.ranked, self.engine.repository), ([], "boykopovar/AnyPS5"))
+
+    def test_without_an_app_a_new_tester_still_joins(self):
+        from helpers import make_config
+        from title_runs.ui import app
+        self.assertFalse(app.Engine(make_config(results_url="", results_app="")).client.local_only())
+
+    def test_home_and_the_walkthrough_say_so(self):
+        from unittest import mock
+        from title_runs.ui.home import HomePage
+        from title_runs.ui.walkthrough import RegisterPage, SignInPage
+        self.engine.local.write({"repository": "boykopovar/AnyPS5", "entries": [{"pr": 4287, "head": "7" * 40, "title": "perf(shader): pick", "author": "karanvora2599",
+                                                                              "added": "2026-10-23T12:00:00Z", "status": "queued"}]})
+        self.assertEqual(self.engine.up_next_rows()[0]["why"], "Local test")
+        with mock.patch.object(self.engine, "schedule_allows", return_value=(True, "")):
+            self.assertEqual(self.engine.home()["headline"], "Starting the next test")  # on schedule: not "Almost ready"
+            self.engine.config.testing = "off"
+            self.assertEqual(self.engine.home()["kind"], "off")
+        home = HomePage(self.engine)
+        with mock.patch.object(self.engine, "schedule_allows", return_value=(True, "")):
+            home.refresh()
+        self.assertEqual(home.mode.text(), self.engine.local_only_note())
+        sign_in = SignInPage(self.engine)
+        self.assertFalse(sign_in.where.isVisibleTo(sign_in))  # no testing link to paste
+        self.assertIn("It posts nothing.", sign_in.subTitle())
+        register = RegisterPage(self.engine)
+        self.assertTrue(register.button.isHidden())
+        self.assertEqual(register.state.text(), "Nothing to register: " + self.engine.local_only_note())
+
+
+@unittest.skipIf(QApplication is None, "PySide6 not installed")
 class ReportWindowTraces(unittest.TestCase):
     """The report window lists the result's traces to drag into the comment, all selected; one over GitHub's limit is
     listed, can't be dragged, and the window says the report lacks what the form asks for."""

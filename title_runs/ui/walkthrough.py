@@ -223,7 +223,8 @@ class SignInPage(QWizardPage):
         super().__init__()
         self.engine = engine
         self.setTitle("Sign in with GitHub")
-        self.setSubTitle("The app posts results as you. It can only post on the testing pages you joined, nothing else on your account.")
+        self.setSubTitle("The app reads the project's pull requests as you, to know what to test. It posts nothing." if engine.client.local_only() else
+                         "The app posts results as you. It can only post on the testing pages you joined, nothing else on your account.")
         layout = QVBoxLayout(self)
         self.where = QGroupBox("Join the testing")
         row = QHBoxLayout(self.where)
@@ -234,7 +235,7 @@ class SignInPage(QWizardPage):
         use.clicked.connect(self.use)
         row.addWidget(use)
         layout.addWidget(self.where)
-        self.where.setVisible(not engine.config.results_url)
+        self.where.setVisible(not engine.config.results_url and not engine.client.local_only())
         self.state = text("")
         layout.addWidget(self.state)
         self.code = QLabel("")
@@ -276,7 +277,8 @@ class SignInPage(QWizardPage):
 
     def show_state(self):
         login = self.engine.client.tester()
-        has_repo = bool(self.engine.config.results_url) and bool((self.engine.client.repo.read("config.json", {}).get("app") or {}).get("client_id"))
+        has_repo = self.engine.client.local_only() or (  # local tests only: the config names the App to sign in with
+            bool(self.engine.config.results_url) and bool((self.engine.client.repo.read("config.json", {}).get("app") or {}).get("client_id")))
         self.start_button.setEnabled(has_repo)
         if not has_repo:
             self.state.setText("First paste the testing link you were given, and press Join.")
@@ -343,6 +345,10 @@ class RegisterPage(QWizardPage):
         self.refresh()
 
     def refresh(self):
+        if self.engine.client.local_only():
+            self.button.hide()
+            self.state.setText("Nothing to register: " + self.engine.local_only_note())
+            return
         state, record = self.engine.client.registration()
         self.button.setEnabled(state == "not registered" and bool(self.engine.client.tester()))
         if state == "approved":
@@ -385,9 +391,11 @@ class DonePage(QWizardPage):
         how = (f"when the computer has been left alone for {when.minutes.value()} minutes" if when.idle.isChecked()
                else f"from {when.first.value():02d}:00 to {when.last.value():02d}:00")
         how += (", only when plugged in" if when.mains.isChecked() else "") + (", pausing while something is fullscreen" if when.fullscreen.isChecked() else "")
-        state, record = self.engine.client.registration()
+        state, record = ("local", None) if self.engine.client.local_only() else self.engine.client.registration()
         titles = ", ".join(f"{d['name']} ({d['title_id']})" for d in wizard.dumps.found)
-        machine = {"approved": ("✓", "approved, so it runs tests"),
+        project = (self.engine.config.local_repository or "the project").split("/")[-1]
+        machine = {"local": ("✓", f"runs your local tests only, as {project} hasn't set up automated testing with this tool"),
+                   "approved": ("✓", "approved, so it runs tests"),
                    "pending": ("…", f"waiting for {words.team()} to approve it. It starts testing once approved"),
                    "declined": ("✗", f"turned down by {words.team()}, so it doesn't run tests"),
                    "not registered": ("…", f"not registered yet. It doesn't run tests until you register it (Settings) and {words.team()} approves it")}[state]

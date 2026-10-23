@@ -92,6 +92,7 @@ class Config:
     allocator: str = ""
     results_url: str = ""
     results_github: str = "github"
+    results_app: str = ""  # without a results repository: the GitHub App to sign in with (its client ID), for local tests only
     schedule: dict = field(default_factory=lambda: dict(SCHEDULE))
     screenshots: bool = False
     testing: str = "schedule"  # the main screen's switch: off, schedule (within [schedule], while the app is open) or now (whatever it says)
@@ -186,6 +187,7 @@ def load(path):
         allocator=data.get("run", {}).get("allocator", ""),
         results_url=results_location(data.get("results", {}).get("url", "")),
         results_github=data.get("results", {}).get("github", "github"),
+        results_app=data.get("results", {}).get("app", ""),
         schedule={**SCHEDULE, **data.get("schedule", {})},
         screenshots=bool(data.get("client", {}).get("screenshots", False)),
         testing=testing_mode(data.get("client", {})),

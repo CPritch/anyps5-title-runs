@@ -86,6 +86,8 @@ class HomePage(QWidget):
         words.addWidget(self.headline)
         self.detail = rich("", role="muted")
         words.addWidget(self.detail)
+        self.mode = rich("", role="muted")
+        words.addWidget(self.mode)
         self.notice = rich("")
         self.notice.setStyleSheet("QLabel { background: #fff4d6; color: #5c4400; border: 1px solid #e0a100; border-radius: 8px; padding: 8px 12px; }")
         self.notice.hide()
@@ -176,6 +178,8 @@ class HomePage(QWidget):
         state = self.engine.home()
         self.headline.setText(state["headline"])
         self.detail.setText(state["detail"])
+        self.mode.setText(self.engine.local_only_note())
+        self.mode.setVisible(bool(self.mode.text()))
         notes = [n for n in (self.engine.local_notice(), self.engine.stale_text(), self.engine.ignored_mine()) if n]
         self.notice.setText("<br>".join(notes))
         self.notice.setVisible(bool(notes))
@@ -208,7 +212,8 @@ class HomePage(QWidget):
     def fill_upcoming(self):
         rows = self.engine.up_next_rows()
         if not rows:
-            self.upcoming.set_rows([f"Nothing queued. When {words.team()} asks for a test, it shows up here."])
+            self.upcoming.set_rows(["Nothing queued. Add a pull request on the Local tests page." if self.engine.client.local_only() else
+                                    f"Nothing queued. When {words.team()} asks for a test, it shows up here."])
             return
         muted = theme.COLOURS["muted"]
         out = []
@@ -221,7 +226,8 @@ class HomePage(QWidget):
     def fill_recent(self):
         rows = self.engine.recent_rows()
         if not rows:
-            self.recent.set_rows(["No results yet. A queued test sends its result to the change on GitHub; a local test's stays on this computer."])
+            self.recent.set_rows(["No results yet. A local test's result stays on this computer." if self.engine.client.local_only() else
+                                  "No results yet. A queued test sends its result to the change on GitHub; a local test's stays on this computer."])
             return
         out = []
         for row in rows:
