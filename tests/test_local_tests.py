@@ -2,6 +2,7 @@
 when the author pushed it; main pinned for the night; the result kept here with a draft comment and a summary; Stop
 puts the head back on the list. Nothing is posted: GitHub is only read."""
 
+import contextlib
 import datetime
 import json
 import types
@@ -21,6 +22,21 @@ def pull(number, head, author="Celegans12", state="open", title="perf(agc): a ch
     return {"number": number, "title": title, "author": author, "head": head, "head_ref": "x", "state": state, "labels": []}
 
 
+def github(heads, pushers, people=()):
+    """GitHub as local tests read it: the heads from git (sources.pull_heads), and the API (gh.GitHubRepo) for a pull
+    request, who pushed a head, and a person's open pull requests (people). Returns the patch and the fake API."""
+    repo = mock.Mock()
+    repo.repository = "boykopovar/AnyPS5"
+    repo.pull.side_effect = lambda n: dict(heads[n])
+    repo.workflow_runs.side_effect = lambda head_sha=None: ([{"event": "pull_request", "actor": pushers[head_sha], "created_at": "x"}]
+                                                              if pushers.get(head_sha) else [])
+    repo.open_pulls_by.side_effect = lambda login: [p for p in people if p["author"].lower() == login.lower()]
+    patches = contextlib.ExitStack()
+    patches.enter_context(mock.patch("title_runs.gh.GitHubRepo", return_value=repo))
+    patches.enter_context(mock.patch("title_runs.sources.pull_heads", side_effect=lambda remote: {n: p["head"] for n, p in heads.items()}))
+    return patches, repo
+
+
 class List(unittest.TestCase):
     def setUp(self):
         self.config = make_config(machine="laptop", local_repository="boykopovar/AnyPS5", local_prs=[8104, 9289], local_people=[])
@@ -28,40 +44,62 @@ class List(unittest.TestCase):
         self.heads = {8104: pull(8104, A), 9289: pull(9289, B, author="Celegans12")}
         self.pushers = {A: "Celegans12", B: "somebody-else"}
 
-    def github(self):
-        repo = mock.Mock()
-        repo.repository = "boykopovar/AnyPS5"
-        repo.pull.side_effect = lambda n: self.heads[n]
-        repo.workflow_runs.side_effect = lambda head_sha=None: ([{"event": "pull_request", "actor": self.pushers[head_sha], "created_at": "x"}]
-                                                                  if self.pushers.get(head_sha) else [])
-        repo.pages.return_value = []
-        return mock.patch("title_runs.gh.GitHubRepo", return_value=repo)
+    def github(self, people=()):
+        patches, self.repo = github(self.heads, self.pushers, people)
+        return patches
 
     def test_only_heads_their_authors_pushed(self):
         with self.github():
-            self.night.refresh("token")
+            self.night.refresh()
         entries = {e["pr"]: e for e in self.night.read()["entries"]}
         self.assertEqual(entries[8104]["status"], "queued")
         self.assertEqual((entries[9289]["status"], entries[9289]["reason"]), ("skipped", "pushed by somebody-else, not the author"))
 
     def test_a_new_head_replaces_the_queued_one_and_a_tested_head_is_not_added_again(self):
         with self.github():
-            self.night.refresh("token")
+            self.night.refresh()
             self.heads[8104] = pull(8104, "c" * 40)
             self.pushers["c" * 40] = "Celegans12"
-            self.night.refresh("token")
-            self.night.refresh("token")
+            self.night.refresh()
+            self.night.refresh()
         heads = [(e["head"][:1], e["status"]) for e in self.night.read()["entries"] if e["pr"] == 8104]
         self.assertEqual(heads, [("a", "replaced"), ("c", "queued")])
 
     def test_the_listed_peoples_open_prs(self):
         self.config.local_prs, self.config.local_people = [], ["celegans12"]
-        with self.github() as github:
-            github.return_value.pages.return_value = [{"number": 8104, "user": {"login": "Celegans12"}, "draft": False},
-                                                      {"number": 1, "user": {"login": "someone"}, "draft": False},
-                                                      {"number": 9289, "user": {"login": "Celegans12"}, "draft": True}]
-            self.night.refresh("token")
+        people = [{"number": 8104, "author": "Celegans12", "draft": False}, {"number": 9289, "author": "Celegans12", "draft": True}]
+        with self.github(people):
+            self.night.refresh()
         self.assertEqual([e["pr"] for e in self.night.read()["entries"]], [8104])
+
+    def test_the_api_is_asked_only_what_git_cant_tell(self):
+        now = formats.parse_time("2026-10-23T20:00:00Z")
+        with self.github():
+            self.night.refresh(now)
+            self.assertEqual((self.repo.pull.call_count, self.repo.workflow_runs.call_count), (2, 2))  # two new heads
+            self.night.refresh(now + datetime.timedelta(minutes=15))
+            self.assertEqual((self.repo.pull.call_count, self.repo.workflow_runs.call_count), (2, 2))  # nothing moved: git only
+            self.heads[8104] = pull(8104, "c" * 40)
+            self.pushers["c" * 40] = "Celegans12"
+            self.night.refresh(now + datetime.timedelta(minutes=30))
+            self.assertEqual((self.repo.pull.call_count, self.repo.workflow_runs.call_count), (3, 3))  # 8104's new head
+            self.heads[9289] = pull(9289, B, author="Celegans12", state="closed")
+            self.night.refresh(now + datetime.timedelta(hours=7))  # every 6 hours: did it close?
+            self.assertEqual(self.repo.pull.call_count, 5)
+        self.assertEqual(self.night.read()["prs"]["9289"]["state"], "closed")
+
+    def test_a_used_up_limit_is_waited_out(self):
+        from title_runs import engine, gh
+        reset = formats.now() + datetime.timedelta(minutes=20)
+        tester = engine.Engine(self.config)
+        with self.github():
+            self.repo.pull.side_effect = gh.RateLimited("used up", reset)
+            tester.refresh_local(force=True)
+            self.assertEqual(tester.github_wait, reset)
+            self.assertIn("GitHub's limit for reading without a sign-in is used up", tester.local_notice())
+            calls = self.repo.pull.call_count
+            tester.refresh_local(force=True)  # not before the reset
+            self.assertEqual(self.repo.pull.call_count, calls)
 
     def test_the_list_and_results_of_tonights_list_move_to_local_tests(self):
         (self.config.state_dir / "client").mkdir(parents=True, exist_ok=True)
@@ -85,6 +123,24 @@ class List(unittest.TestCase):
             self.assertEqual(self.night.pin(now), "1" * 40)
             self.assertEqual(self.night.pin(now + datetime.timedelta(hours=5)), "1" * 40)
             self.assertEqual(self.night.pin(now + datetime.timedelta(hours=13)), "2" * 40)  # the next night
+
+
+class GitHubLimit(unittest.TestCase):
+    """GitHub's answer when its limit is used up: a 403 or 429 with no requests left (until X-RateLimit-Reset) or with
+    Retry-After; any other 403 is just an error."""
+
+    def error(self, code, headers):
+        import urllib.error
+        return urllib.error.HTTPError("https://api.github.com/x", code, "", headers, None)
+
+    def test_used_up_until_the_reset(self):
+        from title_runs import gh
+        now = formats.parse_time("2026-10-23T20:00:00Z")
+        limited = gh.limited(self.error(403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": str(int(now.timestamp()) + 1200)}), now)
+        self.assertEqual(limited.reset, now + datetime.timedelta(minutes=20))
+        self.assertEqual(gh.limited(self.error(429, {"Retry-After": "60"}), now).reset, now + datetime.timedelta(minutes=1))
+        self.assertIsNone(gh.limited(self.error(403, {"X-RateLimit-Remaining": "12"}), now))
+        self.assertIsNone(gh.limited(self.error(404, {}), now))
 
 
 class Run(unittest.TestCase):
@@ -360,13 +416,9 @@ class Page(unittest.TestCase):
         self.pushers = {A: "Celegans12", B: "Celegans12", "f" * 40: "dantdmdarealguy"}
 
     def refresh(self):
-        repo = mock.Mock()
-        repo.repository = "boykopovar/AnyPS5"
-        repo.pull.side_effect = lambda n: self.heads[n]
-        repo.workflow_runs.side_effect = lambda head_sha=None: [{"event": "pull_request", "actor": self.pushers[head_sha], "created_at": "x"}]
-        repo.pages.return_value = [{"number": 9289, "user": {"login": "Celegans12"}, "draft": False}]
-        with mock.patch("title_runs.gh.GitHubRepo", return_value=repo):
-            self.local.refresh("token")
+        patches, _ = github(self.heads, self.pushers, [{"number": 9289, "author": "Celegans12", "draft": False}])
+        with patches:
+            self.local.refresh()
 
     def test_parse(self):
         self.assertEqual(self.local.parse("#8104"), (8104, ""))

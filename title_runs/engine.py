@@ -12,7 +12,7 @@ import subprocess
 import threading
 from pathlib import Path
 
-from . import client as clients, config as configs, configfile, formats, listing as listings, locks, platform_info, sandbox, scenarios
+from . import client as clients, config as configs, configfile, formats, gh, listing as listings, locks, platform_info, sandbox, scenarios
 from .ui import model
 
 
@@ -29,6 +29,7 @@ class Engine:
         from . import local_tests
         self.local = local_tests.LocalTests(config, log=self.log)
         self._local_checked = None
+        self.github_wait = None  # GitHub's limit is used up until then (gh.RateLimited)
         self.listing_file = Path(listing) if listing else None
         self.window = None
         self.work = queues.Queue()
@@ -73,12 +74,17 @@ class Engine:
         return False, why, fix
 
     def local_notice(self):
-        """Local tests paused because their main doesn't start the game: what the tester should know."""
+        """What the tester should know about local tests: paused because their main doesn't start the game, or GitHub's
+        limit used up, so new heads show up late."""
+        notes = []
         paused = self.local.held() if self.local.enabled() else None
-        if not paused:
-            return ""
-        return (f"<b>Local tests are paused</b>: {paused['reason'][:240]}. They try again with the next main, or when you change the fixes "
-                f"on the Local tests page.")
+        if paused:
+            notes.append(f"<b>Local tests are paused</b>: {paused['reason'][:240]}. They try again with the next main, or when you change "
+                         f"the fixes on the Local tests page.")
+        if self.github_wait and formats.now() < self.github_wait:
+            notes.append(f"<b>GitHub's limit for reading without a sign-in is used up</b> until {self.github_wait.astimezone():%H:%M}, so "
+                         f"new pushes show up after that.")
+        return "<br>".join(notes)
 
     @property
     def repository(self):
@@ -371,17 +377,27 @@ class Engine:
         return f"another title-runs process (pid {holder}) is testing on this computer" if holder not in (None, os.getpid()) else ""
 
     def refresh_local(self, force=False):
-        """The local tests list from GitHub every 15 minutes (read only, with the tester's sign-in)."""
-        if not self.local.enabled() or not self.client.tester():
+        """The local tests list from GitHub every 15 minutes (read only, without a sign-in), unless GitHub's limit is
+        used up: then not before its reset."""
+        if not self.local.enabled():
             return
         now = formats.now()
+        if self.github_wait and now < self.github_wait:
+            return
         if not force and self._local_checked and now - self._local_checked < datetime.timedelta(minutes=15):
             return
         self._local_checked = now
         try:
-            self.local.refresh(self.client.flow().token())
+            self.local.refresh()
+        except gh.RateLimited as error:
+            self.limited(error)
         except Exception as error:  # noqa: BLE001
             self.log(f"could not read the local tests list: {error}")
+
+    def limited(self, error):
+        """GitHub's limit is used up: nothing more is read from it until its reset."""
+        self.github_wait = error.reset
+        self.log(f"GitHub's limit for reading without a sign-in is used up: nothing more is read from it until {error.reset:%H:%M} UTC")
 
     # -- the worker thread ---------------------------------------------------------------------------------------------
 

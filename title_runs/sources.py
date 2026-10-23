@@ -66,6 +66,21 @@ def main_tip(remote, main_branch="main"):
     return out.stdout.split()[0]
 
 
+def pull_heads(remote):
+    """{number: head SHA} for every pull request of remote (refs/pull/N/head), from git in one call: GitHub doesn't
+    count git against its API's limit."""
+    out = subprocess.run(["git", "ls-remote", remote, "refs/pull/*/head"], capture_output=True, text=True, timeout=120)
+    if out.returncode != 0:
+        raise SourceError(f"could not read the pull requests' heads from {remote}: {out.stderr.strip()[:200]}")
+    heads = {}
+    for line in out.stdout.splitlines():
+        sha, _, ref = line.partition("\t")
+        number = ref.removeprefix("refs/pull/").removesuffix("/head")
+        if number.isdigit():
+            heads[int(number)] = sha
+    return heads
+
+
 def merge_onto(tree, main, head):
     """Merge head onto main in the worktree (already checked out at main). Returns the merge commit; raises SourceError
     when they conflict."""

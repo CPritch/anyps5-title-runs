@@ -31,6 +31,7 @@ from .client import clean
 
 PIN_HOURS = 12  # a pin older than this starts a new night
 STALE_HOURS = 48  # a result not posted for this long is stale: main has moved on too far for it to say much
+STATE_HOURS = 6  # how often a listed pull request whose head hasn't moved is asked whether it closed
 COMMENT_LIMIT = 65536  # GitHub's longest comment, in characters
 
 
@@ -90,22 +91,44 @@ class LocalTests:
     def pull_url(self, number):
         return f"https://github.com/{self.config.local_repository}/pull/{number}"
 
-    def refresh(self, token):
-        """Bring the list up to date from GitHub (read only): each listed PR's head and state, the open PRs of the listed
-        people, and the heads of the fixes to carry. A head not yet on the list is added if its author pushed it; one the
-        list has tested is left alone. A PR the tester removed stays off it."""
+    def refresh(self, now=None):
+        """Bring the list up to date from GitHub (read only, without a sign-in). Every pull request's head comes from git
+        in one call; the API is asked only what git can't tell: a head new to the list (the pull request's title, author
+        and state, and who pushed it), whether a listed pull request closed (every STATE_HOURS), and the listed people's
+        open pull requests (its search). A head not yet on the list is added if its author pushed it; one the list has
+        tested is left alone. A PR the tester removed stays off it. Raises gh.RateLimited when GitHub's limit is used up."""
         if not self.enabled():
             return []
-        repo = gh.GitHubRepo(self.config.local_repository, token=token)
+        now = now or formats.now()
+        repo = gh.GitHubRepo(self.config.local_repository)
+        heads = sources.pull_heads(self.remote())
         known = self.read()
         removed = set(known.get("removed", []))
         numbers = set(self.config.local_prs)
-        authors = {a.lower() for a in self.config.local_people}
-        if authors:
-            for issue in repo.pages(f"/repos/{repo.repository}/pulls", {"state": "open"}, limit=10):
-                if (issue.get("user") or {}).get("login", "").lower() in authors and not issue.get("draft") and issue["number"] not in removed:
-                    numbers.add(issue["number"])
+        for login in self.config.local_people:
+            numbers.update(pull["number"] for pull in repo.open_pulls_by(login) if not pull["draft"] and pull["number"] not in removed)
+        seen, fixes_seen = known.get("prs") or {}, known.get("fixes") or {}
         pulls, pushers = {}, {}
+
+        def due(number):
+            old = seen.get(str(number))
+            if not old or old.get("head") != heads.get(number):
+                return True
+            if old.get("state") == "merged":
+                return False
+            checked = old.get("checked")
+            return not checked or now - formats.parse_time(checked) >= datetime.timedelta(hours=STATE_HOURS)
+
+        for number in sorted(numbers | set(self.config.local_fixes)):
+            if not due(number):
+                pulls[number] = {**seen[str(number)], "fresh": False}
+                continue
+            try:
+                pulls[number] = {**repo.pull(number), "fresh": True}
+            except gh.RateLimited:
+                raise
+            except gh.GitHubError as error:
+                self.log(f"local tests: #{number}: {error}")
 
         def pusher_of(pull):
             if pull["head"] not in pushers:
@@ -113,26 +136,28 @@ class LocalTests:
                 pushers[pull["head"]] = runs[0]["actor"] if runs else None
             return pushers[pull["head"]]
 
-        for number in sorted(numbers | set(self.config.local_fixes)):
-            try:
-                pulls[number] = repo.pull(number)
-            except gh.GitHubError as error:
-                self.log(f"local tests: #{number}: {error}")
         tested = {(e["pr"], e["head"]) for e in known["entries"]}
         for number in numbers:  # the network outside the lock: who pushed each new head
             pull = pulls.get(number)
             if pull and pull["state"] == "open" and (number, pull["head"]) not in tested:
                 pusher_of(pull)
         for number in self.config.local_fixes:
-            if number in pulls:
-                pusher_of(pulls[number])
+            pull, old = pulls.get(number), fixes_seen.get(str(number)) or {}
+            if pull is None:
+                continue
+            if old.get("head") == pull["head"] and "pusher" in old:
+                pushers.setdefault(pull["head"], old["pusher"])
+            else:
+                pusher_of(pull)
 
         def apply(data):
-            now = formats.iso(formats.now())
+            stamp = formats.iso(now)
             added = []
             prs = data.setdefault("prs", {})
             for number, pull in pulls.items():
-                prs[str(number)] = {"head": pull["head"], "state": pull["state"], "title": pull["title"][:200], "author": pull["author"], "checked": now}
+                old = prs.get(str(number)) or {}
+                prs[str(number)] = {"head": pull["head"], "state": pull["state"], "title": pull["title"][:200], "author": pull["author"],
+                                    "checked": stamp if pull["fresh"] else old.get("checked", stamp)}
             fixes = {}
             for number in self.config.local_fixes:
                 pull = pulls.get(number)
@@ -142,7 +167,8 @@ class LocalTests:
                 problem = ("" if pusher and pusher.lower() == pull["author"].lower() else
                            f"its head {pull['head'][:9]} was pushed by {pusher}, not its author" if pusher else
                            f"no workflow run tells who pushed its head {pull['head'][:9]}")
-                fixes[str(number)] = {"head": pull["head"], "title": pull["title"][:200], "author": pull["author"], "state": pull["state"], "problem": problem}
+                fixes[str(number)] = {"head": pull["head"], "title": pull["title"][:200], "author": pull["author"], "state": pull["state"],
+                                      "pusher": pusher, "problem": problem}
             data["fixes"] = fixes
             for number in sorted(numbers):
                 pull = pulls.get(number)
@@ -151,7 +177,7 @@ class LocalTests:
                 if any(e["pr"] == number and e["head"] == pull["head"] for e in data["entries"]):
                     continue
                 pusher = pushers.get(pull["head"])
-                entry = {"pr": number, "head": pull["head"], "title": pull["title"][:200], "author": pull["author"], "added": now,
+                entry = {"pr": number, "head": pull["head"], "title": pull["title"][:200], "author": pull["author"], "added": stamp,
                          "status": "queued", "pusher": pusher}
                 if pusher is None:
                     entry.update(status="skipped", reason="no workflow run tells who pushed this head")

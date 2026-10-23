@@ -2,6 +2,7 @@
 state, the workflow runs that tell who pushed a head (local_tests.py), and who signed in (auth.py). Nothing here
 writes to GitHub."""
 
+import datetime
 import json
 import urllib.error
 import urllib.parse
@@ -12,6 +13,30 @@ API = "https://api.github.com"
 
 class GitHubError(RuntimeError):
     pass
+
+
+class RateLimited(GitHubError):
+    """GitHub's limit is used up until reset (a UTC datetime): 60 requests an hour for the API without a sign-in, 10 a
+    minute for its search."""
+
+    def __init__(self, message, reset):
+        super().__init__(message)
+        self.reset = reset
+
+
+def limited(error, now=None):
+    """The RateLimited an HTTPError is, or None: a 403 or 429 with no requests left, or with Retry-After."""
+    if error.code not in (403, 429):
+        return None
+    headers = error.headers or {}
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if headers.get("Retry-After"):
+        reset = now + datetime.timedelta(seconds=int(headers["Retry-After"]))
+    elif headers.get("X-RateLimit-Remaining") == "0" and headers.get("X-RateLimit-Reset"):
+        reset = datetime.datetime.fromtimestamp(int(headers["X-RateLimit-Reset"]), datetime.timezone.utc)
+    else:
+        return None
+    return RateLimited(f"GitHub's limit is used up until {reset:%H:%M} UTC", reset)
 
 
 class GitHubRepo:
@@ -31,7 +56,7 @@ class GitHubRepo:
             with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as response:
                 return json.loads(response.read() or b"null")
         except urllib.error.HTTPError as error:
-            raise GitHubError(f"GET {path}: HTTP {error.code} {error.read()[:300]!r}") from error
+            raise limited(error) or GitHubError(f"GET {path}: HTTP {error.code} {error.read()[:300]!r}") from error
 
     def pages(self, path, params=None, limit=10):
         out = []
@@ -55,6 +80,12 @@ class GitHubRepo:
         return {"number": number, "title": data["title"], "author": data["user"]["login"], "head": data["head"]["sha"],
                 "head_ref": data["head"]["ref"], "state": "merged" if data.get("merged_at") else data["state"],
                 "labels": [label["name"] for label in data.get("labels", [])]}
+
+    def open_pulls_by(self, login):
+        """The open pull requests login opened, from GitHub's search: [{"number", "title", "author", "draft"}]."""
+        query = f"repo:{self.repository} is:pr is:open author:{login}"
+        items = self.call("/search/issues", {"q": query, "per_page": 100}).get("items", [])
+        return [{"number": i["number"], "title": i["title"], "author": i["user"]["login"], "draft": bool(i.get("draft"))} for i in items]
 
     def workflow_runs(self, head_sha=None, branch=None):
         """[{"created_at", "actor", "event", "head_sha"}], oldest first."""
