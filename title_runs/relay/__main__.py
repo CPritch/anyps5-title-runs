@@ -34,16 +34,18 @@ def repos(config, fake, dry_run=None, results_absent=False):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="title-runs relay")
-    sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("poll")
-    p.add_argument("--state", type=Path, required=True)
-    p.add_argument("--anyps5-git", type=Path)
-    p.add_argument("--anyps5-remote")
-    p.add_argument("--main-ref", default="origin/main")
-    p.add_argument("--fake")
-    p.add_argument("--dry-run", type=Path, metavar="OUTBOX")
-    p.add_argument("--results-absent", action="store_true")
+    parser = argparse.ArgumentParser(prog="title-runs relay", description="The results repository's workflow (relay.yml), which GitHub "
+                                     "Actions runs every 5 minutes: it reads the project's labels, commands and pushes and the testers' "
+                                     "comments, and writes the queue, the App's comments and the results repository's files.")
+    sub = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
+    p = sub.add_parser("poll", help="one run of the workflow")
+    p.add_argument("--state", type=Path, required=True, help="the results repository's checkout")
+    p.add_argument("--anyps5-git", type=Path, help="a clone of the project, for its heads and patch IDs")
+    p.add_argument("--anyps5-remote", help="the project's git remote (default: its GitHub URL)")
+    p.add_argument("--main-ref", default="origin/main", help="the project's main in that clone (default origin/main)")
+    p.add_argument("--fake", help="the stand-in's github.json, instead of GitHub")
+    p.add_argument("--dry-run", type=Path, metavar="OUTBOX", help="read GitHub, write nothing there: what it would write goes to OUTBOX")
+    p.add_argument("--results-absent", action="store_true", help="with --dry-run: the results repository doesn't exist yet")
     args = parser.parse_args(argv)
     config = json.loads((args.state / "config.json").read_text())
     anyps5, results = repos(config, args.fake, args.dry_run, args.results_absent)

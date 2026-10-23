@@ -99,15 +99,17 @@ def main(argv=None):
     import os
     import signal
     from . import theme
-    parser = argparse.ArgumentParser(prog="title-runs ui")
-    parser.add_argument("--config", type=Path, default=configs.DEFAULT_CONFIG)
-    parser.add_argument("--listing", type=Path)
-    parser.add_argument("--auto", action="store_true")
+    parser = argparse.ArgumentParser(prog="title-runs window", description="The window and the tray. A config that doesn't exist yet is "
+                                     "made, and the first-run walkthrough fills it in; nothing runs before the walkthrough is done.")
+    parser.add_argument("--config", type=Path, default=Path(os.environ.get("TITLE_RUNS_CONFIG") or configs.DEFAULT_CONFIG),
+                        help="the config (default: $TITLE_RUNS_CONFIG, else the user's config folder)")
+    parser.add_argument("--listing", type=Path, help="show this pull requests listing instead of the one read from GitHub")
+    parser.add_argument("--auto", action="store_true", help="start with testing on schedule")
     parser.add_argument("--dumps", default="", help="the walkthrough's dumps folder to start from")
     parser.add_argument("--results", default="", help="a new config: the results repository, OWNER/NAME or a URL")
     parser.add_argument("--github", default="github", help='a new config: "github", or "standin:<github.json>" for the local stand-in')
     parser.add_argument("--state", type=Path, help="a new config: the state directory")
-    parser.add_argument("--screenshots", type=Path)
+    parser.add_argument("--screenshots", type=Path, help="render the window's pages to this folder, offscreen, and exit")
     parser.add_argument("--no-sync", action="store_true", help="--screenshots: read the results checkout as it is (a client may be using it)")
     args = parser.parse_args(argv)
     if sys.platform.startswith("linux") and os.environ.get("DISPLAY") and not os.environ.get("QT_QPA_PLATFORM") and not args.screenshots:

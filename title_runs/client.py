@@ -13,7 +13,6 @@ import json
 import os
 import re
 import shutil
-import time
 from pathlib import Path
 
 from . import auth, config as configs, formats, gh, job, locks, platform_info, schedule, store, trust, verdict
@@ -404,12 +403,3 @@ class Client:
         except locks.Busy as error:
             return str(error)
         return f"ran {entry['job']}"
-
-    def daemon(self, every=60):
-        while True:
-            try:
-                self.log(self.run_next())
-            except Exception as error:  # noqa: BLE001  (the tray shows it; the loop goes on)
-                self.status.update(state="error", line=f"Error: {clean(error, 200)}")
-                self.log(f"error: {error}")
-            time.sleep(every)

@@ -70,8 +70,9 @@ class Engine:
         return self.client.status.read()
 
     def load(self, sync=False):
-        """Read the results repository (sync first when asked: the worker thread only). With none, local tests only."""
-        if self.client.local_only():
+        """Read the results repository (sync first when asked: the worker thread only). With none (local tests only, or a
+        new tester who hasn't joined one yet) there is nothing to read."""
+        if self.client.local_only() or not self.config.results_url:
             self.ranked, self.queue, self.repository, self.comments = [], {"entries": []}, self.config.local_repository, {"prs": {}}
             words.set_team(None)
             return
@@ -577,14 +578,15 @@ class Engine:
         self.thread = threading.Thread(target=self.worker, daemon=True)
         self.thread.start()
 
-    def next_test(self):
-        """The next test, if the switch lets one start now: On schedule within the schedule, Now whatever it says. The
-        queue's tests first (a registered machine), then local tests. Returns what was done. While another process tests
-        on this computer, nothing starts here and the status file is theirs."""
+    def next_test(self, now=None):
+        """The next test, if the switch lets one start now: On schedule within the schedule, Now whatever it says (now:
+        True for one test whatever the switch says, as `title-runs run --once`). The queue's tests first (a registered
+        machine), then local tests. Returns what was done. While another process tests on this computer, nothing starts
+        here and the status file is theirs."""
         busy = self.busy_elsewhere()
         if busy:
             return busy
-        now = self.config.testing == "now"
+        now = self.config.testing == "now" if now is None else now
         ready, why = self.client.ready()
         try:
             if ready:
