@@ -470,3 +470,7 @@ How it works (scenarios.py):
    0.3, the prologue 0.33. A warm-up that isn't in the scene fails its route; a timed run that isn't does not count.
 7. **Results carry the scenario**: the report names the save (source, file, sha256, where it went) so anyone can load
    the same one, and machines are combined only with machines timed in the same scenario.
+
+The camera in the house, from Charlie (2026-10-23): don't fight the framing at the load. Play for longer instead (walk
+out of the house and on), so more of each run is the same than differs; that needs input recorded from his play and
+replayed. Saves in missions are the better way to repeatable tests, and open-world play has to work too.
