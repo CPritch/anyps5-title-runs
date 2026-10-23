@@ -32,20 +32,9 @@ def make_pr(number, head, updated="2026-10-20T10:00:00Z", author="alice", state=
 
 CONFIG = """
 state_dir = "{state}"
-[github]
-repo = "o/r"
 [tester]
 name = "tester"
 machine = "box"
-[follow]
-prs = [10]
-auto_unblocks = true
-labels = ["needs-title-run"]
-[trust]
-authors = ["alice"]
-maintainer_labels = ["title-runs-ok"]
-[poll]
-debounce_minutes = 10
 [titles.PPSA04263]
 dump = "/nonexistent/dump"
 graphics_mode = "Performance"

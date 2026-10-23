@@ -63,23 +63,17 @@ def config_data(config):
         titles[title_id] = entry
     return {
         "state_dir": str(config.state_dir),
-        "github": {"repo": config.repo, "client": config.github_client, "token_env": config.github_token_env, "budget_reserve": config.budget_reserve},
         "tester": {"name": config.tester, "machine": config.machine},
         "machine": dict(config.machine_info),
         "results": {"url": config.results_url, "github": config.results_github, **({"app": config.results_app} if config.results_app else {})},
         "schedule": dict(config.schedule),
         "client": {"screenshots": config.screenshots, "testing": config.testing, "tray": config.tray, "text_size": config.text_size,
                    "view": config.view},
-        "follow": {"prs": list(config.follow_prs), "auto_unblocks": config.auto_unblocks, "labels": list(config.follow_labels),
-                   "include_drafts": config.include_drafts},
-        "trust": {"authors": list(config.authors), "maintainer_labels": list(config.maintainer_labels)},
-        "poll": {"debounce_minutes": config.debounce_minutes},
         "source": {"repo_dir": str(config.repo_dir), "remote": config.remote, "cmake_args": list(config.cmake_args)},
         "sandbox": {"mode": config.sandbox, "shutdown_wait": config.shutdown_wait},
         "run": {"allocator": config.allocator},
         "titles": titles,
         "local": {"repository": config.local_repository, "prs": list(config.local_prs), "people": list(config.local_people), "fixes": list(config.local_fixes)},
-        "poster": {"enabled": config.poster_enabled, "token_env": config.poster_token_env},
     }
 
 

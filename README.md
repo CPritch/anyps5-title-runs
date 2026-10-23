@@ -8,14 +8,15 @@ Python 3.11 or later; the engine and the workflows use the standard library only
 Linux (bubblewrap for the sandbox); the client's platform code has Windows paths written but not yet run.
 
 DESIGN.md describes the tool we are aiming for, FORMATS.md the results repository's files and the testers' comments.
-There are two ways to drive the engine:
+Tests come from two places:
 
-- **The client and the results repository** (round 3, below): maintainers install one GitHub App and keep one public
-  results repository with one scheduled workflow. They queue a PR's head with a label or a `/title-test` command.
-  Testers sign in through the App, register their machine, and report as comments on per-job issues. Until the App
-  and the repository exist, `title-runs standin` plays GitHub, the results repository and its workflow on one machine.
-- **The tester's own poller** (round 1, "What it does" and after): one tester follows PRs from a GraphQL listing and
-  posts with a bot token. Kept for reference; DESIGN.md replaces its trust and posting.
+- **The queue** (below): maintainers install one GitHub App and keep one public results repository with one scheduled
+  workflow. They queue a PR's head with a label or a `/title-test` command. Testers sign in through the App, register
+  their machine, and report as comments on per-job issues. `title-runs standin` plays GitHub, the results repository
+  and its workflow on one machine, for development.
+- **Local tests**: pull requests a tester picks, tested on their computer against the project's main, with a report
+  in the project's own form that stays there until they post it themselves. A project that hasn't set up the queue
+  gets local tests only.
 
 ## The client and the results repository
 
@@ -95,25 +96,15 @@ flow), the results repository (`results.git`), a stand-in AnyPS5 remote, and the
 makes is recorded with who made it. `title_runs/gh.py` is the one interface to GitHub. It has a REST implementation,
 written but not run against GitHub, and the fake.
 
-## What it does (round 1: the tester's own poller)
+## What a test does
 
-1. **Poll** (`title-runs poll`). A GraphQL listing of the repository's pull requests, kept on disk
-   (`state/cache/pull-requests.json`). The first poll lists the open PRs (about 17 pages and 18 points for 800 PRs);
-   later polls list PRs of every state by `updatedAt`, newest first, only back to the newest one cached (one page, 2
-   points). Followed PRs are also read directly every poll. No search API is used. A poll stops before the GraphQL
-   budget left falls below `github.budget_reserve`.
-2. **Follow** (`[follow]`): PRs listed by number; optionally every open PR whose `Unblocks:` line names one of the
-   tester's title IDs, or that carries a chosen label.
-3. **Debounce** (`[poll] debounce_minutes`, default 10): a new head is built only after it has been unchanged that
-   long. A head replaced before it was built is marked superseded and never built.
-4. **Trust** (`[trust]`): a head runs without asking when the PR's author and the head commit's author are on the
-   allowlist, or the PR carries a maintainer label. Any other head pauses until the tester runs
-   `title-runs confirm <PR>`; a confirmation covers that head only.
-5. **Job** (`title-runs run`): fetch `refs/pull/N/merge` (GitHub's merge of the PR into its base branch) and the head;
+A test is one head of a pull request, from the queue (a maintainer approved it) or from the tester's local tests:
+
+1. **Job**: fetch `refs/pull/N/merge` (GitHub's merge of the PR into its base branch) and the head;
    build the merge and main at the merge's base (its first parent) in two worktrees of the tester's clone, with build
    directories that are kept and rebuilt incrementally. A PR without a merge ref (it does not merge cleanly) is
    reported as such.
-6. **Run**, per title, in the sandbox (below):
+2. **Run**, per title, in the sandbox (below):
    - a title with a route (`routes/<ID>.json`): the harness's measurement protocol, main against the PR:
      warm-ups only for a build whose caches are cold, each running the route and then staying in the scene until its
      last 60 s built no pipelines (at most 20 minutes); one window from the settle points, 60 s or as many presents
@@ -126,25 +117,16 @@ written but not run against GitHub, and the fake.
      title's `boot_seconds` (default: titles.json's `seconds`, else 60) and classify each run (`relink-failed`,
      `crashed`, `exited`, `stalled`, `blank`, `rendering`). `run_title()` is given a wrapper that starts the title
      in the sandbox, and an environment with only the title's variables.
-7. **Report**: one Markdown comment per PR and machine: title, scene, machine (GPU, driver, OS), base, merge and head
-   commits, the outcome per side, p50/p90/p99 and GPU per present with the verdict, the summary lines in a collapsed
-   block, a screenshot placeholder, and a table of earlier heads. The comment is edited for each new head; a new
-   comment is posted instead when an outcome changed (a side that rendered now crashes, or the reverse) or the
-   verdict changed (no difference to faster or slower, or faster to slower), because edits notify nobody.
-8. **Post**: dry-run by default. The body and the API call it would make go to `state/outbox/<PR>/`. The real poster
-   (`poster.enabled = true` and `run --post`) edits the bot's comment by id with the token in `poster.token_env`.
+3. **Result**: a queued test's result goes to the job's issue in the results repository as a comment from the tester's
+   account, and the workflow puts it on the PR. A local test's report, in the project's own form with its traces,
+   stays on this computer; the tester posts it themselves, or not.
 
 ## Setup
 
 ```
 git clone <this repository> ~/src/anyps5-title-runs
-cp config.example.toml config.toml          # edit: titles, dumps, follow list, allowlist
 sudo pacman -S bubblewrap                    # or your distribution's package
-gh auth login                                # for reads through the gh CLI (or set github.client = "token")
-./title-runs poll                            # every few minutes, e.g. from a systemd timer
-./title-runs status
-./title-runs confirm 8104                    # for a paused head
-./title-runs run                             # build and run the ready heads; comments go to the outbox
+./title-runs ui --config ~/.config/title-runs/config.toml   # a new config: the walkthrough sets it up
 ```
 
 `source.repo_dir` is a clone of the repository with its submodules checked out; jobs make worktrees from it and fill
@@ -156,21 +138,6 @@ Per title: the dump directory (an extracted package: `eboot.bin`, `sce_sys/param
 files (save data and settings copied into the title's private game directory before its first run), `app0_skip`
 (package entries to leave out of `app0`), the Graphics Mode the seeded settings select (for the report) and extra
 environment.
-
-## The bot account
-
-The poster is off until `poster.enabled = true`, and even then posts only with `run --post`. To turn it on:
-
-- a GitHub account for the bot (GitHub's terms allow one machine account per person, run by that person);
-- a token for it in the environment variable `poster.token_env`. The repository belongs to someone else, so a
-  fine-grained token cannot write to it (those reach only the token owner's repositories, and other public ones
-  read-only). Use either a classic token of the bot account with the `public_repo` scope, which can comment on any
-  public repository and also edit or delete the bot's own comments there, or a GitHub App that the repository's
-  maintainer installs, with "Pull requests: Read and write" (comments on a PR go through the issues API);
-- for the poll, no write access: the `gh` CLI's login or any token, since the pull request data is public.
-
-The poster keeps the bot's comment id in `state.json`. If that file is lost, the next post is a new comment; it
-does not yet look for the bot's earlier comment by its marker.
 
 ## Routes
 
@@ -195,10 +162,9 @@ page), its default when none is named. GTA V's are `prologue` (the default: a ne
 
 A followed PR's code runs on the tester's machine. What stands between that code and the machine:
 
-- **The allowlist and confirmation.** Only heads by listed authors (or under a maintainer label) run unattended.
-  GitHub links a commit to an account by its e-mail address, which a pusher can set to anyone's, so the head commit's
-  author is a hint, not proof; the PR's author is the account that controls the head branch, but anyone with push
-  access to that branch can push to it. Keep the list short.
+- **Which heads run.** A queued test is a commit a maintainer approved (a later push expires the approval). A local
+  test runs only a head the PR's own author pushed (the PR's first workflow run for that head names its pusher). Any
+  other head runs only through the trust dialog, which needs the tester to type the author's name.
 - **The build runs in the build sandbox** (round 2): the same bubblewrap setup without GPU, display or network; the
   source tree, its git directory and prebuilt dependencies read-only, only the build directory writable. Fetching
   the commit, main and submodule pins happens before, outside it. A malicious PR still runs its code at build time,
@@ -222,10 +188,11 @@ What this does not protect against:
 
 ## What leaves the machine
 
-Only the bot's comment: timings (frame times, GPU time per present), the summary lines AnyPS5 prints (build commit,
-GPU, driver, OS, CPU core count, memory, environment switches, top phases), outcome classes, the first error line of
-a title that does not render, the machine name and tester name from the config, and, when enabled, a screenshot of
-the scene. Never game files, save data or the dump's contents. The poll reads public PR data from GitHub.
+A queued test's result, as a comment from the tester's account on its job's issue in the results repository: timings
+(frame times, GPU time per present), the summary lines AnyPS5 prints (build commit, GPU, driver, OS, CPU, memory,
+environment switches, top phases), outcome classes, the first error line of a title that does not render, the machine
+name, and, when enabled, a screenshot of the scene. A local test sends nothing: its report stays on this computer.
+Never game files, save data or the dump's contents. Pull requests and the results repository are read from GitHub.
 
 ## Built on
 
@@ -238,28 +205,14 @@ the scene. Never game files, save data or the dump's contents. The poll reads pu
 
 What this repository adds is listed in `SUGGESTIONS.md`, with the parts that could go back to #7264.
 
-## Demo: a second head
-
-`demo/simulate_head.py` copies the state (not the trees, builds or runs), writes a fixture listing in which the PR
-has a new head and a results file for it (the real head's measurements, marked as simulated in the comment), and
-prints the times to poll at. Then, with the copy's config:
-
-```
-./title-runs --config COPY/config.toml poll --fixture COPY/fixture-listing.json --at SEEN       # new-head, waiting
-./title-runs --config COPY/config.toml poll --fixture COPY/fixture-listing.json --at SEEN+11m   # paused (not on the allowlist)
-./title-runs --config COPY/config.toml confirm 8104
-./title-runs --config COPY/config.toml publish 8104 --results COPY/fixture-results.json       # edit, with the earlier head in the history table
-```
-
 ## Tests
 
 ```
 python3 -I -m unittest discover -s tests -t tests
 ```
 
-The poller against fixture listings (first and incremental polls, direct reads), the follow rules (Unblocks:, labels,
-drafts, closed PRs), debounce and supersede, the allowlist and confirmations, the verdict rule, the comment's
-contents, history and the edit-or-new rule, the dry-run poster, and `publish` refusing a head that is not ready.
+The client, the workflow (relay) against the stand-in, local tests and their reports, scenarios, the verdict rules,
+the timed window, the sandboxes, the formats, and the window's model and pages (offscreen).
 
 ## License
 

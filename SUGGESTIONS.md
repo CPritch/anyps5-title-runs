@@ -44,8 +44,7 @@ has been offered upstream; Charlie decides.
 
 ## Ours only (outside #7264's scope)
 
-- The poller, the follow and trust rules, the debounce, the jobs (`refs/pull/N/merge` against its base), the
-  report and the poster.
+- The queue and its workflow, local tests, the client, and the jobs (`refs/pull/N/merge` against its base).
 - Routes as data, driven by frame states and pad input, and the harness's timed protocol (warm caches, one
   window, A B A B, counts or not counted).
 - The sandbox itself.

@@ -16,7 +16,7 @@ import shutil
 import time
 from pathlib import Path
 
-from . import auth, config as configs, formats, gh, job, platform_info, report, schedule, store, trust, verdict
+from . import auth, config as configs, formats, gh, job, platform_info, schedule, store, trust, verdict
 
 VERSION = "anyps5-title-runs 0.3"
 STALE_HOURS = 1  # the relay workflow last ran longer ago than this: warn
@@ -52,6 +52,20 @@ class Status:
         return data
 
 
+def machine_line(results):
+    """"GPU, driver D, OS" from the job's first timed run's summary line, else its boot runs."""
+    for entry in results.get("titles", {}).values():
+        for run in entry.get("ab", {}).get("runs", []):
+            s = run.get("summary")
+            if s:
+                return f"{s.get('gpu', '?')}, driver {s.get('driver', '?')}, {s.get('os', '?')}"
+        for summary in (entry.get("boot") or {}).values():
+            if summary:
+                m = summary.get("machine", {})
+                return f"{m.get('gpu', '?')}, driver {m.get('driver', '?')}, {m.get('os', '?')}"
+    return "?"
+
+
 def to_result(results, head, machine, tester, info, trust_mark):
     """A job's results (job.run) as the results file (FORMATS.md), every text cleaned of markup characters."""
     titles = {}
@@ -72,7 +86,7 @@ def to_result(results, head, machine, tester, info, trust_mark):
             titles[title_id]["scenario"] = entry["scenario"]
     data = {"format": formats.FORMAT, "job": formats.job_id(results["pr"], head), "pr": results["pr"], "head": head,
             "base": results.get("base", ""), "merge": results.get("merge", ""), "machine": machine, "tester": tester, "class": info,
-            "machine_line": clean(report.machine_line(results) if titles else f"{info['gpu']}, {info['os']}", 160), "trust": trust_mark,
+            "machine_line": clean(machine_line(results) if titles else f"{info['gpu']}, {info['os']}", 160), "trust": trust_mark,
             "sandbox": results.get("sandbox", "bwrap"), "status": results.get("status", "failed"), "started": formats.iso(formats.parse_time(results["started"])),
             "finished": formats.iso(formats.parse_time(results.get("finished", results["started"]))), "titles": titles}
     if results.get("error") or results.get("detail"):

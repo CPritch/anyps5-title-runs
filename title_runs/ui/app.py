@@ -21,7 +21,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QApplication
 
-from .. import ROOT, client as clients, config as configs, configfile, formats, platform_info, poller, sandbox, scenarios, store, verdict
+from .. import ROOT, client as clients, config as configs, configfile, formats, listing as listings, platform_info, sandbox, scenarios, store, verdict
 from ..relay import overview
 from ..relay.render import utc as utc_text
 from . import model, words
@@ -198,8 +198,8 @@ class Engine(QObject):
     def listing_store(self):
         """The listing of the repository the results repository names (not the config's own [github] repo)."""
         if self.listing_file:
-            return poller.Listing(self.listing_file)
-        return poller.Listing.of(self.config.state_dir, self.repository)
+            return listings.Listing(self.listing_file)
+        return listings.Listing.of(self.config.state_dir, self.repository)
 
     def listing(self):
         store = self.listing_store()
@@ -221,10 +221,9 @@ class Engine(QObject):
         when = store.refreshed()
         if not force and when and formats.now() - formats.parse_time(when) < datetime.timedelta(minutes=self.LISTING_MINUTES):
             return
-        from ..github import GraphQL
         owner, name = self.repository.split("/")
         try:
-            store.refresh(GraphQL(client="token", token=self.client.flow().token, reserve=200), owner, name, max_pages=20)
+            store.refresh(listings.GraphQL(self.client.flow().token, reserve=200), owner, name, max_pages=20)
             store.save()
         except Exception as error:  # noqa: BLE001 (the listing is a convenience; the queue does not depend on it)
             self.log(f"could not list the pull requests of {self.repository}: {error}")

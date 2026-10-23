@@ -68,27 +68,14 @@ class Title:
 class Config:
     path: Path
     state_dir: Path
-    repo: str
-    github_client: str
-    github_token_env: str
-    budget_reserve: int
     remote: str
     tester: str
     machine: str
-    follow_prs: list
-    auto_unblocks: bool
-    follow_labels: list
-    include_drafts: bool
-    authors: list
-    maintainer_labels: list
-    debounce_minutes: int
     repo_dir: Path
     cmake_args: list
     sandbox: str
     shutdown_wait: int
     titles: dict
-    poster_enabled: bool
-    poster_token_env: str
     allocator: str = ""
     results_url: str = ""
     results_github: str = "github"
@@ -105,14 +92,6 @@ class Config:
     local_fixes: list = field(default_factory=list)  # PRs merged onto main for both sides of local tests
     machine_info: dict = field(default_factory=dict)
 
-    @property
-    def owner(self):
-        return self.repo.split("/", 1)[0]
-
-    @property
-    def name(self):
-        return self.repo.split("/", 1)[1]
-
 
 TESTING = ("off", "schedule", "now")
 
@@ -128,21 +107,10 @@ def testing_mode(client):
 def load(path):
     path = Path(path).resolve()
     data = tomllib.loads(path.read_text(encoding="utf-8"))
-    github = data.get("github", {})
     tester = data.get("tester", {})
-    follow = data.get("follow", {})
-    trust = data.get("trust", {})
-    poll = data.get("poll", {})
     source = data.get("source", {})
     sandbox = data.get("sandbox", {})
-    poster = data.get("poster", {})
     local = data.get("local", data.get("overnight", {}))  # [overnight] until local tests had their name
-    repo = github.get("repo", "boykopovar/AnyPS5")
-    if repo.count("/") != 1:
-        raise ConfigError(f"github.repo {repo!r} is not owner/name")
-    client = github.get("client", "gh")
-    if client not in ("gh", "token"):
-        raise ConfigError(f"github.client must be gh or token, not {client!r}")
     mode = sandbox.get("mode", "bwrap")
     if mode not in ("bwrap", "none"):
         raise ConfigError(f"sandbox.mode must be bwrap or none (none only when set explicitly), not {mode!r}")
@@ -157,33 +125,17 @@ def load(path):
         titles[title_id] = Title(title_id, _path(entry["dump"]), route_path, [_path(p) for p in entry.get("seed", [])],
                                  list(entry.get("app0_skip", [])), dict(entry.get("env", {})), entry.get("graphics_mode", ""),
                                  int(entry["boot_seconds"]) if "boot_seconds" in entry else None, str(entry.get("scenario", "")))
-    for number in follow.get("prs", []):
-        if not isinstance(number, int) or number < 1:
-            raise ConfigError(f"follow.prs: {number!r} is not a PR number")
     return Config(
         path=path,
         state_dir=_path(data.get("state_dir", user_dirs()[1])),
-        repo=repo,
-        github_client=client,
-        github_token_env=github.get("token_env", "TITLE_RUNS_GITHUB_TOKEN"),
-        budget_reserve=int(github.get("budget_reserve", 500)),
         remote=source.get("remote", "origin"),
         tester=tester.get("name", ""),
         machine=tester.get("machine", os.uname().nodename),
-        follow_prs=list(follow.get("prs", [])),
-        auto_unblocks=bool(follow.get("auto_unblocks", False)),
-        follow_labels=list(follow.get("labels", [])),
-        include_drafts=bool(follow.get("include_drafts", False)),
-        authors=list(trust.get("authors", [])),
-        maintainer_labels=list(trust.get("maintainer_labels", [])),
-        debounce_minutes=int(poll.get("debounce_minutes", 10)),
         repo_dir=_path(source.get("repo_dir", "")) or _path(data.get("state_dir", user_dirs()[1])) / "anyps5",
         cmake_args=list(source.get("cmake_args", ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"])),
         sandbox=mode,
         shutdown_wait=int(sandbox.get("shutdown_wait", 900)),
         titles=titles,
-        poster_enabled=bool(poster.get("enabled", False)),
-        poster_token_env=poster.get("token_env", "TITLE_RUNS_BOT_TOKEN"),
         allocator=data.get("run", {}).get("allocator", ""),
         results_url=results_location(data.get("results", {}).get("url", "")),
         results_github=data.get("results", {}).get("github", "github"),
