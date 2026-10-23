@@ -1,13 +1,12 @@
-"""What the window and the tray show, as plain data (no Qt): the Pull requests tab's four sections, the Queue tab, the
-tray's state and lines. The Qt code only lays this out."""
+"""What the window and the tray show, as plain data (no Qt): the All pull requests page's four sections, the main
+screen's header and steps, the tray's state and lines. The Qt code only lays this out."""
 
 import re
 
-from .. import formats, rules
-from . import words
+from .. import rules
 
 PERF_LABELS = ("perf", "agc", "shader")
-SECTIONS = ("Queued by maintainers", "Mentions your titles", "Labelled perf, agc or shader", "Everything else")
+SECTIONS = ("On your local tests", "Mentions your titles", "Labelled perf, agc or shader", "Everything else")
 STATES = ("idle", "running", "waiting", "error")
 
 
@@ -23,10 +22,9 @@ def short_name(name):
     return known.get(name, name if len(name) <= 24 else name[:23] + "…")
 
 
-def pr_sections(listing_prs, queue, titles, query="", dismissed=()):
-    """The Pull requests tab: {section: [row]} with row {"number", "title", "author", "head", "priority", "titles",
-    "badge", "run"}; run is True for a PR outside the queue (Run… opens the trust dialog)."""
-    queued = {e["pr"]: e for e in queue.get("entries", [])}
+def pr_sections(listing_prs, listed, titles, query="", dismissed=()):
+    """The All pull requests page: {section: [row]} with row {"number", "title", "author", "head", "titles", "badge",
+    "add"}; add is True for a PR not on the local tests list (listed, its numbers)."""
     query = query.strip().lower()
     out = {name: [] for name in SECTIONS}
     for pr in sorted(listing_prs, key=lambda p: -p["number"]):
@@ -36,18 +34,14 @@ def pr_sections(listing_prs, queue, titles, query="", dismissed=()):
         if query and query not in text:
             continue
         row = {"number": pr["number"], "title": pr["title"], "author": (pr.get("author") or {}).get("login", ""), "head": pr.get("headRefOid", ""),
-               "priority": "", "titles": "", "badge": "", "run": True}
-        entry = queued.get(pr["number"])
-        if entry is not None:
-            row.update(priority=entry["priority"], head=entry["head"], run=False,
-                       titles=", ".join(titles.get(t, t) for t in entry["titles"]) or "any",
-                       badge="✓ queued" + (f" ({len(entry['unapproved'])} push not checked)" if entry.get("unapproved") else ""))
+               "titles": "", "badge": "", "add": True}
+        if pr["number"] in listed:
+            row.update(add=False, badge="✓ on your list")
             out[SECTIONS[0]].append(row)
             continue
         if pr["number"] in dismissed:
             continue
         mine = sorted(rules.unblocks(pr.get("body")) & set(titles))
-        row["badge"] = "⚠ not checked"
         if mine:
             row["titles"] = "Unblocks " + ", ".join(mine)
             out[SECTIONS[1]].append(row)
@@ -60,39 +54,18 @@ def pr_sections(listing_prs, queue, titles, query="", dismissed=()):
 
 
 def waiting_for_you(sections):
-    """PRs that name the tester's titles and no maintainer has queued: the tester may want to run them."""
+    """PRs that name the tester's titles and aren't on the local tests list: the tester may want to add them."""
     return sections[SECTIONS[1]]
 
 
-def queue_view(ranked, status, titles):
-    """The Queue tab: running, up next (with the score's reasons), waiting for you is filled by the caller, recent."""
-    up_next = []
-    job = status.get("job") or {}
-    for choice in ranked:
-        entry = choice.entry
-        if status.get("state") == "running" and job.get("pr") == entry["pr"] and job.get("head") == entry["head"]:
-            continue
-        up_next.append({"number": entry["pr"], "title": entry.get("title", ""), "head": entry["head"], "priority": entry["priority"],
-                        "titles": ", ".join(titles.get(t, t) for t in entry["titles"]) or "any", "score": choice.score,
-                        "reasons": choice.reasons, "unapproved": [p["sha"] for p in entry.get("unapproved", [])]})
-    running = None
-    if status.get("state") == "running" and job:
-        running = {"number": job.get("pr"), "head": job.get("head", ""), "line": status.get("line", ""), "progress": status.get("progress", ""),
-                   "trust": job.get("trust", "queue")}
-    return {"running": running, "up_next": up_next, "recent": status.get("recent", [])}
-
-
-def tray_view(status, view, waiting, testing):
-    """(state, [lines]) for the tray: grey idle, green running, amber waiting for you, red error."""
-    lines = []
+def tray_view(status, up_next, waiting, testing):
+    """(state, [lines]) for the tray: grey idle, green running, amber waiting for you, red error. up_next: the heads
+    waiting to be tested, without the one running."""
     state = status.get("state", "idle")
-    if view["running"]:
-        lines.append(status.get("line", "Running"))
-    else:
-        lines.append(status.get("line", "Idle"))
-    nxt = next((u for u in view["up_next"] if u["score"] > 0 and (not view["running"] or u["number"] != view["running"]["number"])), None)
+    lines = [status.get("line", "Running" if state == "running" else "Idle")]
+    nxt = next(iter(up_next), None)
     if nxt:
-        lines.append(f"Next: #{nxt['number']} · {nxt['titles']} ({nxt['priority']})")
+        lines.append(f"Next: #{nxt['number']} {first_line(nxt['title'], 60)}")
     if waiting:
         lines.append(f"{len(waiting)} PR{'s' if len(waiting) > 1 else ''} waiting for you")
     if testing != "schedule":
@@ -102,12 +75,6 @@ def tray_view(status, view, waiting, testing):
     if state == "idle" and waiting:
         state = "waiting"
     return state, lines
-
-
-def comment_link(repository, comment_id):
-    if isinstance(comment_id, int) or (isinstance(comment_id, str) and comment_id.isdigit()):
-        return f"https://github.com/{repository}/issues/comments/{comment_id}"
-    return ""
 
 
 def first_line(text, limit=90):
@@ -121,13 +88,11 @@ def setup_text(why):
     """What a tester still has to do (or wait for), for a reason client.ready gave."""
     return {"the first-run walkthrough is not done": "Go through the first-run steps.",
             "no titles are set up": "Add a game you own.",
-            "not signed in": "Sign in with GitHub.",
-            "this machine is not registered": "Register this machine.",
-            "waiting for a maintainer to approve this machine": f"{words.Team()} still has to approve this machine. Nothing to do but wait.",
-            "a maintainer declined this machine": f"{words.Team()} turned this machine down."}.get(why, why)
+            "not signed in": "Sign in with GitHub."}.get(why, why)
+
 
 STEPS = ("Getting the change", "Building AnyPS5 as it is", "Building AnyPS5 with the change", "Warming up the game",
-         "Run 1 of 4: as it is", "Run 2 of 4: with the change", "Run 3 of 4: as it is", "Run 4 of 4: with the change", "Sending the result")
+         "Run 1 of 4: as it is", "Run 2 of 4: with the change", "Run 3 of 4: as it is", "Run 4 of 4: with the change", "Writing the report")
 
 
 def waiting_for(why):
@@ -185,9 +150,9 @@ def schedule_words(rules, idle_detectable=True):
     return ", ".join(part for part in (hours, when) if part) or "at any time"
 
 
-def header(status, ready, why, testing, allowed, allowed_why, best, local_only=False):
-    """The main screen's header: {"kind", "headline", "detail"}; kind is running, setup, off, idle, waiting or ready.
-    local_only: no results repository, so the only tests are the tester's local ones."""
+def header(status, ready, why, testing, allowed, allowed_why, best):
+    """The main screen's header: {"kind", "headline", "detail"}; kind is running, setup, error, idle, off, waiting or
+    ready. best: the next head to be tested, or None."""
     job = status.get("job") or {}
     if status.get("state") == "running" and job:
         return {"kind": "running", "headline": f"Testing #{job.get('pr')}" + (f": {job['title']}" if job.get("title") else ""),
@@ -197,8 +162,7 @@ def header(status, ready, why, testing, allowed, allowed_why, best, local_only=F
     if status.get("state") == "error":
         return {"kind": "error", "headline": "The last test went wrong", "detail": first_line(status.get("line", ""), 160)}
     if best is None:
-        return {"kind": "idle", "headline": "No tests waiting",
-                "detail": "New heads of your local tests show up here by themselves." if local_only else f"New tests from {words.team()} show up here by themselves."}
+        return {"kind": "idle", "headline": "No tests waiting", "detail": "New heads of your local tests show up here by themselves."}
     if testing == "off":
         return {"kind": "off", "headline": "Testing is off", "detail": "Choose On schedule or Now to start testing."}
     if testing == "now":
@@ -206,57 +170,3 @@ def header(status, ready, why, testing, allowed, allowed_why, best, local_only=F
     if not allowed:
         return {"kind": "waiting", "headline": "Waiting", "detail": f"The next test starts by itself {waiting_for(allowed_why)}."}
     return {"kind": "ready", "headline": "Starting the next test", "detail": "It starts within a minute."}
-
-
-def plain_reason(choice):
-    """Why a queued test is or isn't up next for this machine, from schedule.score's factors."""
-    reasons = " ".join(choice.reasons)
-    if choice.score > 0:
-        return "Next" if choice.factors.get("coverage", 1) >= 1 else "Wanted, after the others"
-    if "this machine has reported" in reasons:
-        return "Already tested on this machine"
-    if "holds a claim" in reasons:
-        return "Another machine like yours is testing it"
-    if "machine(s) wanted" in reasons:
-        return "Enough machines have tested it"
-    if "hardware wanted" in reasons:
-        return "Wants other hardware"
-    if "titles wanted" in reasons:
-        return "Wants a game you haven't added"
-    return "Not for this machine"
-
-
-def up_next(ranked, status):
-    """The tests in the queue for this machine, best first, without the one running."""
-    job = status.get("job") or {}
-    rows = []
-    for choice in ranked:
-        entry = choice.entry
-        if status.get("state") == "running" and job.get("pr") == entry["pr"] and job.get("head") == entry["head"]:
-            continue
-        rows.append({"number": entry["pr"], "title": entry.get("title", ""), "author": entry.get("author", ""), "head": entry["head"],
-                     "queued_by": entry.get("queued_by", ""), "queued_at": entry.get("queued_at", ""), "score": choice.score,
-                     "why": plain_reason(choice), "reasons": choice.reasons})
-    return rows
-
-
-def recent(status, results, machine, rules_):
-    """The tests this machine reported, newest first, with each one's verdict: [{"number", "head", "at", "status",
-    "verdict"}]. results: the results repository's {job: {machine: result}}."""
-    from .. import verdict
-    out = []
-    for row in status.get("recent", []):
-        result = (results.get(formats.job_id(row["pr"], row["head"])) or {}).get(machine)
-        words = row["status"]
-        if result and result.get("status") == "done":
-            parts = []
-            for title_id, entry in sorted(result["titles"].items()):
-                v = verdict.machine(entry.get("sides") or {}, rules_)
-                if v.get("diff") is None:
-                    parts.append(f"{title_id}: not enough runs counted")
-                else:
-                    word = {"faster": "Faster", "slower": "Slower"}.get(v["verdict"], "No difference")
-                    parts.append(f"{word} ({v['diff']:+.2f} ms)" + (", borderline" if v.get("borderline") else ""))
-            words = "; ".join(parts) or words
-        out.append({"number": row["pr"], "head": row["head"], "at": row.get("at", ""), "status": row["status"], "verdict": words})
-    return out

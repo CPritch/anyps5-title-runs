@@ -1,11 +1,10 @@
-"""Verdicts (DESIGN.md, "Verdicts"): per machine with the 1 % rule, combined per class, and the scheduler asking for
-another machine of a borderline class."""
+"""Verdicts (DESIGN.md, "Verdicts"): per machine with the 1 % rule, and combined per class."""
 
 import unittest
 
-from helpers import at
+import helpers  # noqa: F401
 
-from title_runs import formats, schedule, verdict
+from title_runs import formats, verdict
 
 LAPTOP = formats.machine_class("NVIDIA GeForce RTX 5060 Laptop GPU", "Linux 7.2.8-zen1-2-zen", "NVIDIA 615.71.09")
 LAPTOP_TOO = formats.machine_class("NVIDIA GeForce RTX 5060 Laptop GPU", "Linux 6.17.1-arch1", "NVIDIA 615.42.01")
@@ -97,45 +96,14 @@ class Classes(unittest.TestCase):
         self.assertIn("1 faster, 1 slower", combined["text"])
 
 
-class Scheduler(unittest.TestCase):
-    def entry(self, machines=1):
-        return {"job": formats.job_id(8104, HEAD), "pr": 8104, "head": HEAD, "priority": "normal", "titles": [], "hw": [], "machines": machines,
-                "queued_by": "m", "queued_at": "2026-10-21T12:00:00Z", "earlier": [], "approval": {"by": "m", "at": "2026-10-21T12:00:00Z", "via": "label"}}
-
-    def gap(self, results, info=LAPTOP_TOO, name="laptop-2"):
-        machine = schedule.Machine(name, "tester", info, {"PPSA04263"})
-        return schedule.coverage_gap(self.entry(), machine, {}, {self.entry()["job"]: results}, at("2026-10-21T13:00:00"))
-
-    def test_borderline_class_asks_for_another_even_when_machines_is_met(self):
-        value, reason = self.gap({"laptop": result("laptop", LAPTOP, (78.0, 78.0), (77.6, 77.7))})
-        self.assertEqual(value, 1.0)
-        self.assertIn("borderline", reason)
-
-    def test_another_class_is_not_asked(self):
-        self.assertEqual(self.gap({"laptop": result("laptop", LAPTOP, (78.0, 78.0), (77.6, 77.7))}, DESKTOP, "desktop")[0], 0.0)
-
-    def test_settled_class_is_not_asked(self):
-        self.assertEqual(self.gap({"laptop": result("laptop", LAPTOP, (79.7, 79.1), (72.1, 72.7))})[0], 0.0)
-
-    def test_up_to_three(self):
-        results = {f"m{i}": result(f"m{i}", LAPTOP, (79.7, 79.1), (72.1, 72.7)) for i in range(2)}
-        results["m2"] = result("m2", LAPTOP, (78.1, 77.8), (78.2, 77.9))
-        self.assertEqual(self.gap(results)[0], 0.0)
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 class Settings(unittest.TestCase):
-    """config.json's verdicts: threshold_pct and class_max (DESIGN.md, round 4 decision 7)."""
+    """The verdict's settings: threshold_pct and class_max (DESIGN.md, round 4 decision 7)."""
 
     def test_defaults_are_1_pct_and_3(self):
-        self.assertEqual(verdict.settings({}), verdict.Settings(1.0, 3))
-        self.assertEqual(formats.check_config({"format": 1, "repository": "a/b", "maintainers": []})["verdicts"], {"threshold_pct": 1, "class_max": 3})
+        self.assertEqual(verdict.DEFAULT, verdict.Settings(1.0, 3))
 
     def test_a_lower_threshold_counts_round_2s_difference(self):
-        rules = verdict.settings({"verdicts": {"threshold_pct": 0.3}})
+        rules = verdict.Settings(threshold_pct=0.3)
         v = verdict.machine(sides((78.0, 78.0), (77.6, 77.7)), rules)
         self.assertEqual((v["verdict"], v["borderline"]), ("faster", False))
         self.assertAlmostEqual(v["size"], 0.234)
@@ -147,17 +115,3 @@ class Settings(unittest.TestCase):
         (capped,) = verdict.by_class(results, "PPSA04263", verdict.Settings(1.0, 2)).values()
         self.assertFalse(capped["borderline"])
         self.assertNotIn("one more machine", capped["text"])
-
-    def test_the_scheduler_uses_class_max(self):
-        entry = {"job": formats.job_id(8104, HEAD), "pr": 8104, "head": HEAD, "machines": 2, "hw": [], "titles": [], "priority": "normal",
-                 "queued_at": "2026-10-21T12:00:00Z"}
-        results = {entry["job"]: {"laptop": result("laptop", LAPTOP, (78.0, 78.0), (77.9, 78.1)),
-                                  "laptop-2": result("laptop-2", LAPTOP_TOO, (78.0, 78.0), (76.0, 76.1))}}
-        third = schedule.Machine("laptop-3", "tester", LAPTOP, {"PPSA04263"})
-        self.assertEqual(schedule.coverage_gap(entry, third, {}, results, at("2026-10-21T13:00:00"))[0], 1.0)
-        self.assertEqual(schedule.coverage_gap(entry, third, {}, results, at("2026-10-21T13:00:00"), verdict.Settings(1.0, 2))[0], 0.0)
-
-    def test_bad_settings_are_refused(self):
-        for bad in ({"threshold_pct": 0}, {"threshold_pct": "1"}, {"threshold_pct": 50}, {"class_max": 0}, {"class_max": 2.5}, {"class_max": True}):
-            with self.assertRaises(formats.FormatError):
-                formats.check_config({"format": 1, "repository": "a/b", "maintainers": [], "verdicts": bad})

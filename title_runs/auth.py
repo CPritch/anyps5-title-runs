@@ -1,18 +1,15 @@
-"""Signing in through the App's device flow (DESIGN.md, "Pieces": testers sign in themselves).
+"""Signing in through the App's device flow: the tester types a code at github.com/login/device, and the client polls
+until GitHub hands it a user access token.
 
-The tester types a code at github.com/login/device; the client polls until GitHub hands it a user access token. The
-token can do only what both the tester and the App can (comment and open issues in the results repository). It lasts
-8 hours and is refreshed with the refresh token (6 months) without the App's secret, which a device-flow token does
-not need. Kept in the client's state directory (mode 0600).
-
-endpoint "github" talks to github.com; "standin:<github.json>" to the stand-in (gh.FakeGitHub), where
-`title-runs standin authorize <code> --as <login>` plays the tester typing the code.
+The tool reads the project's pull requests with the token (GitHub allows 60 requests an hour without one). The token
+can do only what both the tester and the App can, and the App needs no permissions to read public repositories, so
+it can't write anything. It lasts 8 hours and is refreshed with the refresh token (6 months) without the App's
+secret, which a device-flow token does not need. Kept in the client's state directory (mode 0600).
 """
 
 import datetime
 import json
 import os
-import secrets
 import time
 import urllib.parse
 import urllib.request
@@ -34,8 +31,8 @@ def _now():
 
 
 class DeviceFlow:
-    def __init__(self, client_id, token_file, endpoint="github"):
-        self.client_id, self.token_file, self.endpoint = client_id, Path(token_file), endpoint
+    def __init__(self, client_id, token_file):
+        self.client_id, self.token_file = client_id, Path(token_file)
 
     # -- the stored token ----------------------------------------------------------------------------------------------
 
@@ -53,8 +50,7 @@ class DeviceFlow:
         os.replace(temporary, self.token_file)
 
     def stored_for_this_app(self):
-        """The stored sign-in, if it was made through this App: a results repository that names another App (one moved to
-        a maintainer's account) needs a new sign-in."""
+        """The stored sign-in, if it was made through this App: a config that names another App needs a new sign-in."""
         data = self.stored()
         if data and data.get("client_id") != self.client_id:  # a sign-in kept before tokens named their App counts as another's
             return None
@@ -95,42 +91,21 @@ class DeviceFlow:
 
     def start(self):
         """{"device_code", "user_code", "verification_uri", "interval", "expires_in"}."""
-        if self.endpoint.startswith("standin:"):
-            fake = gh.FakeGitHub(self.endpoint.split(":", 1)[1])
-            letters = "BCDFGHJKLMNPQRSTVWXZ"  # GitHub's codes look like WDJB-MJHT
-            code = "-".join("".join(secrets.choice(letters) for _ in range(4)) for _ in range(2))
-            device = secrets.token_hex(8)
-            fake.data.setdefault("device", {})[device] = {"user_code": code, "client_id": self.client_id, "login": None}
-            fake.save()
-            return {"device_code": device, "user_code": code, "verification_uri": "https://github.com/login/device", "interval": 1, "expires_in": 900}
         return self._post(DEVICE_URL, {"client_id": self.client_id})
 
     def poll(self, device):
         """One poll: the stored token data once the tester has entered the code, None while pending."""
-        if self.endpoint.startswith("standin:"):
-            fake = gh.FakeGitHub(self.endpoint.split(":", 1)[1])
-            record = fake.data.get("device", {}).get(device["device_code"])
-            if record is None:
-                raise AuthError("the device code expired")
-            if not record["login"]:
-                return None
-            token = f"standin-{record['login']}-{secrets.token_hex(4)}"
-            fake.data.setdefault("tokens", {})[token] = record["login"]
-            fake.save()
-            reply = {"access_token": token, "expires_in": 28800, "refresh_token": f"r-{token}", "refresh_token_expires_in": 15897600}
-            login = record["login"]
-        else:
-            reply = self._post(TOKEN_URL, {"client_id": self.client_id, "device_code": device["device_code"], "grant_type": GRANT})
-            error = reply.get("error")
-            if error in ("authorization_pending", "slow_down"):
-                if error == "slow_down":
-                    # GitHub adds 5 s each time and counts from the last request: polling at the old pace gets slow_down
-                    # for ever. The caller waits interval() before the next poll.
-                    device["interval"] = int(reply.get("interval") or device.get("interval", 5) + 5)
-                return None
-            if error:
-                raise AuthError(f"sign-in failed: {error} ({reply.get('error_description', '')})")
-            login = gh.GitHubRepo("", token=reply["access_token"]).login()
+        reply = self._post(TOKEN_URL, {"client_id": self.client_id, "device_code": device["device_code"], "grant_type": GRANT})
+        error = reply.get("error")
+        if error in ("authorization_pending", "slow_down"):
+            if error == "slow_down":
+                # GitHub adds 5 s each time and counts from the last request: polling at the old pace gets slow_down for
+                # ever. The caller waits interval() before the next poll.
+                device["interval"] = int(reply.get("interval") or device.get("interval", 5) + 5)
+            return None
+        if error:
+            raise AuthError(f"sign-in failed: {error} ({reply.get('error_description', '')})")
+        login = gh.GitHubRepo("", token=reply["access_token"]).login()
         data = {**self.data(reply, login), "client_id": self.client_id}
         self.store(data)
         return data
@@ -151,8 +126,6 @@ class DeviceFlow:
         raise AuthError("the device code expired before it was entered")
 
     def refresh(self, data):
-        if self.endpoint.startswith("standin:"):
-            return data
         reply = self._post(TOKEN_URL, {"client_id": self.client_id, "grant_type": "refresh_token", "refresh_token": data["refresh_token"]})
         if reply.get("error"):
             raise AuthError(f"could not refresh the sign-in: {reply['error']}; sign in again")
@@ -168,16 +141,3 @@ class DeviceFlow:
         if reply.get("refresh_token"):
             out["refresh_token"] = reply["refresh_token"]
         return out
-
-
-def repo_as_tester(endpoint, repository, flow):
-    """The results repository as the signed-in tester (gh.Repo)."""
-    if endpoint.startswith("standin:"):
-        login = flow.login()
-        if not login:
-            raise AuthError("not signed in")
-        return gh.FakeGitHub.standin(endpoint.split(":", 1)[1]).as_(repository, login)
-    token = flow.token()
-    if not token:
-        raise AuthError("not signed in")
-    return gh.GitHubRepo(repository, token=token)

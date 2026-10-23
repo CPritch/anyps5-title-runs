@@ -1,11 +1,12 @@
 """The window's application: the tray and the window over the engine (title_runs/engine.py, its worker thread).
 
-  title-runs ui [--config FILE] [--listing FILE] [--auto]       the tray and the window; the walkthrough on first open
-  title-runs ui --config NEW --results URL [--github standin:FILE] [--dumps DIR]   a new config, then the walkthrough
-  title-runs ui --screenshots DIR [--config FILE] [--listing FILE] [--no-sync]   render the window's screens to DIR (offscreen)
+  title-runs window [--config FILE] [--listing FILE] [--auto]   the tray and the window; the walkthrough on first open
+  title-runs window --config NEW [--state DIR] [--dumps DIR]     a new config, then the walkthrough
+  title-runs window --screenshots DIR [--config FILE] [--listing FILE]   render the window's screens to DIR (offscreen)
 
---listing: the PR listing the Pull requests tab shows (default: the listing of the repository the results repository
-names, kept in the state directory's cache and refreshed with the tester's sign-in every 15 minutes or on request). --auto: the switch On schedule.
+--listing: the PR listing the All pull requests page shows (default: the listing of the local tests' project, kept in the
+state directory's cache and refreshed with the tester's sign-in every 15 minutes or on request). --auto: the switch On
+schedule.
 All git and build work happens on the engine's worker thread; the UI reads the status file and cached data.
 """
 
@@ -18,14 +19,13 @@ from PySide6.QtWidgets import QApplication
 
 from .. import config as configs, engine as engines
 from ..engine import new_config, report_state  # noqa: F401 (the window's and the tests' names for them)
-from . import model
 
 
 class Engine(engines.Engine):
     """The engine (title_runs/engine.py), with links opened through the desktop."""
 
     def open_url(self, url):
-        if url.startswith("https://") and self.config.results_url.startswith(("https://", "git@", "ssh://")):
+        if url.startswith("https://"):
             from PySide6.QtCore import QUrl
             from PySide6.QtGui import QDesktopServices
             QDesktopServices.openUrl(QUrl(url))
@@ -38,13 +38,12 @@ def grab(widget, path):
 
 
 def screenshots(engine, out, prefix=""):
-    """The window's tabs, a local test's report, the trust dialog and the tray's menu with its four dots, rendered offscreen into out/."""
+    """The window's pages, a local test's report and the tray's menu with its four dots, rendered offscreen into out/."""
     from PySide6.QtCore import QPoint
     from PySide6.QtGui import QPainter, QPixmap
     from PySide6.QtWidgets import QWidget
 
     from .tray import COLOURS, Tray, dot
-    from .trust_dialog import TrustDialog
     from .window import MainWindow
 
     out = Path(out)
@@ -63,17 +62,6 @@ def screenshots(engine, out, prefix=""):
         dialog = ReportDialog(engine, reported, window)
         dialog.show()
         saved.append(grab(dialog, out / f"{prefix}report.png"))
-        dialog.close()
-    if engine.client.maintainer():
-        window.open_maintainer()
-        saved.append(grab(window.maintainer_window, out / f"{prefix}maintainer.png"))
-        window.maintainer_window.close()
-    rows = engine.waiting() or engine.sections()[model.SECTIONS[2]]
-    if rows:
-        row = rows[0]
-        dialog = TrustDialog(row["number"], row["title"], row["author"], window)
-        dialog.show()
-        saved.append(grab(dialog, out / f"{prefix}trust-dialog.png"))
         dialog.close()
     tray = Tray(engine, lambda: None, lambda: None)
     tray.refresh()
@@ -106,18 +94,15 @@ def main(argv=None):
     parser.add_argument("--listing", type=Path, help="show this pull requests listing instead of the one read from GitHub")
     parser.add_argument("--auto", action="store_true", help="start with testing on schedule")
     parser.add_argument("--dumps", default="", help="the walkthrough's dumps folder to start from")
-    parser.add_argument("--results", default="", help="a new config: the results repository, OWNER/NAME or a URL")
-    parser.add_argument("--github", default="github", help='a new config: "github", or "standin:<github.json>" for the local stand-in')
     parser.add_argument("--state", type=Path, help="a new config: the state directory")
     parser.add_argument("--screenshots", type=Path, help="render the window's pages to this folder, offscreen, and exit")
-    parser.add_argument("--no-sync", action="store_true", help="--screenshots: read the results checkout as it is (a client may be using it)")
     args = parser.parse_args(argv)
     if sys.platform.startswith("linux") and os.environ.get("DISPLAY") and not os.environ.get("QT_QPA_PLATFORM") and not args.screenshots:
         # An X11 program on Wayland desktops too (XWayland), and the game an X11 window: then the game shows inside the app.
         os.environ["QT_QPA_PLATFORM"] = "xcb"
         os.environ["TITLE_RUNS_GAME_DISPLAY"] = "x11"
     if not args.config.exists():
-        new_config(args.config, args.results, args.github, args.state)
+        new_config(args.config, args.state)
     config = configs.load(args.config)
     app = QApplication(sys.argv[:1])
     app.setApplicationName("AnyPS5 title runs")
@@ -125,14 +110,11 @@ def main(argv=None):
     theme.apply(app, config.text_size)
     engine = Engine(config, args.listing, args.auto)
     if args.screenshots:
-        engine.load(sync=not args.no_sync)
         for path in screenshots(engine, args.screenshots):
             print(path)
         return 0
     if not engine.client.onboarded():
         from .walkthrough import Walkthrough
-        if engine.config.results_url:
-            engine.client.repo.sync()
         if Walkthrough(engine, args.dumps).exec() != Walkthrough.Accepted:
             return 1  # nothing runs before the walkthrough
     from PySide6.QtWidgets import QSystemTrayIcon

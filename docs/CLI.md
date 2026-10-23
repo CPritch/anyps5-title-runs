@@ -8,58 +8,40 @@ title-runs: test AnyPS5 pull requests on your own games and hardware, against ma
 Usage: title-runs [--config FILE] [--json] COMMAND [ARGS]
 
 This computer
-  status               What this computer is doing: the test running, the testing switch, what's next, anything to fix.
-  testing              Show or set the testing switch: off, schedule or now.
-  stop                 End the running test now, and set testing to off.
-  run                  Run tests here without the window, as the switch and the schedule allow, until stopped.
-  check                Check this computer can test: the sandbox, your games and the sign-in.
-  log                  The last lines of this computer's log, and of the latest test's.
+  status            What this computer is doing: the test running, the testing switch, what's next, anything to fix.
+  testing           Show or set the testing switch: off, schedule or now.
+  stop              End the running test now, and set testing to off.
+  run               Run tests here without the window, as the switch and the schedule allow, until stopped.
+  check             Check this computer can test: the sandbox, your games and the sign-in.
+  log               The last lines of this computer's log, and of the latest test's.
 
 Local tests: pull requests you pick, tested on this computer. Nothing is posted.
-  local list           Your local tests: what's waiting, and each pull request's newest result.
-  local add            Add pull requests to your local tests, by number or link.
-  local remove         Take pull requests off your local tests; their results stay.
-  local again          Test a pull request's latest tested head again; the earlier result stays.
-  local report         A pull request's report: the link to post it on, then its text in the project's form.
-  local files          The traces to attach to a pull request's report, and the folder they're in.
-  local posted         Mark a pull request's report as posted by you (--undo: not posted).
-  local follow         Also test every open pull request of these people.
-  local unfollow       Stop following these people; pull requests you added by number stay.
-  local fixes          Show or set the fixes merged onto main for both sides (--none: no fixes).
-  local main           What local tests are measured against now (--latest: main afresh at the next test).
-  local repository     Show or set the project whose pull requests your local tests come from.
-
-The queue: tests maintainers ask for, kept in a results repository
-  queue list           The queue: the tests maintainers asked for, what each still wants, and what this machine takes next.
-  queue add            Ask for a test of a pull request (maintainers).  [writes to GitHub]
-  results              A pull request's results: each machine's, and the verdict per kind of machine.
-  machines list        The registered machines, when each last reported, and those waiting for approval.
-  machines approve     Approve a machine waiting for approval (maintainers).  [writes to GitHub]
-  machines decline     Decline a machine waiting for approval (maintainers).  [writes to GitHub]
+  local list        Your local tests: what's waiting, and each pull request's newest result.
+  local add         Add pull requests to your local tests, by number or link.
+  local remove      Take pull requests off your local tests; their results stay.
+  local again       Test a pull request's latest tested head again; the earlier result stays.
+  local report      A pull request's report: the link to post it on, then its text in the project's form.
+  local files       The traces to attach to a pull request's report, and the folder they're in.
+  local posted      Mark a pull request's report as posted by you (--undo: not posted).
+  local follow      Also test every open pull request of these people.
+  local unfollow    Stop following these people; pull requests you added by number stay.
+  local fixes       Show or set the fixes merged onto main for both sides (--none: no fixes).
+  local main        What local tests are measured against now (--latest: main afresh at the next test).
+  local repository  Show or set the project whose pull requests your local tests come from.
 
 Your account, your games and the window
-  sign-in              Sign in with GitHub: shows a code to type at github.com/login/device, then waits.
-  sign-out             Forget the sign-in on this computer.
-  register             Register this machine with the results repository, for a maintainer to approve.  [writes to GitHub]
-  use                  Switch to another results repository (the testing link you were given).
-  games list           Your games: each one's test, scenario and folder.
-  games scenario       Show or choose the scenario a game is timed in.
-  window               Open the window (the first-run walkthrough if the config is new).
-
-Setting up testing for a project (maintainers)
-  app                  Make the GitHub App for a project's testing, from its manifest.
-  export-results-repo  Make a project's results repository, ready to push.
-
-Run by GitHub, and for development
-  relay                The results repository's workflow: what GitHub Actions runs every 5 minutes.  [writes to GitHub]
-  standin              The local stand-in for GitHub and the results repository, for development.
+  sign-in           Sign in with GitHub: shows a code to type at github.com/login/device, then waits.
+  sign-out          Forget the sign-in on this computer.
+  games list        Your games: each one's test, scenario and folder.
+  games scenario    Show or choose the scenario a game is timed in.
+  window            Open the window (the first-run walkthrough if the config is new).
 
 Options
   --config FILE   the config (default: $TITLE_RUNS_CONFIG, else anyps5-title-runs/config.toml in your config folder)
   --json          print JSON: one object, or one per line for run and sign-in
 
 Exit codes: 0 done, 1 couldn't (the message says why), 2 the command was written wrong.
-Commands marked [writes to GitHub] do so as you (relay: as the App); nothing else posts anything.
+Nothing here posts anything or writes to GitHub: you post reports yourself.
 `title-runs help COMMAND` says more about each.
 ```
 
@@ -70,20 +52,18 @@ Commands marked [writes to GitHub] do so as you (relay: as the App); nothing els
 What this computer is doing: the test running, the testing switch, what's next, anything to fix.
 
 ```
-usage: title-runs status [-h] [--fetch]
+usage: title-runs status [-h]
 
 What this computer is doing: the test running, the testing switch, what's next, anything to fix.
 
 Shows the test running on this computer (in the window, `title-runs run`, or here), the testing
-switch and what it means now, the next test, and anything that keeps tests from starting. The
-results repository is read as last fetched; --fetch updates it first.
+switch and what it means now, the next test, and anything that keeps tests from starting.
 
 options:
   -h, --help  show this help message and exit
-  --fetch     fetch the results repository first
 
-Changes: Nothing (--fetch updates this computer's copy of the results repository).
-JSON (--json): {"headline", "detail", "kind": "running|setup|off|idle|waiting|ready|error", "testing", "running": {"pr", "head", "title", "step", "progress", "local"} or null, "busy_elsewhere", "next": {"pr", "title", "head", "local"} or null, "notes": [...], "signed_in", "machine", "results_repository", "local_only", "config", "state"}
+Changes: Nothing.
+JSON (--json): {"headline", "detail", "kind": "running|setup|off|idle|waiting|ready|error", "testing", "running": {"pr", "head", "title", "step", "progress"} or null, "busy_elsewhere", "next": {"pr", "title", "head"} or null, "notes": [...], "signed_in", "machine", "project", "config", "state"}
 
 Examples:
   title-runs status
@@ -128,8 +108,8 @@ usage: title-runs stop [-h]
 End the running test now, and set testing to off.
 
 Ends the test running on this computer, wherever it was started (the window, `title-runs run`): its
-build or game ends within a few seconds, and nothing is sent. Testing goes to off, so another test
-doesn't start a minute later.
+build or game ends within a few seconds, and its head waits to be tested again. Testing goes to off,
+so another test doesn't start a minute later.
 
 options:
   -h, --help  show this help message and exit
@@ -150,18 +130,17 @@ usage: title-runs run [-h] [--once]
 
 Run tests here without the window, as the switch and the schedule allow, until stopped.
 
-Does what the open window does in the background: the queue's tests first (when this machine is
-registered), then local tests, whenever the testing switch and the schedule let one start. It runs
-until Ctrl+C, which also ends the test running. --once: start one test now, whatever the switch and
-the schedule say, and exit when it's done. One test runs on a computer at a time: while the window
-is testing, this waits, and the other way round. Nothing runs before the first-run walkthrough
-(`title-runs window`) is done.
+Does what the open window does in the background: your local tests, whenever the testing switch and
+the schedule let one start. It runs until Ctrl+C, which also ends the test running. --once: start
+one test now, whatever the switch and the schedule say, and exit when it's done. One test runs on a
+computer at a time: while the window is testing, this waits, and the other way round. Nothing runs
+before the first-run walkthrough (`title-runs window`) is done.
 
 options:
   -h, --help  show this help message and exit
   --once      one test now, whatever the switch says, then exit
 
-Changes: Builds and runs tests on this computer. A queued test's result goes to the results repository as you; a local test's stays here.
+Changes: Builds and runs tests on this computer. Their results stay here.
 JSON (--json): one object per line: {"log": text} as it goes, then {"result": text}
 
 Examples:
@@ -403,6 +382,9 @@ usage: title-runs local follow [-h] LOGIN [LOGIN ...]
 
 Also test every open pull request of these people.
 
+Each new head they push to one of their pull requests is tested, without you looking at it first:
+follow people whose code you'd run.
+
 positional arguments:
   LOGIN
 
@@ -513,152 +495,6 @@ Examples:
   title-runs local repository boykopovar/AnyPS5
 ```
 
-## The queue: tests maintainers ask for, kept in a results repository
-
-### `title-runs queue list`
-
-The queue: the tests maintainers asked for, what each still wants, and what this machine takes next.
-
-```
-usage: title-runs queue list [-h] [--fetch]
-
-The queue: the tests maintainers asked for, what each still wants, and what this machine takes next.
-
-`title-runs queue` alone does the same. Read as the workflow last left it; --fetch updates this
-computer's copy first.
-
-options:
-  -h, --help  show this help message and exit
-  --fetch     fetch the results repository first
-
-Changes: Nothing (--fetch updates this computer's copy of the results repository).
-JSON (--json): {"results_repository", "project", "updated", "entries": [{"pr", "title", "head", "priority", "approved_by", "reported", "combined": [...], "wanted", "running_on": [...], "for_this_machine", "why"}]}
-
-Examples:
-  title-runs queue
-  title-runs --json queue --fetch
-```
-
-### `title-runs queue add`
-
-Ask for a test of a pull request (maintainers).
-
-```
-usage: title-runs queue add [-h] PR
-
-Ask for a test of a pull request (maintainers).
-
-Adds the queue's label on the pull request, as you, the same as adding it on GitHub. The workflow
-takes the head that was pushed before the label on its next run; a later push expires it.
-
-positional arguments:
-  PR          a pull request's number or link
-
-options:
-  -h, --help  show this help message and exit
-
-Changes: Writes to GitHub as you: the label on the pull request.
-JSON (--json): {"queued": PR}
-
-Examples:
-  title-runs queue add 9289
-```
-
-### `title-runs results`
-
-A pull request's results: each machine's, and the verdict per kind of machine.
-
-```
-usage: title-runs results [-h] [--fetch] PR
-
-A pull request's results: each machine's, and the verdict per kind of machine.
-
-Every head of the pull request that has results, oldest first. Machines are combined only with
-machines of the same graphics card, driver and system (and scenario).
-
-positional arguments:
-  PR          a pull request's number or link
-
-options:
-  -h, --help  show this help message and exit
-  --fetch     fetch the results repository first
-
-Changes: Nothing (--fetch updates this computer's copy of the results repository).
-JSON (--json): {"pr", "heads": [{"head", "job", "machines": [{"machine", "tester", "title_id", "verdict", "diff_ms", "diff_pct", "hardware", "finished"}], "combined": [...]}]}
-
-Examples:
-  title-runs results 8104
-  title-runs --json results 8104 --fetch
-```
-
-### `title-runs machines list`
-
-The registered machines, when each last reported, and those waiting for approval.
-
-```
-usage: title-runs machines list [-h] [--fetch]
-
-The registered machines, when each last reported, and those waiting for approval.
-
-`title-runs machines` alone does the same.
-
-options:
-  -h, --help  show this help message and exit
-  --fetch     fetch the results repository first
-
-Changes: Nothing (--fetch updates this computer's copy of the results repository).
-JSON (--json): {"results_repository", "machines": [{"tester", "machine", "hardware", "titles", "approved_by", "last_report"}], "pending": [{"tester", "machine", "issue", "hardware"}]}
-
-Examples:
-  title-runs machines
-```
-
-### `title-runs machines approve`
-
-Approve a machine waiting for approval (maintainers).
-
-```
-usage: title-runs machines approve [-h] ISSUE
-
-Approve a machine waiting for approval (maintainers).
-
-Adds the label approved to its registration issue, as you; the workflow records it on its next run.
-
-positional arguments:
-  ISSUE       the registration issue's number (title-runs machines)
-
-options:
-  -h, --help  show this help message and exit
-
-Changes: Writes to GitHub as you: the label on the registration issue.
-JSON (--json): {"issue", "label"}
-
-Examples:
-  title-runs machines approve 12
-```
-
-### `title-runs machines decline`
-
-Decline a machine waiting for approval (maintainers).
-
-```
-usage: title-runs machines decline [-h] ISSUE
-
-Decline a machine waiting for approval (maintainers).
-
-positional arguments:
-  ISSUE       the registration issue's number (title-runs machines)
-
-options:
-  -h, --help  show this help message and exit
-
-Changes: Writes to GitHub as you: the label on the registration issue.
-JSON (--json): {"issue", "label"}
-
-Examples:
-  title-runs machines decline 12
-```
-
 ## Your account, your games and the window
 
 ### `title-runs sign-in`
@@ -670,8 +506,8 @@ usage: title-runs sign-in [-h]
 
 Sign in with GitHub: shows a code to type at github.com/login/device, then waits.
 
-The sign-in reads pull requests for local tests and the queue; for the queue it also sends your
-machine's registration and results as you. A config for local tests only posts nothing with it.
+The sign-in reads the project's pull requests for your local tests (GitHub allows 60 requests an
+hour without one). Nothing is posted with it.
 
 options:
   -h, --help  show this help message and exit
@@ -700,54 +536,6 @@ JSON (--json): {"signed_in": null}
 
 Examples:
   title-runs sign-out
-```
-
-### `title-runs register`
-
-Register this machine with the results repository, for a maintainer to approve.
-
-```
-usage: title-runs register [-h] [--name NAME]
-
-Register this machine with the results repository, for a maintainer to approve.
-
-Until a maintainer approves it, the machine takes no queued tests. Local tests don't need it.
-
-options:
-  -h, --help   show this help message and exit
-  --name NAME  this machine's name: 1 to 32 letters, digits and hyphens
-
-Changes: Writes to GitHub as you: a public registration issue with this machine's name, graphics card, driver and system.
-JSON (--json): {"registration": "pending|approved|declined", "issue"}
-
-Examples:
-  title-runs register
-  title-runs register --name my-desktop
-```
-
-### `title-runs use`
-
-Switch to another results repository (the testing link you were given).
-
-```
-usage: title-runs use [-h] OWNER/NAME
-
-Switch to another results repository (the testing link you were given).
-
-The registration is per repository, and the sign-in is kept only when the new one names the same
-App.
-
-positional arguments:
-  OWNER/NAME  the results repository, or its link
-
-options:
-  -h, --help  show this help message and exit
-
-Changes: This computer's settings (the config file).
-JSON (--json): {"results_repository"}
-
-Examples:
-  title-runs use CPritch/anyps5-title-runs-results
 ```
 
 ### `title-runs games list`
@@ -804,9 +592,8 @@ Open the window (the first-run walkthrough if the config is new).
 
 ```
 usage: title-runs window [-h] [--config CONFIG] [--listing LISTING] [--auto]
-                         [--dumps DUMPS] [--results RESULTS] [--github GITHUB]
-                         [--state STATE] [--screenshots SCREENSHOTS]
-                         [--no-sync]
+                         [--dumps DUMPS] [--state STATE]
+                         [--screenshots SCREENSHOTS]
 
 The window and the tray. A config that doesn't exist yet is made, and the
 first-run walkthrough fills it in; nothing runs before the walkthrough is
@@ -820,150 +607,14 @@ options:
                         read from GitHub
   --auto                start with testing on schedule
   --dumps DUMPS         the walkthrough's dumps folder to start from
-  --results RESULTS     a new config: the results repository, OWNER/NAME or a
-                        URL
-  --github GITHUB       a new config: "github", or "standin:<github.json>" for
-                        the local stand-in
   --state STATE         a new config: the state directory
   --screenshots SCREENSHOTS
                         render the window's pages to this folder, offscreen,
                         and exit
-  --no-sync             --screenshots: read the results checkout as it is (a
-                        client may be using it)
 
 Changes: Nothing by itself; the window changes what you change in it.
 
 Examples:
   title-runs window
   title-runs window --config ~/games/anyps5.toml
-```
-
-## Setting up testing for a project (maintainers)
-
-### `title-runs app`
-
-Make the GitHub App for a project's testing, from its manifest.
-
-```
-usage: title-runs app [-h] --results-repo RESULTS_REPO [--name NAME]
-                      [--out OUT] [--port PORT] [--no-browser]
-                      {manifest,create}
-
-The GitHub App, from a manifest (title_runs/app.py). The project, the results
-repository and this tool come from the results repository's config.json.
-
-positional arguments:
-  {manifest,create}     manifest: print it; create: make the App on GitHub
-                        (you press Create there)
-
-options:
-  -h, --help            show this help message and exit
-  --results-repo RESULTS_REPO
-                        the exported results repository (its config.json)
-  --name NAME
-  --out OUT             create: where app.json and the private key go (keep it
-                        out of every repository)
-  --port PORT
-  --no-browser
-
-Changes: Creates a GitHub App on your account when you press Create on GitHub.
-
-Examples:
-  title-runs app manifest --results-repo RESULTS
-  title-runs app create --results-repo RESULTS --out ~/secrets/title-runs
-```
-
-### `title-runs export-results-repo`
-
-Make a project's results repository, ready to push.
-
-```
-usage: title-runs export-results-repo [-h] [--maintainers MAINTAINERS]
-                                      [--app APP] [--tool TOOL]
-                                      [--tool-commit TOOL_COMMIT] [--git]
-                                      dir [anyps5] [results]
-
-Make a results repository from results_repo/: its config.json, workflow and
-README, ready to push to a new public repository with --git.
-
-positional arguments:
-  dir                   where to make it
-  anyps5                the project, OWNER/NAME
-  results               the results repository it becomes, OWNER/NAME
-
-options:
-  -h, --help            show this help message and exit
-  --maintainers MAINTAINERS
-                        comma-separated logins
-  --app APP             app.json from 'title-runs app create'
-  --tool TOOL           this tool's repository, OWNER/NAME
-  --tool-commit TOOL_COMMIT
-                        the commit the workflow runs (default: this checkout's
-                        HEAD, which must be pushed)
-  --git                 make DIR a git repository with one commit, ready to
-                        push
-
-Changes: Writes the folder you name.
-
-Examples:
-  title-runs export-results-repo RESULTS boykopovar/AnyPS5 OWNER/RESULTS --git
-```
-
-## Run by GitHub, and for development
-
-### `title-runs relay`
-
-The results repository's workflow: what GitHub Actions runs every 5 minutes.
-
-```
-usage: title-runs relay [-h] COMMAND ...
-
-The results repository's workflow (relay.yml), which GitHub Actions runs every
-5 minutes: it reads the project's labels, commands and pushes and the testers'
-comments, and writes the queue, the App's comments and the results
-repository's files.
-
-positional arguments:
-  COMMAND
-    poll      one run of the workflow
-
-options:
-  -h, --help  show this help message and exit
-
-Changes: Writes to GitHub as the App: labels, comments and the results repository's files (nothing with --dry-run).
-
-Examples:
-  title-runs relay poll --dry-run
-```
-
-### `title-runs standin`
-
-The local stand-in for GitHub and the results repository, for development.
-
-```
-usage: title-runs standin [-h]
-                          {tick,label,unlabel,command,push,approve,decline,codes,authorize} ...
-
-The local stand-in for GitHub, the results repository and its workflow, on one
-machine, for development (title_runs/standin.py).
-
-positional arguments:
-  {tick,label,unlabel,command,push,approve,decline,codes,authorize}
-    tick                run the workflow once
-    label               add the queue's label on PR as --by
-    unlabel             take it off
-    command             comment BODY on PR as --by (a /title-test command)
-    push                push HEAD to PR as --by
-    approve             approve registration ISSUE as --by
-    decline             decline registration ISSUE as --by
-    codes               the device codes waiting to be entered
-    authorize           enter CODE as --as
-
-options:
-  -h, --help            show this help message and exit
-
-Changes: Writes the stand-in's folder.
-
-Examples:
-  title-runs standin tick --root STANDIN
 ```

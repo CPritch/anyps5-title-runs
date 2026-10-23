@@ -28,15 +28,11 @@ CONFIG_ENV = "TITLE_RUNS_CONFIG"
 GROUPS = {
     "computer": "This computer",
     "local": "Local tests: pull requests you pick, tested on this computer. Nothing is posted.",
-    "queue": "The queue: tests maintainers ask for, kept in a results repository",
     "account": "Your account, your games and the window",
-    "setup": "Setting up testing for a project (maintainers)",
-    "other": "Run by GitHub, and for development",
 }
 
 NOTHING = "Nothing."
 SETTINGS = "This computer's settings (the config file)."
-FETCHES = "Nothing (--fetch updates this computer's copy of the results repository)."
 
 
 class Failed(Exception):
@@ -54,7 +50,7 @@ class Command:
     examples: tuple = ()
     arguments: object = None  # arguments(parser): adds the command's own
     run: object = None  # run(ctx, args) -> Out
-    passthrough: object = None  # main(argv): a command with a parser of its own (relay, standin, app, export-results-repo)
+    passthrough: object = None  # main(argv): a command with a parser of its own (window)
     hidden: bool = False
 
     @property
@@ -83,8 +79,8 @@ def short(sha):
 def when(iso):
     if not iso:
         return ""
-    from .relay.render import utc
-    return utc(iso)
+    from .formats import utc_text
+    return utc_text(iso)
 
 
 def pr_number(text):
@@ -134,15 +130,7 @@ class Context:
                     quiet(text)
                     self.echo(text)
                 self._engine.log = self._engine.local.log = both
-            self._engine.load(sync=getattr(self.args, "fetch", False))
         return self._engine
-
-    def queue_side(self):
-        """The engine, when this config has a results repository."""
-        engine = self.engine
-        if not self.config.results_url:
-            raise Failed(engine.local_only_note() or "This config has no results repository yet: title-runs use OWNER/NAME.")
-        return engine
 
 
 def newest_result(engine, number, test=1):
@@ -165,15 +153,14 @@ def run_status(ctx, args):
     running = None
     if status.get("state") == "running" and job:
         running = {"pr": job.get("pr"), "head": job.get("head", ""), "title": job.get("title", ""), "step": model.STEPS[model.step(status.get("progress"))],
-                   "progress": status.get("progress", ""), "local": job.get("trust") == "local"}
-    nxt = next((r for r in engine.up_next_rows() if r["score"] > 0), None)
-    notes = [plain(n) for n in (engine.local_only_note(), engine.local_notice(), engine.stale_text(), engine.ignored_mine()) if n]
+                   "progress": status.get("progress", "")}
+    nxt = next(iter(engine.up_next_rows()), None)
+    notes = [plain(n) for n in (engine.local_notice(),) if n]
     data = {"headline": header["headline"], "detail": plain(header["detail"]), "kind": header["kind"], "testing": ctx.config.testing,
             "running": running, "busy_elsewhere": engine.busy_elsewhere(),
-            "next": {"pr": nxt["number"], "title": nxt["title"], "head": nxt["head"], "local": bool(nxt.get("local"))} if nxt else None,
-            "notes": notes, "signed_in": engine.client.tester(), "machine": ctx.config.machine,
-            "results_repository": engine.results_repository() if ctx.config.results_url else None,
-            "local_only": engine.client.local_only(), "config": str(ctx.config.path), "state": str(ctx.config.state_dir)}
+            "next": {"pr": nxt["number"], "title": nxt["title"], "head": nxt["head"]} if nxt else None,
+            "notes": notes, "signed_in": engine.client.tester(), "machine": ctx.config.machine, "project": ctx.config.local_repository,
+            "config": str(ctx.config.path), "state": str(ctx.config.state_dir)}
     # as the window has it: the header, what to know, then the switch
     lines = [SWITCH["off"] + " To start: title-runs testing schedule (or now)." if header["kind"] == "off" else f"{header['headline']}. {plain(header['detail'])}"]
     if running:
@@ -182,7 +169,7 @@ def run_status(ctx, args):
     if header["kind"] != "off":
         lines.append(SWITCH[ctx.config.testing])
     if nxt and not running:
-        lines.append(f"Up next: #{nxt['number']} {nxt['title']}" + (" (local test)" if nxt.get("local") else ""))
+        lines.append(f"Up next: #{nxt['number']} {nxt['title']}")
     who = f"signed in as {data['signed_in']}" if data["signed_in"] else "not signed in"
     lines.append(f"This computer: {ctx.config.machine}, {who}. Config {ctx.config.path}")
     return Out(lines, data)
@@ -200,7 +187,7 @@ def run_stop(ctx, args):
     status = engine.status()
     running = (status.get("job") or {}).get("pr") if status.get("state") == "running" else None
     engine.stop()
-    text = (f"Stopping #{running}: it ends within a few seconds, and nothing is sent." if running else "No test was running.") + " Testing is off."
+    text = (f"Stopping #{running}: it ends within a few seconds, and it waits to be tested again." if running else "No test was running.") + " Testing is off."
     return Out(text, {"stopped": running, "testing": "off"})
 
 
@@ -390,96 +377,12 @@ def run_local_repository(ctx, args):
     return Out(f"Local tests come from {repository}." if repository else "No project for local tests yet.", {"repository": repository})
 
 
-# -- the queue ---------------------------------------------------------------------------------------------------------
-
-def run_queue(ctx, args):
-    engine = ctx.queue_side()
-    ranked = {(c.entry["pr"], c.entry["head"]): c for c in engine.ranked}
-    entries = []
-    for item in engine.overview()["entries"]:
-        e, c = item["entry"], item["coverage"]
-        choice = ranked.get((e["pr"], e["head"]))
-        entries.append({"pr": e["pr"], "title": e.get("title", ""), "head": e["head"], "priority": e["priority"],
-                        "approved_by": (e.get("approval") or {}).get("by", ""), "reported": c["reported"],
-                        "combined": [v["text"] for v in c["classes"].values()], "wanted": c["wanted"], "running_on": item["claims"],
-                        "for_this_machine": bool(choice and choice.score > 0), "why": "; ".join(choice.reasons) if choice else ""})
-    data = {"results_repository": engine.results_repository(), "project": engine.repository, "updated": engine.overview().get("last_run"),
-            "entries": entries}
-    lines = [f"The queue of {engine.repository} ({engine.results_repository()}), as the workflow left it {when(data['updated']) or 'never'}:"]
-    for e in entries:
-        lines.append(f"#{e['pr']} {short(e['head'])} {e['title'][:60]}: {e['reported']} reported" + (f", wants {e['wanted']}" if e["wanted"] != "nothing" else "")
-                     + (f"; running on {', '.join(e['running_on'])}" if e["running_on"] else "") + ("; next for this machine" if e["for_this_machine"] else ""))
-        lines += [f"    {text}" for text in e["combined"]]
-    if not entries:
-        lines.append(f"Nothing is queued. A maintainer queues a pull request with the {engine.label()} label (title-runs queue add PR).")
-    return Out(lines, data)
-
-
-def run_queue_add(ctx, args):
-    engine = ctx.queue_side()
-    number = pr_number(args.pr)
-    message = engine.queue_pr(number)
-    if not message.startswith("Queued"):
-        raise Failed(message)
-    return Out(message, {"queued": number})
-
-
-def run_results(ctx, args):
-    from . import verdict
-    engine = ctx.queue_side()
-    number = pr_number(args.pr)
-    rules = verdict.settings(engine.client.repo.read("config.json", {}))
-    heads = []
-    jobs = [(job, machines) for job, machines in engine.client.repo.results().items() if machines and next(iter(machines.values()))["pr"] == number]
-    for job, machines in sorted(jobs, key=lambda kv: min(m.get("finished", "") for m in kv[1].values())):
-        per = []
-        for name, result in sorted(machines.items()):
-            for title_id, title in result.get("titles", {}).items():
-                v = verdict.machine(title.get("sides") or {}, rules) if result["status"] == "done" else {"verdict": result["status"]}
-                per.append({"machine": name, "tester": result.get("tester", ""), "title_id": title_id, "verdict": v["verdict"],
-                            "diff_ms": v.get("diff"), "diff_pct": v.get("diff_pct"), "hardware": result.get("machine_line", ""), "finished": result.get("finished", "")})
-        titles = sorted({t for r in machines.values() for t in r.get("titles", {})})
-        combined = [c["text"] for t in titles for c in verdict.by_class(machines, t, rules).values()]
-        heads.append({"head": next(iter(machines.values()))["head"], "job": job, "machines": per, "combined": combined})
-    if not heads:
-        raise Failed(f"No results for #{number} in {engine.results_repository()} yet.")
-    lines = []
-    for h in heads:
-        lines.append(f"#{number} at {short(h['head'])}:")
-        lines += [f"  {m['tester']}/{m['machine']} ({m['hardware']}), {m['title_id']}: {m['verdict']}"
-                  + (f", {m['diff_ms']:+.2f} ms ({m['diff_pct']:+.1f} %)" if m["diff_ms"] is not None else "") for m in h["machines"]]
-        lines += [f"  {text}" for text in h["combined"]]
-    return Out(lines, {"pr": number, "heads": heads})
-
-
-def run_machines(ctx, args):
-    engine = ctx.queue_side()
-    data = engine.overview()
-    machines = [{"tester": m.get("tester", ""), "machine": m.get("machine", ""), "hardware": m.get("machine_line") or (m.get("class") or {}).get("gpu", ""),
-                 "titles": m.get("titles", []), "approved_by": m.get("approved_by", ""), "last_report": m.get("last_report", "")} for m in data["machines"]]
-    pending = [{"tester": p.get("tester", ""), "machine": p.get("machine", ""), "issue": p.get("issue"), "hardware": (p.get("class") or {}).get("gpu", "")}
-               for p in data["pending"]]
-    lines = [f"Machines registered with {engine.results_repository()}:"]
-    lines += [f"  {m['tester']}/{m['machine']} ({m['hardware']}): last reported {when(m['last_report']) or 'never'}" for m in machines] or ["  none"]
-    lines.append("Waiting for approval:" if pending else "Nothing waiting for approval.")
-    lines += [f"  {p['tester']}/{p['machine']} ({p['hardware']}): issue #{p['issue']} (title-runs machines approve {p['issue']})" for p in pending]
-    return Out(lines, {"results_repository": engine.results_repository(), "machines": machines, "pending": pending})
-
-
-def run_machines_decide(ctx, args, label):
-    engine = ctx.queue_side()
-    message = engine.decide_registration(args.issue, label)
-    if message:
-        raise Failed(message)
-    return Out(f"Added {label} to registration #{args.issue}; the workflow records it on its next run.", {"issue": args.issue, "label": label})
-
-
 # -- your account, your games and the window -------------------------------------------------------------------------------
 
 def run_sign_in(ctx, args):
     flow = ctx.engine.client.flow()
     if not flow.client_id:
-        raise Failed("This config names no GitHub App to sign in with: join a results repository first (title-runs use OWNER/NAME).")
+        raise Failed("This config names no GitHub App to sign in with: set [github] app in it.")
     device = flow.start()
     ctx.echo(f"Open {device['verification_uri']} and type {device['user_code']}. Waiting for GitHub...",
              {"verification_uri": device["verification_uri"], "user_code": device["user_code"]})
@@ -490,32 +393,6 @@ def run_sign_in(ctx, args):
 def run_sign_out(ctx, args):
     ctx.engine.client.flow().sign_out()
     return Out("Signed out.", {"signed_in": None})
-
-
-def run_register(ctx, args):
-    engine = ctx.queue_side()
-    if not engine.client.tester():
-        raise Failed("Sign in first: title-runs sign-in.")
-    state, record = engine.client.registration()
-    if state != "not registered":
-        return Out(f"This machine is already registered ({state}).", {"registration": state, "issue": (record or {}).get("issue")})
-    if args.name:
-        engine.config.machine = args.name
-        engine.save_config()
-    try:
-        issue = engine.client.register()
-    except ValueError as error:
-        raise Failed(str(error)) from error
-    return Out(f"Registration issue #{issue} opened as {engine.client.tester()}: {engine.issue_url(issue)}. A maintainer approves it there.",
-               {"registration": "pending", "issue": issue})
-
-
-def run_use(ctx, args):
-    try:
-        message = ctx.engine.switch_results(args.location)
-    except Exception as error:  # noqa: BLE001 (nothing has changed then)
-        raise Failed(f"Couldn't use {args.location}: {error}") from error
-    return Out(message, {"results_repository": ctx.config.results_url})
 
 
 def run_games(ctx, args):
@@ -550,106 +427,6 @@ def window_main(argv):
     return window(argv)
 
 
-def relay_main(argv):
-    from .relay.__main__ import main as relay
-    return relay(argv)
-
-
-def standin_main(argv):
-    from . import standin
-    parser = argparse.ArgumentParser(prog="title-runs standin", description="The local stand-in for GitHub, the results repository and its "
-                                     "workflow, on one machine, for development (title_runs/standin.py).")
-    sub = parser.add_subparsers(dest="what", required=True)
-    helps = {"tick": "run the workflow once", "label": "add the queue's label on PR as --by", "unlabel": "take it off",
-             "command": "comment BODY on PR as --by (a /title-test command)", "push": "push HEAD to PR as --by", "approve": "approve registration ISSUE as --by",
-             "decline": "decline registration ISSUE as --by", "codes": "the device codes waiting to be entered", "authorize": "enter CODE as --as"}
-    for name, words in helps.items():
-        p = sub.add_parser(name, help=words)
-        p.add_argument("--root", type=Path, required=True)
-        if name in ("label", "unlabel", "command", "push"):
-            p.add_argument("pr", type=int)
-        if name in ("approve", "decline"):
-            p.add_argument("issue", type=int)
-        if name in ("label", "unlabel", "command", "push", "approve", "decline"):
-            p.add_argument("--by", required=True)
-        if name == "command":
-            p.add_argument("body")
-        if name == "push":
-            p.add_argument("head")
-        if name == "authorize":
-            p.add_argument("code")
-            p.add_argument("--as", dest="login", required=True)
-    args = parser.parse_args(argv)
-    stand = standin.Standin(args.root)
-    if args.what == "tick":
-        changed = stand.tick()
-        print(f"relay: changed {', '.join(f'#{n}' for n in changed) or 'nothing'}")
-    elif args.what == "codes":
-        for code in stand.codes():
-            print(code)
-    elif args.what == "authorize":
-        stand.authorize(args.code, args.login)
-    elif args.what in ("approve", "decline"):
-        getattr(stand, args.what)(args.issue, args.by)
-    elif args.what == "command":
-        stand.command(args.pr, args.body, args.by)
-    elif args.what == "push":
-        stand.push(args.pr, args.head, args.by)
-    else:
-        getattr(stand, args.what)(args.pr, args.by)
-    return 0
-
-
-def export_main(argv):
-    from . import export
-    parser = argparse.ArgumentParser(prog="title-runs export-results-repo",
-                                     description="Make a results repository from results_repo/: its config.json, workflow and README, "
-                                                 "ready to push to a new public repository with --git.")
-    parser.add_argument("dir", type=Path, help="where to make it")
-    parser.add_argument("anyps5", nargs="?", help="the project, OWNER/NAME")
-    parser.add_argument("results", nargs="?", help="the results repository it becomes, OWNER/NAME")
-    parser.add_argument("--maintainers", help="comma-separated logins")
-    parser.add_argument("--app", type=Path, help="app.json from 'title-runs app create'")
-    parser.add_argument("--tool", help="this tool's repository, OWNER/NAME")
-    parser.add_argument("--tool-commit", help="the commit the workflow runs (default: this checkout's HEAD, which must be pushed)")
-    parser.add_argument("--git", action="store_true", help="make DIR a git repository with one commit, ready to push")
-    args = parser.parse_args(argv)
-    app = None
-    if args.app:
-        record = json.loads(args.app.read_text())
-        app = {"id": record["id"], "client_id": record["client_id"], "bot": record["bot"]}
-    tool = None
-    if args.tool or args.tool_commit:
-        tool = {"repository": args.tool or "CPritch/anyps5-title-runs", "commit": args.tool_commit or export.head_commit()}
-    dest = export.export(args.dir, args.anyps5, args.results, args.maintainers.split(",") if args.maintainers else None, app, tool)
-    if args.git:
-        export.commit(dest)
-    print(f"results repository in {dest}" + (" (a git repository with one commit; push it to the new repository)" if args.git else ""))
-    return 0
-
-
-def app_main(argv):
-    from . import app
-    parser = argparse.ArgumentParser(prog="title-runs app", description="The GitHub App, from a manifest (title_runs/app.py). The project, "
-                                     "the results repository and this tool come from the results repository's config.json.")
-    parser.add_argument("what", choices=("manifest", "create"), help="manifest: print it; create: make the App on GitHub (you press Create there)")
-    parser.add_argument("--results-repo", type=Path, required=True, help="the exported results repository (its config.json)")
-    parser.add_argument("--name", default="title-runs-dev")
-    parser.add_argument("--out", type=Path, help="create: where app.json and the private key go (keep it out of every repository)")
-    parser.add_argument("--port", type=int, default=0)
-    parser.add_argument("--no-browser", action="store_true")
-    args = parser.parse_args(argv)
-    config = json.loads((args.results_repo / "config.json").read_text())
-    names = (config["repository"], config["results_repository"], config["tool"]["repository"])
-    if args.what == "manifest":
-        print(json.dumps(app.manifest(args.name, *names), indent=2))
-        return 0
-    if not args.out:
-        parser.error("create needs --out")
-    app.create(args.out, args.name, *names, port=args.port, results_repo=args.results_repo, open_browser=not args.no_browser)
-    return 0
-
-
 # -- the table -----------------------------------------------------------------------------------------------------------
 
 def _pr(p):
@@ -660,20 +437,15 @@ def _test(p):
     p.add_argument("--test", type=int, default=1, metavar="N", help="which result: 1 is the newest (the default), 2 the one before")
 
 
-def _fetch(p):
-    p.add_argument("--fetch", action="store_true", help="fetch the results repository first")
-
-
 COMMANDS = [
     Command(("status",), "computer", "What this computer is doing: the test running, the testing switch, what's next, anything to fix.",
             "Shows the test running on this computer (in the window, `title-runs run`, or here), the testing switch and what it means "
-            "now, the next test, and anything that keeps tests from starting. The results repository is read as last fetched; "
-            "--fetch updates it first.",
-            FETCHES,
+            "now, the next test, and anything that keeps tests from starting.",
+            NOTHING,
             '{"headline", "detail", "kind": "running|setup|off|idle|waiting|ready|error", "testing", "running": {"pr", "head", "title", '
-            '"step", "progress", "local"} or null, "busy_elsewhere", "next": {"pr", "title", "head", "local"} or null, "notes": [...], '
-            '"signed_in", "machine", "results_repository", "local_only", "config", "state"}',
-            ("title-runs status", "title-runs --json status"), _fetch, run_status),
+            '"step", "progress"} or null, "busy_elsewhere", "next": {"pr", "title", "head"} or null, "notes": [...], '
+            '"signed_in", "machine", "project", "config", "state"}',
+            ("title-runs status", "title-runs --json status"), None, run_status),
     Command(("testing",), "computer", "Show or set the testing switch: off, schedule or now.",
             "off: no test starts. schedule: tests start by themselves at the times set in the window's When to test. now: one test "
             "after another, whatever the time, until you switch back. A running test goes on either way; `title-runs stop` ends it. "
@@ -683,16 +455,15 @@ COMMANDS = [
             lambda p: p.add_argument("mode", nargs="?", choices=configs.TESTING, help="off, schedule or now"), run_testing),
     Command(("stop",), "computer", "End the running test now, and set testing to off.",
             "Ends the test running on this computer, wherever it was started (the window, `title-runs run`): its build or game ends "
-            "within a few seconds, and nothing is sent. Testing goes to off, so another test doesn't start a minute later.",
+            "within a few seconds, and its head waits to be tested again. Testing goes to off, so another test doesn't start a minute later.",
             SETTINGS + " Testing goes to off.", '{"stopped": PR or null, "testing": "off"}', ("title-runs stop",), None, run_stop),
     Command(("run",), "computer", "Run tests here without the window, as the switch and the schedule allow, until stopped.",
-            "Does what the open window does in the background: the queue's tests first (when this machine is registered), then local "
-            "tests, whenever the testing switch and the schedule let one start. It runs until Ctrl+C, which also ends the test running. "
+            "Does what the open window does in the background: your local tests, whenever the testing switch and the schedule let "
+            "one start. It runs until Ctrl+C, which also ends the test running. "
             "--once: start one test now, whatever the switch and the schedule say, and exit when it's done. One test runs on a "
             "computer at a time: while the window is testing, this waits, and the other way round. Nothing runs before the first-run "
             "walkthrough (`title-runs window`) is done.",
-            "Builds and runs tests on this computer. A queued test's result goes to the results repository as you; a local test's "
-            "stays here.",
+            "Builds and runs tests on this computer. Their results stay here.",
             'one object per line: {"log": text} as it goes, then {"result": text}',
             ("title-runs run", "title-runs run --once", "title-runs --json run --once"),
             lambda p: p.add_argument("--once", action="store_true", help="one test now, whatever the switch says, then exit"), run_run),
@@ -739,7 +510,9 @@ COMMANDS = [
             "A posted result never goes stale. This only records it here; it doesn't post anything.",
             "Your local tests list.", '{"pr", "head", "posted"}', ("title-runs local posted 4287", "title-runs local posted 4287 --undo"),
             lambda p: (_pr(p), _test(p), p.add_argument("--undo", action="store_true", help="mark it not posted")), run_local_posted),
-    Command(("local", "follow"), "local", "Also test every open pull request of these people.", "", "Your settings.", '{"people": [...]}',
+    Command(("local", "follow"), "local", "Also test every open pull request of these people.",
+            "Each new head they push to one of their pull requests is tested, without you looking at it first: follow people "
+            "whose code you'd run.", "Your settings.", '{"people": [...]}',
             ("title-runs local follow LOGIN",), lambda p: p.add_argument("people", nargs="+", metavar="LOGIN"), run_local_follow),
     Command(("local", "unfollow"), "local", "Stop following these people; pull requests you added by number stay.", "", "Your settings.",
             '{"people": [...]}', ("title-runs local unfollow LOGIN",), lambda p: p.add_argument("people", nargs="+", metavar="LOGIN"),
@@ -760,54 +533,13 @@ COMMANDS = [
             "Your settings, when given.", '{"repository"}', ("title-runs local repository", "title-runs local repository boykopovar/AnyPS5"),
             lambda p: p.add_argument("repository", nargs="?", metavar="OWNER/NAME"), run_local_repository),
 
-    Command(("queue", "list"), "queue", "The queue: the tests maintainers asked for, what each still wants, and what this machine takes next.",
-            "`title-runs queue` alone does the same. Read as the workflow last left it; --fetch updates this computer's copy first.",
-            FETCHES,
-            '{"results_repository", "project", "updated", "entries": [{"pr", "title", "head", "priority", "approved_by", "reported", '
-            '"combined": [...], "wanted", "running_on": [...], "for_this_machine", "why"}]}',
-            ("title-runs queue", "title-runs --json queue --fetch"), _fetch, run_queue),
-    Command(("queue", "add"), "queue", "Ask for a test of a pull request (maintainers).",
-            "Adds the queue's label on the pull request, as you, the same as adding it on GitHub. The workflow takes the head that was "
-            "pushed before the label on its next run; a later push expires it.",
-            "Writes to GitHub as you: the label on the pull request.", '{"queued": PR}', ("title-runs queue add 9289",), _pr, run_queue_add),
-    Command(("results",), "queue", "A pull request's results: each machine's, and the verdict per kind of machine.",
-            "Every head of the pull request that has results, oldest first. Machines are combined only with machines of the same "
-            "graphics card, driver and system (and scenario).",
-            FETCHES,
-            '{"pr", "heads": [{"head", "job", "machines": [{"machine", "tester", "title_id", "verdict", "diff_ms", "diff_pct", "hardware", '
-            '"finished"}], "combined": [...]}]}',
-            ("title-runs results 8104", "title-runs --json results 8104 --fetch"), lambda p: (_pr(p), _fetch(p)), run_results),
-    Command(("machines", "list"), "queue", "The registered machines, when each last reported, and those waiting for approval.",
-            "`title-runs machines` alone does the same.", FETCHES,
-            '{"results_repository", "machines": [{"tester", "machine", "hardware", "titles", "approved_by", "last_report"}], '
-            '"pending": [{"tester", "machine", "issue", "hardware"}]}',
-            ("title-runs machines",), _fetch, run_machines),
-    Command(("machines", "approve"), "queue", "Approve a machine waiting for approval (maintainers).",
-            "Adds the label approved to its registration issue, as you; the workflow records it on its next run.",
-            "Writes to GitHub as you: the label on the registration issue.", '{"issue", "label"}', ("title-runs machines approve 12",),
-            lambda p: p.add_argument("issue", type=int, metavar="ISSUE", help="the registration issue's number (title-runs machines)"),
-            lambda ctx, args: run_machines_decide(ctx, args, "approved")),
-    Command(("machines", "decline"), "queue", "Decline a machine waiting for approval (maintainers).", "",
-            "Writes to GitHub as you: the label on the registration issue.", '{"issue", "label"}', ("title-runs machines decline 12",),
-            lambda p: p.add_argument("issue", type=int, metavar="ISSUE", help="the registration issue's number (title-runs machines)"),
-            lambda ctx, args: run_machines_decide(ctx, args, "declined")),
-
     Command(("sign-in",), "account", "Sign in with GitHub: shows a code to type at github.com/login/device, then waits.",
-            "The sign-in reads pull requests for local tests and the queue; for the queue it also sends your machine's registration "
-            "and results as you. A config for local tests only posts nothing with it.",
+            "The sign-in reads the project's pull requests for your local tests (GitHub allows 60 requests an hour without one). "
+            "Nothing is posted with it.",
             "Keeps the sign-in on this computer.", 'one object per line: {"verification_uri", "user_code"}, then {"signed_in": LOGIN}',
             ("title-runs sign-in",), None, run_sign_in),
     Command(("sign-out",), "account", "Forget the sign-in on this computer.", "", "Removes the sign-in from this computer.", '{"signed_in": null}',
             ("title-runs sign-out",), None, run_sign_out),
-    Command(("register",), "account", "Register this machine with the results repository, for a maintainer to approve.",
-            "Until a maintainer approves it, the machine takes no queued tests. Local tests don't need it.",
-            "Writes to GitHub as you: a public registration issue with this machine's name, graphics card, driver and system.",
-            '{"registration": "pending|approved|declined", "issue"}', ("title-runs register", "title-runs register --name my-desktop"),
-            lambda p: p.add_argument("--name", help="this machine's name: 1 to 32 letters, digits and hyphens"), run_register),
-    Command(("use",), "account", "Switch to another results repository (the testing link you were given).",
-            "The registration is per repository, and the sign-in is kept only when the new one names the same App.",
-            SETTINGS, '{"results_repository"}', ("title-runs use CPritch/anyps5-title-runs-results",),
-            lambda p: p.add_argument("location", metavar="OWNER/NAME", help="the results repository, or its link"), run_use),
     Command(("games", "list"), "account", "Your games: each one's test, scenario and folder.", "`title-runs games` alone does the same.",
             NOTHING, '{"games": [{"title_id", "name", "version", "test", "scenario", "scenarios", "folder"}]}', ("title-runs games",), None, run_games),
     Command(("games", "scenario"), "account", "Show or choose the scenario a game is timed in.",
@@ -820,23 +552,11 @@ COMMANDS = [
             changes="Nothing by itself; the window changes what you change in it.", examples=("title-runs window", "title-runs window --config ~/games/anyps5.toml"),
             passthrough=window_main),
 
-    Command(("app",), "setup", "Make the GitHub App for a project's testing, from its manifest.",
-            changes="Creates a GitHub App on your account when you press Create on GitHub.", examples=(
-                "title-runs app manifest --results-repo RESULTS", "title-runs app create --results-repo RESULTS --out ~/secrets/title-runs"),
-            passthrough=app_main),
-    Command(("export-results-repo",), "setup", "Make a project's results repository, ready to push.",
-            changes="Writes the folder you name.", examples=("title-runs export-results-repo RESULTS boykopovar/AnyPS5 OWNER/RESULTS --git",),
-            passthrough=export_main),
-    Command(("relay",), "other", "The results repository's workflow: what GitHub Actions runs every 5 minutes.",
-            changes="Writes to GitHub as the App: labels, comments and the results repository's files (nothing with --dry-run).",
-            examples=("title-runs relay poll --dry-run",), passthrough=relay_main),
-    Command(("standin",), "other", "The local stand-in for GitHub and the results repository, for development.",
-            changes="Writes the stand-in's folder.", examples=("title-runs standin tick --root STANDIN",), passthrough=standin_main),
     Command(("ui",), "account", "The window, by its first name.", passthrough=window_main, hidden=True),
 ]
 
 BY_NAME = {command.path: command for command in COMMANDS}
-DEFAULTS = {"local": ("local", "list"), "queue": ("queue", "list"), "machines": ("machines", "list"), "games": ("games", "list")}
+DEFAULTS = {"local": ("local", "list"), "games": ("games", "list")}
 
 
 def default_config():
@@ -853,13 +573,12 @@ def overview():
         lines.append(heading)
         for c in COMMANDS:
             if c.group == key and not c.hidden:
-                github = "  [writes to GitHub]" if c.changes.startswith("Writes to GitHub") else ""
-                lines.append(f"  {c.name.ljust(width)}{c.summary}{github}")
+                lines.append(f"  {c.name.ljust(width)}{c.summary}")
         lines.append("")
     lines += ["Options", f"  --config FILE   the config (default: ${CONFIG_ENV}, else anyps5-title-runs/config.toml in your config folder)",
               "  --json          print JSON: one object, or one per line for run and sign-in", "",
               "Exit codes: 0 done, 1 couldn't (the message says why), 2 the command was written wrong.",
-              "Commands marked [writes to GitHub] do so as you (relay: as the App); nothing else posts anything.",
+              "Nothing here posts anything or writes to GitHub: you post reports yourself.",
               "`title-runs help COMMAND` says more about each."]
     return "\n".join(lines)
 
@@ -869,7 +588,7 @@ def group_help(name):
     commands = [c for c in COMMANDS if c.path[0] == name and len(c.path) == 2]
     width = max(len(c.name) for c in commands) + 2
     lines = [f"Usage: title-runs {name} COMMAND [ARGS]   (title-runs {name} alone is title-runs {' '.join(DEFAULTS[name])})", ""]
-    lines += [f"  {c.name.ljust(width)}{c.summary}" + ("  [writes to GitHub]" if c.changes.startswith("Writes to GitHub") else "") for c in commands]
+    lines += [f"  {c.name.ljust(width)}{c.summary}" for c in commands]
     return "\n".join(lines + ["", f"`title-runs help {name} COMMAND` says more about each."])
 
 

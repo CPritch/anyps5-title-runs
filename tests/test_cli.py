@@ -43,13 +43,10 @@ class Help(unittest.TestCase):
                     self.assertIn("JSON (--json): ", text)
                     self.assertEqual(run(*command.path, "--help")[1], text)
 
-    def test_commands_that_write_to_github_say_so_in_the_list(self):
-        overview = cli.overview()
+    def test_nothing_writes_to_github(self):
         for command in cli.COMMANDS:
-            if not command.hidden and command.changes.startswith("Writes to GitHub"):
-                line = next(line for line in overview.splitlines() if line.startswith(f"  {command.name} "))
-                self.assertTrue(line.endswith("[writes to GitHub]"), line)
-        self.assertNotIn("[writes to GitHub]", next(line for line in overview.splitlines() if line.startswith("  local report ")))
+            self.assertNotIn("GitHub as you", command.changes, command.name)
+        self.assertIn("Nothing here posts anything or writes to GitHub", cli.overview())
 
     def test_a_group_alone_lists_its_commands(self):
         code, text, _ = run("local", "--help")
@@ -151,28 +148,19 @@ class Commands(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("No config at", err)
 
-    def test_the_queue_needs_a_results_repository(self):
-        code, data = self.json("queue")
-        self.assertEqual(code, 1)
-        self.assertIn("no results repository", data["error"])
-        configfile.change(self.path, lambda c: setattr(c, "results_app", "Iv23testapp"))  # local tests only
-        self.assertEqual(self.json("machines")[1], {"error": "AnyPS5 hasn't set up automated testing with this tool, so only your local tests run here."})
-
     def test_status_says_what_this_computer_does(self):
         code, data = self.json("status")
         self.assertEqual(code, 0)
-        for key in ("headline", "kind", "testing", "running", "busy_elsewhere", "next", "notes", "signed_in", "machine", "config", "state"):
+        for key in ("headline", "kind", "testing", "running", "busy_elsewhere", "next", "notes", "signed_in", "machine", "project", "config", "state"):
             self.assertIn(key, data)
-        self.assertEqual((data["kind"], data["running"]), ("setup", None))
+        self.assertEqual((data["kind"], data["running"], data["project"]), ("setup", None, "boykopovar/AnyPS5"))
         self.assertEqual(self.cli("status")[1].splitlines()[0], "Almost ready. Go through the first-run steps.")
-        # local tests only, the walkthrough done and signed in: nothing left to set up
-        configfile.change(self.path, lambda c: setattr(c, "results_app", "Iv23testapp"))
+        # the walkthrough done and signed in: nothing left to set up
         client = clients.Client(self.config(), log=lambda *_: None)
         client.finish_onboarding({"idle": "hours"})
-        client.flow().store({"login": "CPritch", "access_token": "t", "client_id": "Iv23testapp"})
+        client.flow().store({"login": "CPritch", "access_token": "t", "client_id": self.config().github_app})
         lines = self.cli("status")[1].splitlines()
-        self.assertEqual(lines[:3], ["No tests waiting. New heads of your local tests show up here by themselves.",
-                                     "AnyPS5 hasn't set up automated testing with this tool, so only your local tests run here.",
+        self.assertEqual(lines[:2], ["No tests waiting. New heads of your local tests show up here by themselves.",
                                      "Testing is off: no test starts."])
         self.assertEqual(self.json("status")[1]["signed_in"], "CPritch")
 

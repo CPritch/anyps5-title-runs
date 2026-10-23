@@ -1,13 +1,13 @@
 """The main screen: what this machine is doing in one line, the testing switch (Off, On schedule, Now) and Stop, the
 test's progress and the game itself while it runs, the tests coming up and the results. Data from app.Engine through
-ui/model.py; the words are a tester's, not the workflow's."""
+ui/model.py, in a tester's words."""
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QProgressBar, QPushButton,
                                QSizePolicy, QVBoxLayout, QWidget)
 
-from ..relay.render import utc
-from . import model, theme, words
+from ..formats import utc_text as utc
+from . import model, theme
 from .gameview import GameView
 
 
@@ -86,8 +86,6 @@ class HomePage(QWidget):
         words.addWidget(self.headline)
         self.detail = rich("", role="muted")
         words.addWidget(self.detail)
-        self.mode = rich("", role="muted")
-        words.addWidget(self.mode)
         self.notice = rich("")
         self.notice.setStyleSheet("QLabel { background: #fff4d6; color: #5c4400; border: 1px solid #e0a100; border-radius: 8px; padding: 8px 12px; }")
         self.notice.hide()
@@ -178,11 +176,9 @@ class HomePage(QWidget):
         state = self.engine.home()
         self.headline.setText(state["headline"])
         self.detail.setText(state["detail"])
-        self.mode.setText(self.engine.local_only_note())
-        self.mode.setVisible(bool(self.mode.text()))
-        notes = [n for n in (self.engine.local_notice(), self.engine.stale_text(), self.engine.ignored_mine()) if n]
-        self.notice.setText("<br>".join(notes))
-        self.notice.setVisible(bool(notes))
+        notice = self.engine.local_notice()
+        self.notice.setText(notice)
+        self.notice.setVisible(bool(notice))
         running = state["kind"] == "running"
         self.stop.setVisible(running)
         self.fix.setVisible(state["kind"] == "setup" and bool(self.engine.readiness()[2]))
@@ -212,13 +208,12 @@ class HomePage(QWidget):
     def fill_upcoming(self):
         rows = self.engine.up_next_rows()
         if not rows:
-            self.upcoming.set_rows(["Nothing queued. Add a pull request on the Local tests page." if self.engine.client.local_only() else
-                                    f"Nothing queued. When {words.team()} asks for a test, it shows up here."])
+            self.upcoming.set_rows(["Nothing waiting. Add a pull request on the Local tests page."])
             return
         muted = theme.COLOURS["muted"]
         out = []
         for row in rows:
-            extra = (f"<br><small style='color:{muted}'>" + "; ".join(row["reasons"]) + "</small>") if self.advanced() else ""
+            extra = f"<br><small style='color:{muted}'>head {row['head'][:9]}, added {utc(row['added'])}</small>" if self.advanced() else ""
             who = f"by {row['author']} · " if row["author"] else ""
             out.append(f"<b>#{row['number']}</b> {row['title']}<br><span style='color:{muted}'>{who}</span><b>{row['why']}</b>{extra}")
         self.upcoming.set_rows(out)
@@ -226,17 +221,12 @@ class HomePage(QWidget):
     def fill_recent(self):
         rows = self.engine.recent_rows()
         if not rows:
-            self.recent.set_rows(["No results yet. A local test's result stays on this computer." if self.engine.client.local_only() else
-                                  "No results yet. A queued test sends its result to the change on GitHub; a local test's stays on this computer."])
+            self.recent.set_rows(["No results yet. Each result stays on this computer, with a report you can post yourself."])
             return
         out = []
         for row in rows:
-            if row.get("local"):
-                report = row.get("report", "")
-                state = "<b style='color:#a36a00'>Stale</b>" if report.startswith("Stale") else report
-                where = f" · on this computer · {state} · <a href='report:{row['number']}'>Report</a>"
-            else:
-                link = self.engine.comment_link(row["number"])
-                where = f" · <a href='{link}'>see it on GitHub</a>" if link.startswith("https://") else ""
+            report = row.get("report", "")
+            state = "<b style='color:#a36a00'>Stale</b>" if report.startswith("Stale") else report
+            where = f" · {state} · <a href='report:{row['number']}'>Report</a>"
             out.append(f"<b>#{row['number']}</b> {row['verdict']}<br><small style='color:{theme.COLOURS['muted']}'>{utc(row['at'])}{where}</small>")
         self.recent.set_rows(out)

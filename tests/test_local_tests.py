@@ -10,8 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 import helpers  # noqa: F401
-from helpers import make_config
-from test_client import INFO, fake_results
+from helpers import INFO, fake_results, make_config
 
 from title_runs import client, config as configs, configfile, formats, job, local_tests
 
@@ -168,7 +167,7 @@ class Run(unittest.TestCase):
         self.assertEqual(data["entries"][0]["status"], "queued")  # not this change's fault
         self.assertEqual(data["paused"]["reason"], "main ddddddddd doesn't start the game: sceVoiceSetThreadsParams: worker priority and affinity are not implemented")
         self.assertEqual(self.night.held()["main"], "d" * 40)
-        self.assertNotIn("paused_until", self.client.status.read())  # the queue's tests, on their own main, go on
+        self.assertNotIn("paused_until", self.client.status.read())
         self.assertIn("**Paused**", (self.config.state_dir / "local-tests" / "2026-10-21.md").read_text())
         with mock.patch("title_runs.sources.main_tip", return_value="e" * 40):
             self.assertIsNotNone(self.night.held(formats.now() + datetime.timedelta(hours=11)))

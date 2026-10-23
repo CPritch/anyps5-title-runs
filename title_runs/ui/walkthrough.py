@@ -1,9 +1,8 @@
 """The first-run walkthrough (DESIGN.md, "First run: the walkthrough"): what the tool does and what leaves the machine,
 the sandbox and what it does not protect against, when it may run (idle where the machine can tell, otherwise hours;
-mains power; fullscreen programs), the dumps, signing in through the App, registering the machine. Nothing runs before
-the tester has been through it: Finish writes the config and marks the walkthrough done (client.finish_onboarding)."""
+mains power; fullscreen programs), the dumps, and signing in through the App. Nothing runs before the tester has been
+through it: Finish writes the config and marks the walkthrough done (client.finish_onboarding)."""
 
-import socket
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl
@@ -11,9 +10,8 @@ from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QSpinBox,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWizard, QWizardPage)
 
-from .. import ROOT, auth, configfile, platform_info, verdict
+from .. import ROOT, auth, configfile, platform_info
 from ..config import Title
-from . import words
 
 
 def text(html):
@@ -28,20 +26,19 @@ class WhatPage(QWizardPage):
     def __init__(self):
         super().__init__()
         self.setTitle("What this does")
-        self.setSubTitle(f"A few steps before anything runs. Nothing runs until you finish and {words.team()} approves this machine.")
+        self.setSubTitle("A few steps before anything runs. Nothing runs until you finish.")
         layout = QVBoxLayout(self)
         layout.addWidget(text(
-            f"{words.Team()} picks changes to AnyPS5 to try on real games. When your computer is free, this app takes one, builds "
-            "AnyPS5 with and without the change, plays a short part of <b>your own copy</b> of a game with each, and posts how fast each ran "
-            "on the change's page on GitHub. The people working on AnyPS5 get results from computers and games they don't have, and you "
-            "choose when yours helps."))
+            "You pick changes to AnyPS5 to try on your games: pull requests on GitHub, by number, or every one from people you follow. "
+            "When your computer is free, this app builds AnyPS5 with and without the change, plays a short part of <b>your own copy</b> "
+            "of a game with each, and writes a report of how fast each ran, in the form the AnyPS5 project asks for. You read it, and "
+            "post it on the change yourself if you want to."))
         leaves = QGroupBox("What leaves this computer")
         box = QVBoxLayout(leaves)
         box.addWidget(text(
-            "<ul><li>Your GitHub name, and your machine's name, graphics card, driver and system. They're public, so the team can tell "
-            "machines apart.</li>"
-            "<li>How fast each run was, and whether the game started and showed a picture. That's public too, on the change.</li>"
-            "<li>A screenshot of the test scene, only if you turn that on in Settings.</li></ul>"
+            "<ul><li>Nothing by itself. The app reads the project's pull requests on GitHub, signed in as you, and posts nothing.</li>"
+            "<li>A report you post says what it ran on (your graphics card, driver and system) and how fast each run was, with the "
+            "traces you attach.</li></ul>"
             "<b>Never your game files, your saves, or anything else on this computer.</b>"))
         layout.addWidget(leaves)
         layout.addStretch(1)
@@ -55,8 +52,8 @@ class SandboxPage(QWizardPage):
         layout = QVBoxLayout(self)
         layout.addWidget(text(
             "Building and playing happen in a sandbox. Once the change is downloaded it has no internet, it can't see your files, and your "
-            f"games are read-only to it. It can only write to the test's own folders. {words.Team()} looks at every change before "
-            "it's queued, and anything pushed to a change after that isn't run."))
+            "games are read-only to it. It can only write to the test's own folders. Only what a pull request's own author pushed is "
+            "tested."))
         limits = QGroupBox("What the sandbox can't protect against")
         box = QVBoxLayout(limits)
         box.addWidget(text(
@@ -64,7 +61,8 @@ class SandboxPage(QWizardPage):
             "reach it.</li>"
             "<li>Your screen. The game shows on it, like any program.</li>"
             "<li>Filling your disk or keeping the computer busy. Settings has limits for that.</li>"
-            "<li>Anything you run with the sandbox turned off, or a change you choose to run that the team hasn't checked.</li></ul>"))
+            "<li>Anything run with the sandbox turned off.</li>"
+            "<li>The change itself. Nobody checks what you pick before it runs, so pick changes, and people to follow, you trust.</li></ul>"))
         layout.addWidget(limits)
         self.read = QCheckBox("I've read what the sandbox can't protect against")
         self.read.toggled.connect(self.completeChanged)
@@ -223,19 +221,8 @@ class SignInPage(QWizardPage):
         super().__init__()
         self.engine = engine
         self.setTitle("Sign in with GitHub")
-        self.setSubTitle("The app reads the project's pull requests as you, to know what to test. It posts nothing." if engine.client.local_only() else
-                         "The app posts results as you. It can only post on the testing pages you joined, nothing else on your account.")
+        self.setSubTitle("The app reads the project's pull requests as you, to know what to test. It posts nothing.")
         layout = QVBoxLayout(self)
-        self.where = QGroupBox("Join the testing")
-        row = QHBoxLayout(self.where)
-        self.location = QLineEdit(engine.config.results_url)
-        self.location.setPlaceholderText("Paste the testing link you were given (https://github.com/…)")
-        row.addWidget(self.location, 1)
-        use = QPushButton("Join")
-        use.clicked.connect(self.use)
-        row.addWidget(use)
-        layout.addWidget(self.where)
-        self.where.setVisible(not engine.config.results_url and not engine.client.local_only())
         self.state = text("")
         layout.addWidget(self.state)
         self.code = QLabel("")
@@ -266,24 +253,8 @@ class SignInPage(QWizardPage):
         self.timer.timeout.connect(self.poll)
         self.show_state()
 
-    def use(self):
-        try:
-            self.engine.client.use(self.location.text())
-            self.engine.save_config()
-        except Exception as error:  # noqa: BLE001 (shown on the page)
-            self.state.setText(f"That link didn't work. Check it's the testing link you were given. ({str(error)[:120]})")
-            return
-        self.show_state()
-
     def show_state(self):
         login = self.engine.client.tester()
-        has_repo = self.engine.client.local_only() or (  # local tests only: the config names the App to sign in with
-            bool(self.engine.config.results_url) and bool((self.engine.client.repo.read("config.json", {}).get("app") or {}).get("client_id")))
-        self.start_button.setEnabled(has_repo)
-        if not has_repo:
-            self.state.setText("First paste the testing link you were given, and press Join.")
-            self.completeChanged.emit()
-            return
         if login:
             self.state.setText(f"Signed in as <b>{login}</b>. You stay signed in; Settings can sign you out.")
             self.code.setText("✓")
@@ -321,59 +292,6 @@ class SignInPage(QWizardPage):
         return bool(self.engine.client.tester())
 
 
-class RegisterPage(QWizardPage):
-    def __init__(self, engine):
-        super().__init__()
-        self.engine = engine
-        self.setTitle("Register this machine")
-        self.setSubTitle(f"{words.Team()} approves each new machine. Until then it doesn't run tests.")
-        info = engine.client.info
-        form = QFormLayout(self)
-        self.machine = QLineEdit(engine.config.machine or socket.gethostname().split(".")[0].lower()[:32])
-        form.addRow("Machine name", self.machine)
-        form.addRow("Graphics card", QLabel(info["gpu"]))
-        form.addRow("Driver", QLabel(info.get("driver") or "unknown"))
-        form.addRow("System", QLabel(info["os"]))
-        form.addRow(text("Results are compared with machines like this one: the same graphics card, driver and system."))
-        row = QHBoxLayout()
-        self.state = text("")
-        row.addWidget(self.state, 1)
-        self.button = QPushButton("Register this machine")
-        self.button.clicked.connect(self.register)
-        row.addWidget(self.button)
-        form.addRow(row)
-        self.refresh()
-
-    def refresh(self):
-        if self.engine.client.local_only():
-            self.button.hide()
-            self.state.setText("Nothing to register: " + self.engine.local_only_note())
-            return
-        state, record = self.engine.client.registration()
-        self.button.setEnabled(state == "not registered" and bool(self.engine.client.tester()))
-        if state == "approved":
-            self.state.setText(f"<b>Approved</b> by {record.get('approved_by', '?')}: this machine runs tests.")
-        elif state == "pending":
-            self.state.setText(f"<b>Waiting for {words.team()}</b> to approve it. You can finish now: it starts testing once approved.")
-        elif state == "declined":
-            self.state.setText(f"{words.Team()} turned this machine down.")
-        else:
-            self.state.setText(f"Registering shares this machine's name, graphics card, driver and system with {words.team()}, in public.")
-        self.completeChanged.emit()
-
-    def register(self):
-        self.engine.config.machine = self.machine.text().strip()
-        try:
-            self.engine.client.register()
-        except Exception as error:  # noqa: BLE001
-            self.state.setText(f"Couldn't register: {error}")
-            return
-        self.refresh()
-
-    def isComplete(self):  # noqa: N802
-        return True  # registering can wait; the client takes no jobs until a maintainer has approved the machine
-
-
 class DonePage(QWizardPage):
     def __init__(self, engine):
         super().__init__()
@@ -391,23 +309,16 @@ class DonePage(QWizardPage):
         how = (f"when the computer has been left alone for {when.minutes.value()} minutes" if when.idle.isChecked()
                else f"from {when.first.value():02d}:00 to {when.last.value():02d}:00")
         how += (", only when plugged in" if when.mains.isChecked() else "") + (", pausing while something is fullscreen" if when.fullscreen.isChecked() else "")
-        state, record = ("local", None) if self.engine.client.local_only() else self.engine.client.registration()
         titles = ", ".join(f"{d['name']} ({d['title_id']})" for d in wizard.dumps.found)
-        project = (self.engine.config.local_repository or "the project").split("/")[-1]
-        machine = {"local": ("✓", f"runs your local tests only, as {project} hasn't set up automated testing with this tool"),
-                   "approved": ("✓", "approved, so it runs tests"),
-                   "pending": ("…", f"waiting for {words.team()} to approve it. It starts testing once approved"),
-                   "declined": ("✗", f"turned down by {words.team()}, so it doesn't run tests"),
-                   "not registered": ("…", f"not registered yet. It doesn't run tests until you register it (Settings) and {words.team()} approves it")}[state]
         rows = [("✓", "You've read what leaves this computer and what the sandbox can't protect against."), ("✓", f"It tests {how}."),
-                ("✓", f"Games: {titles}."), ("✓", f"Signed in as <b>{self.engine.client.tester()}</b>."),
-                (machine[0], f"This machine, <b>{wizard.register_page.machine.text().strip()}</b>: {machine[1]}.")]
+                ("✓", f"Games: {titles}."), ("✓", f"Signed in as <b>{self.engine.client.tester()}</b>.")]
         self.summary.setText("<table cellspacing='6'>" + "".join(f"<tr><td><b>{mark}</b></td><td>{line}</td></tr>" for mark, line in rows) + "</table>"
-                             "<p>Finish opens the app. You can change all of this later in Settings, and go through these steps again from there.</p>")
+                             "<p>Finish opens the app. Add the pull requests you want tested on its Local tests page. You can change all of "
+                             "this later in Settings, and go through these steps again from there.</p>")
 
 
 class Walkthrough(QWizard):
-    PAGES = ("what", "sandbox", "when", "dumps", "sign-in", "register", "done")
+    PAGES = ("what", "sandbox", "when", "dumps", "sign-in", "done")
 
     def __init__(self, engine, folder="", parent=None, start="what"):
         super().__init__(parent)
@@ -416,8 +327,8 @@ class Walkthrough(QWizard):
         self.setWizardStyle(QWizard.ModernStyle)
         self.what, self.sandbox, self.when = WhatPage(), SandboxPage(), WhenPage(engine.config.schedule)
         self.dumps = DumpsPage(folder, engine.config.repo_dir)
-        self.sign_in, self.register_page, self.done_page = SignInPage(engine), RegisterPage(engine), DonePage(engine)
-        for page in (self.what, self.sandbox, self.when, self.dumps, self.sign_in, self.register_page, self.done_page):
+        self.sign_in, self.done_page = SignInPage(engine), DonePage(engine)
+        for page in (self.what, self.sandbox, self.when, self.dumps, self.sign_in, self.done_page):
             self.addPage(page)
         pages = self.pageIds()
         for number, page_id in enumerate(pages, start=1):
@@ -435,7 +346,6 @@ class Walkthrough(QWizard):
             if dump["title_id"] not in config.titles:
                 config.titles[dump["title_id"]] = Title(dump["title_id"], Path(dump["path"]), Path(dump["route"]) if dump.get("route") else None)
         config.repo_dir = Path(self.dumps.repo_dir.text()).expanduser()
-        config.machine = self.register_page.machine.text().strip() or config.machine
         config.tester = self.engine.client.tester() or config.tester
         configfile.save(config)
         self.engine.client.finish_onboarding({"sandbox_read": True, "idle": "idle" if when.idle.isChecked() else "hours",

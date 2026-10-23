@@ -1,4 +1,5 @@
-"""The tester's configuration file (TOML): what to follow, whom to trust, where the dumps are, how to run them."""
+"""The tester's configuration file (TOML): where the games and AnyPS5's source are, when to test, how to run, and the
+local tests' project and pull requests."""
 
 import os
 import re
@@ -9,6 +10,9 @@ from pathlib import Path
 from . import ROOT
 
 TITLE_ID = re.compile(r"[A-Z]{4}[0-9]{5}")
+# The GitHub App testers sign in with (its client ID): title-runs-dev. A sign-in only: the tool reads the project's pull
+# requests with it, and the App needs no permissions for that. [github] app names another.
+DEFAULT_APP = "Iv23liikPAbKjFujfrIB"
 
 
 # When work may run (the Schedule tab): only when the machine has been idle idle_minutes, only on mains power, within
@@ -34,17 +38,6 @@ def user_dirs():
 
 
 DEFAULT_CONFIG = user_dirs()[0] / "config.toml"
-
-
-def results_location(text):
-    """What a tester types for the results repository, as the URL the client clones: OWNER/NAME and
-    https://github.com/OWNER/NAME become https://github.com/OWNER/NAME.git; other URLs and local paths stay as they are.
-    There is no built-in default (DESIGN.md, round 4 decision 1)."""
-    text = (text or "").strip()
-    found = re.fullmatch(r"(?:https://github\.com/)?([A-Za-z0-9-]+/[A-Za-z0-9._-]+?)(?:\.git)?/?", text)
-    if found and (text.startswith("https://github.com/") or not text.startswith(("/", ".", "~"))):
-        return f"https://github.com/{found.group(1)}.git"
-    return os.path.expanduser(text)
 
 
 def _path(value):
@@ -77,11 +70,8 @@ class Config:
     shutdown_wait: int
     titles: dict
     allocator: str = ""
-    results_url: str = ""
-    results_github: str = "github"
-    results_app: str = ""  # without a results repository: the GitHub App to sign in with (its client ID), for local tests only
+    github_app: str = DEFAULT_APP  # [github] app: the GitHub App to sign in with (its client ID)
     schedule: dict = field(default_factory=lambda: dict(SCHEDULE))
-    screenshots: bool = False
     testing: str = "schedule"  # the main screen's switch: off, schedule (within [schedule], while the app is open) or now (whatever it says)
     tray: bool = False  # keep running in the system tray when the window is closed (otherwise closing quits)
     text_size: str = "normal"
@@ -137,11 +127,8 @@ def load(path):
         shutdown_wait=int(sandbox.get("shutdown_wait", 900)),
         titles=titles,
         allocator=data.get("run", {}).get("allocator", ""),
-        results_url=results_location(data.get("results", {}).get("url", "")),
-        results_github=data.get("results", {}).get("github", "github"),
-        results_app=data.get("results", {}).get("app", ""),
+        github_app=str(data.get("github", {}).get("app") or data.get("results", {}).get("app") or DEFAULT_APP),  # [results]: before 2026-10-23
         schedule={**SCHEDULE, **data.get("schedule", {})},
-        screenshots=bool(data.get("client", {}).get("screenshots", False)),
         testing=testing_mode(data.get("client", {})),
         tray=bool(data.get("client", {}).get("tray", False)),
         text_size=str(data.get("client", {}).get("text_size", "normal")),

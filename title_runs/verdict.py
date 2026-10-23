@@ -3,7 +3,7 @@
 Per machine, the difference of the mean p50s (PR - main) counts only when it is larger than both sides' spreads and
 larger than threshold_pct (1 %) of main's mean p50. A difference that passes one of the two tests and not the other is
 borderline. Machines of one class (GPU model, driver branch, OS) are combined by their per-machine differences, never
-by raw frame times. Standard library only: the workflow uses it too.
+by raw frame times.
 """
 
 import re
@@ -13,18 +13,13 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Settings:
-    """The results repository's config.json "verdicts": threshold_pct, the share of main's p50 a difference must
-    exceed; class_max, how many machines a borderline class asks for at most."""
+    """threshold_pct, the share of main's p50 a difference must exceed; class_max, how many machines a borderline class
+    wants at most."""
     threshold_pct: float = 1.0
     class_max: int = 3
 
 
 DEFAULT = Settings()
-
-
-def settings(config):
-    data = (config or {}).get("verdicts") or {}
-    return Settings(float(data.get("threshold_pct", DEFAULT.threshold_pct)), int(data.get("class_max", DEFAULT.class_max)))
 
 
 def spread(values):

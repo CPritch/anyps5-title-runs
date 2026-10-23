@@ -1,3 +1,0 @@
-{"action": "synchronize", "number": 8104, "before": "{BEFORE}", "after": "{HEAD}",
- "pull_request": {"number": 8104, "state": "open", "user": {"login": "Celegans12"}, "head": {"sha": "{HEAD}"}},
- "sender": {"login": "{SENDER}"}}

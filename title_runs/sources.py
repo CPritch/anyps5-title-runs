@@ -1,8 +1,8 @@
-"""Source trees for a job: main, and the approved commit merged onto that main locally.
+"""Source trees for a job: main, and a PR's head merged onto that main locally.
 
-Approval names a commit (DESIGN.md), so a job fetches exactly that SHA and current main and merges them here; it never
-builds refs/pull/N/merge or the branch's head. The merge is made with a fixed identity and the approved commit's own
-date, so the same main and head give the same merge commit on every machine.
+A job fetches exactly the head's SHA and main and merges them here; it never builds refs/pull/N/merge or whatever the
+branch points at later. The merge is made with a fixed identity and the head commit's own date, so the same main and
+head give the same merge commit on every machine.
 
 Both sides are worktrees of the tester's clone (source.repo_dir), kept at fixed paths under the state directory so
 their build directories stay valid and rebuild incrementally. Submodules are filled from the clone's own submodule
@@ -34,8 +34,8 @@ def git(directory, *args, check=True, binary=False):
     return result.stdout if binary else result.stdout.strip()
 
 
-def fetch_approved(repo_dir, remote, head, main_branch="main"):
-    """Fetch the approved commit by its SHA (GitHub serves any commit reachable from a ref, refs/pull/* included) and
+def fetch_head(repo_dir, remote, head, main_branch="main"):
+    """Fetch the head commit by its SHA (GitHub serves any commit reachable from a ref, refs/pull/* included) and
     main's current tip. Returns main's SHA."""
     git(repo_dir, "fetch", "--no-tags", "-q", remote, f"+refs/heads/{main_branch}:refs/title-runs/main")
     if subprocess.run(["git", "-C", str(repo_dir), "cat-file", "-e", f"{head}^{{commit}}"], capture_output=True).returncode != 0:
@@ -47,7 +47,7 @@ def fetch_approved(repo_dir, remote, head, main_branch="main"):
 
 
 def fetch_pinned(repo_dir, remote, head, main):
-    """fetch_approved for a main fixed in advance (local tests pin main for a while): the head and that
+    """fetch_head for a main fixed in advance (local tests pin main for a while): the head and that
     main, both by SHA. Returns main."""
     for sha in (main, head):
         if subprocess.run(["git", "-C", str(repo_dir), "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode != 0:

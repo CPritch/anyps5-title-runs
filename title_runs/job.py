@@ -1,5 +1,5 @@
-"""One job: an approved commit of a PR, merged onto current main locally and built beside that main, both in the build
-sandbox, then run on the tester's titles in the title sandbox."""
+"""One job: a PR's head, merged onto main locally and built beside that main, both in the build sandbox, then run on the
+tester's titles in the title sandbox."""
 
 import contextlib
 import datetime
@@ -70,12 +70,12 @@ def boot_and_classify(config, title, build_dir, work, out, log):
 
 
 def run(config, state_dir, number, head, log, recheck=None, progress=None, should_stop=None, remote=None, main=None):
-    """Build and run head (the approved SHA); returns the job's results (also written to the job's folder, job_folder()).
+    """Build and run head (a PR's head SHA); returns the job's results (also written to the job's folder, job_folder()).
 
-    recheck() -> a reason or None, called after the trees are ready and just before anything is built: the client asks
-    the queue again whether this SHA is still the approved one. progress(text) and should_stop() go to the A/B protocol:
-    a job whose head is superseded ends after the run it is in. remote: where the head and main come from (default the
-    config's); main: a main SHA pinned in advance (local tests'), instead of main's tip now.
+    recheck() -> a reason or None, called after the trees are ready and just before anything is built (local tests:
+    whether the tester pressed Stop). progress(text) and should_stop() go to the A/B protocol: a job asked to stop ends
+    after the run it is in. remote: where the head and main come from (default the config's); main: a main SHA pinned in
+    advance (local tests'), instead of main's tip now.
 
     Each title runs in its scenario (scenarios.py): a save is downloaded and checked before anything is built, and the
     job's folder is named after the scenario too, so a head tested in two scenarios keeps both results."""
@@ -102,7 +102,7 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
             if scenario:
                 note(f"{title_id}: the scenario {scenario['name']}" + (", the save checked against its sha256" if saves[title_id] else ""))
         remote = remote or config.remote
-        base = sources.fetch_pinned(config.repo_dir, remote, head, main) if main else sources.fetch_approved(config.repo_dir, remote, head)
+        base = sources.fetch_pinned(config.repo_dir, remote, head, main) if main else sources.fetch_head(config.repo_dir, remote, head)
         trees = {"A": state_dir / "trees" / "main", "B": state_dir / "trees" / "pr"}
         sources.worktree(config.repo_dir, trees["A"], base)
         sources.worktree(config.repo_dir, trees["B"], base)
@@ -113,7 +113,7 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
         for key in ("A", "B"):
             pins = sources.submodules(config.repo_dir, trees[key], commits[key], remote)
             note(f"{key}: {commits[key][:9]}, {len(pins)} submodules filled")
-        # The last check before anything is built: the tree merges exactly the approved SHA, and the queue still names it.
+        # The last check before anything is built: the tree merges exactly head, and nothing asked the job to stop.
         built = sources.git(trees["B"], "rev-parse", "HEAD^2")
         stop = f"the tree to build merges {built[:9]}, not {head[:9]}" if built != head else (recheck() if recheck else None)
         if stop:
@@ -145,7 +145,7 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
                     entry.setdefault("version", found["version"])
                     sides.append(protocol.Side(key, label, commits[key], executable, work, builds[key]["dir"], trees["A"] / "tools",
                                                state_dir / "caches" / title_id / label, run_env_rules(trees[key])))
-                base_line = f"main {base[:9]}; PR #{number} approved {head[:9]} merged onto it locally as {merge[:9]}"
+                base_line = f"main {base[:9]}; PR #{number} at {head[:9]} merged onto it locally as {merge[:9]}"
                 measure = protocol.Protocol(config, title, route, runs_dir, sides, note, base_line, scenario=scenario)
                 measure.progress, measure.should_stop = progress, should_stop
                 ab = measure.ab(f"pr{number}-{head[:7]}")

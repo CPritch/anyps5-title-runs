@@ -9,8 +9,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QFormLayou
                                QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QTableWidget, QVBoxLayout, QWidget)
 
 from .. import protocol
-
-from ..relay.render import utc
+from ..formats import utc_text as utc
 from . import theme
 from .home import card, rich
 
@@ -113,7 +112,7 @@ class LocalTestsPage(QWidget):
         self.people = QLineEdit(", ".join(config.local_people))
         self.people.setPlaceholderText("GitHub names (optional)")
         form.addRow("People", self.people)
-        form.addRow(rich("Their open pull requests are tested too.", role="muted"))
+        form.addRow(rich("Their open pull requests are tested too: each new head they push, without you looking at it first.", role="muted"))
         self.fixes = QLineEdit(", ".join(str(n) for n in config.local_fixes))
         self.fixes.setPlaceholderText("pull request numbers (optional)")
         form.addRow("Fixes on both sides", self.fixes)

@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 import helpers  # noqa: F401  (puts the repository on sys.path)
-from title_runs import config as configs, configfile, formats, local_tests, protocol, route as routes, scenarios, verdict
+from title_runs import config as configs, configfile, local_tests, protocol, route as routes, scenarios, verdict
 
 SAVE = b"\x00\x00\x00\x01(\x00A\x00u\x00t\x00o\x00s\x00a\x00v\x00e\x00)" + bytes(1000)
 
@@ -186,10 +186,6 @@ class Elsewhere(unittest.TestCase):
         keys = sorted(verdict.by_class(results, "PPSA04263"))
         self.assertEqual([key.rsplit(" in ", 1)[1] for key in keys], ["house", "prologue"])
         self.assertEqual({c["n"] for c in verdict.by_class(results, "PPSA04263").values()}, {1})
-
-    def test_the_result_format_takes_a_scenario_id(self):
-        self.assertTrue(formats.SCENARIO_ID.fullmatch("franklins-house"))
-        self.assertFalse(formats.SCENARIO_ID.fullmatch("Franklins house"))
 
     def test_the_config_file_keeps_the_scenario(self):
         config = helpers.make_config()

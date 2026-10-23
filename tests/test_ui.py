@@ -1,27 +1,25 @@
-"""The window's model (no Qt), and the trust dialog's rules (offscreen Qt): Run anyway needs a scope, the box ticked and
-the author's name typed exactly; Enter does not accept."""
+"""The window's model (no Qt), and the window itself (offscreen Qt): the first-run walkthrough's gates, the testing
+switch, Add on All pull requests, Home with local tests, the report window's traces and the game view."""
 
-import datetime
-import json
 import os
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import helpers  # noqa: F401
+from helpers import make_config, make_pr
 
-from title_runs import formats
 from title_runs.ui import model
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 try:
     from PySide6.QtCore import Qt
-    from PySide6.QtGui import QKeyEvent
-    from PySide6.QtCore import QEvent
     from PySide6.QtWidgets import QApplication
 except ImportError:  # the window needs PySide6; the model does not
     QApplication = None
 
 HEAD = "69ac2e155ad018ed1fb9028d2028d15999a8571e"
+DEVICE = {"device_code": "d", "user_code": "WDJB-MJHT", "verification_uri": "https://github.com/login/device", "interval": 5, "expires_in": 900}
 
 
 def listed(number, title="t", body="", labels=(), author="someuser", draft=False, state="OPEN"):
@@ -29,69 +27,35 @@ def listed(number, title="t", body="", labels=(), author="someuser", draft=False
             "labels": {"nodes": [{"name": n} for n in labels]}}
 
 
+def signing_in(login="tester"):
+    """GitHub's device flow, answered here: the code, then the token once it is typed; the token is login's."""
+    replies = iter([DEVICE, {"access_token": "t", "expires_in": 28800}])
+    return (mock.patch("title_runs.auth.DeviceFlow._post", side_effect=lambda url, fields: next(replies)),
+            mock.patch("title_runs.gh.GitHubRepo.login", return_value=login))
+
+
 class Model(unittest.TestCase):
     def test_four_sections(self):
         prs = [listed(8104, labels=["perf"]), listed(6488, body="- [x] Unblocks: PPSA04263"), listed(7000, labels=["agc"]), listed(7001),
                listed(7002, draft=True), listed(7003, state="CLOSED")]
-        queue = {"entries": [{"pr": 8104, "head": HEAD, "priority": "high", "titles": ["PPSA04263"], "unapproved": [{"sha": "1" * 40}]}]}
-        sections = model.pr_sections(prs, queue, {"PPSA04263": "GTA V"})
+        sections = model.pr_sections(prs, {8104}, {"PPSA04263": "GTA V"})
         self.assertEqual([[r["number"] for r in sections[name]] for name in model.SECTIONS], [[8104], [6488], [7000], [7001]])
-        queued = sections[model.SECTIONS[0]][0]
-        self.assertEqual((queued["priority"], queued["titles"], queued["run"]), ("high", "GTA V", False))
-        self.assertIn("1 push not checked", queued["badge"])
+        mine = sections[model.SECTIONS[0]][0]
+        self.assertEqual((mine["badge"], mine["add"]), ("✓ on your list", False))
         mention = sections[model.SECTIONS[1]][0]
-        self.assertEqual((mention["titles"], mention["badge"], mention["run"]), ("Unblocks PPSA04263", "⚠ not checked", True))
+        self.assertEqual((mention["titles"], mention["badge"], mention["add"]), ("Unblocks PPSA04263", "", True))
 
     def test_search(self):
-        sections = model.pr_sections([listed(1, "perf: fast"), listed(2, "fix: slow")], {"entries": []}, {}, "fast")
+        sections = model.pr_sections([listed(1, "perf: fast"), listed(2, "fix: slow")], set(), {}, "fast")
         self.assertEqual(sum(len(v) for v in sections.values()), 1)
 
     def test_tray_states(self):
-        view = {"running": None, "up_next": [], "recent": []}
-        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, view, [], "schedule")[0], "idle")
-        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, view, [{"number": 1}], "schedule"), ("waiting", ["Idle", "1 PR waiting for you"]))
-        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, view, [], "off")[1], ["Idle", "Testing is off: no test starts."])
-        self.assertEqual(model.tray_view({"state": "error", "line": "Error: build failed"}, view, [], "schedule")[0], "error")
-        running = {"running": {"number": 8104}, "up_next": [{"number": 7922, "score": 4, "titles": "GTA V", "priority": "high"}], "recent": []}
-        state, lines = model.tray_view({"state": "running", "line": "Running: #8104 · PPSA04263 · main run 2/4"}, running, [], "schedule")
-        self.assertEqual((state, lines), ("running", ["Running: #8104 · PPSA04263 · main run 2/4", "Next: #7922 · GTA V (high)"]))
-
-
-@unittest.skipIf(QApplication is None, "PySide6 is not installed")
-class TrustDialogRules(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-
-    def test_run_anyway_needs_all_three(self):
-        from title_runs.ui.trust_dialog import TrustDialog
-        dialog = TrustDialog(8123, "perf(agc): something", "someuser")
-        self.assertFalse(dialog.run.isEnabled())
-        dialog.group.button(0).setChecked(True)
-        dialog.update_run()
-        self.assertFalse(dialog.run.isEnabled())
-        dialog.understood.setChecked(True)
-        dialog.typed.setText("SomeUser")
-        self.assertFalse(dialog.run.isEnabled())
-        dialog.typed.setText("someuser")
-        self.assertTrue(dialog.run.isEnabled())
-        dialog.run.click()
-        self.assertEqual((dialog.result(), dialog.scope), (TrustDialog.Accepted, "head"))
-
-    def test_enter_does_not_accept(self):
-        from title_runs.ui.trust_dialog import TrustDialog
-        dialog = TrustDialog(8123, "perf(agc): something", "someuser")
-        dialog.group.button(2).setChecked(True)
-        dialog.understood.setChecked(True)
-        dialog.typed.setText("someuser")
-        dialog.show()
-        for key in (Qt.Key_Return, Qt.Key_Enter):
-            QApplication.sendEvent(dialog.typed, QKeyEvent(QEvent.KeyPress, key, Qt.NoModifier))
-            QApplication.sendEvent(dialog, QKeyEvent(QEvent.KeyPress, key, Qt.NoModifier))
-        self.assertTrue(dialog.isVisible())
-        self.assertIsNone(dialog.scope)
-        self.assertFalse(dialog.run.isDefault() or dialog.cancel.isDefault())
-        dialog.close()
+        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, [], [], "schedule")[0], "idle")
+        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, [], [{"number": 1}], "schedule"), ("waiting", ["Idle", "1 PR waiting for you"]))
+        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, [], [], "off")[1], ["Idle", "Testing is off: no test starts."])
+        self.assertEqual(model.tray_view({"state": "error", "line": "Error: build failed"}, [], [], "schedule")[0], "error")
+        state, lines = model.tray_view({"state": "running", "line": "Testing #8104 (a local test)"}, [{"number": 7922, "title": "perf: x"}], [], "schedule")
+        self.assertEqual((state, lines), ("running", ["Testing #8104 (a local test)", "Next: #7922 perf: x"]))
 
 
 if __name__ == "__main__":
@@ -99,9 +63,9 @@ if __name__ == "__main__":
 
 
 @unittest.skipIf(QApplication is None, "PySide6 is not installed")
-class WalkthroughAndOverview(unittest.TestCase):
+class Window(unittest.TestCase):
     """The walkthrough's gates (the sandbox page needs its box ticked; without idle detection, hours; sign-in), Finish
-    marking it done, and the Overview tab: a pending registration, Approve only for maintainers, approval by label."""
+    marking it done, the testing switch, and the listing of the local tests' project."""
 
     @classmethod
     def setUpClass(cls):
@@ -109,35 +73,27 @@ class WalkthroughAndOverview(unittest.TestCase):
 
     def setUp(self):
         import tempfile
-        from pathlib import Path
-        from unittest import mock
 
-        from relay_helpers import History
-        from title_runs import standin
+        from title_runs import config as configs
         from title_runs.ui import app
 
         self.root = Path(tempfile.mkdtemp())
-        history = History(self.root)
-        self.stand = standin.create(self.root / "standin", ["CPritch"], history.dir, history.m2,
-                                    [{"number": 8104, "title": "perf(agc): stage", "author": "Celegans12", "head": history.A, "head_ref": "perf/staging"}],
-                                    {"CPritch": "admin", "Celegans12": "read"})
         dumps = self.root / "dumps" / "PPSA04263-app"
         (dumps / "sce_sys").mkdir(parents=True)
         (dumps / "eboot.bin").write_bytes(b"")
         (dumps / "sce_sys" / "param.json").write_text('{"titleId": "PPSA04263", "contentVersion": "01.010.002", '
                                                        '"localizedParameters": {"defaultLanguage": "en-US", "en-US": {"titleName": "Grand Theft Auto V"}}}')
-        (history.dir / "CMakeLists.txt").write_text("")
+        clone = self.root / "anyps5"
+        (clone / ".git").mkdir(parents=True)
+        (clone / "CMakeLists.txt").write_text("")
         self.dumps = self.root / "dumps"
         self.config_path = self.root / "tester.toml"
-        app.new_config(self.config_path, str(self.stand.results_git), self.stand.endpoint, self.root / "state")
-        text = self.config_path.read_text().replace("[results]", f'[source]\nrepo_dir = "{history.dir}"\n\n[results]')
-        self.config_path.write_text(text)
-        from title_runs import config as configs
+        app.new_config(self.config_path, self.root / "state")
+        self.config_path.write_text(self.config_path.read_text() + f'\n[source]\nrepo_dir = "{clone}"\n')
         self.patch = mock.patch("title_runs.platform_info.idle_detection", return_value=(False, "Hyprland does not tell logind"))
         self.patch.start()
         self.engine = app.Engine(configs.load(self.config_path))
         self.engine.client.info = {"gpu": "NVIDIA GeForce RTX 5060 Laptop GPU", "driver": "NVIDIA 615.71.09", "os": "Linux 7.2.8"}
-        self.engine.client.repo.sync()
 
     def tearDown(self):
         self.patch.stop()
@@ -146,6 +102,7 @@ class WalkthroughAndOverview(unittest.TestCase):
         from title_runs.ui.walkthrough import Walkthrough
         wizard = Walkthrough(self.engine, str(self.dumps))
         wizard.show()
+        self.assertEqual(Walkthrough.PAGES, ("what", "sandbox", "when", "dumps", "sign-in", "done"))
         self.assertFalse(wizard.sandbox.isComplete())
         wizard.sandbox.read.setChecked(True)
         self.assertTrue(wizard.sandbox.isComplete())
@@ -156,27 +113,27 @@ class WalkthroughAndOverview(unittest.TestCase):
         wizard.when.last.setValue(7)
         self.assertTrue(wizard.dumps.isComplete())
         self.assertFalse(wizard.sign_in.isComplete())
-        wizard.sign_in.start()
-        self.stand.authorize(wizard.sign_in.device["user_code"], "standin-tester")
-        wizard.sign_in.poll()
+        self.assertIn("It posts nothing.", wizard.sign_in.subTitle())
+        post, login = signing_in()
+        with post, login:
+            wizard.sign_in.start()
+            wizard.sign_in.poll()
         self.assertTrue(wizard.sign_in.isComplete())
         self.assertFalse(self.engine.client.onboarded())
         self.assertEqual(self.engine.readiness()[0], False)
-        wizard.register_page.register()
-        self.assertEqual(self.engine.client.registration()[0], "pending")
         wizard.accept()
         self.assertTrue(self.engine.client.onboarded())
         self.assertEqual(self.engine.config.schedule["hours"], [1, 7])
         self.assertFalse(self.engine.config.schedule["idle_only"])
         self.assertEqual(list(self.engine.config.titles), ["PPSA04263"])
-        self.assertEqual(self.engine.readiness()[:2], (False, "waiting for a maintainer to approve this machine"))
+        self.assertEqual(self.engine.readiness(), (True, "", ""))  # nothing left to set up
 
     def test_the_sign_in_page_slows_down_when_github_says_so(self):
-        from unittest import mock
         from title_runs.ui.walkthrough import Walkthrough
         wizard = Walkthrough(self.engine, str(self.dumps))
         page = wizard.sign_in
-        page.start()
+        with mock.patch("title_runs.auth.DeviceFlow._post", return_value=dict(DEVICE)):
+            page.start()
         self.assertEqual(page.timer.interval(), (page.device["interval"] + 1) * 1000)
 
         def slow_down(device):
@@ -188,23 +145,19 @@ class WalkthroughAndOverview(unittest.TestCase):
         self.assertTrue(page.timer.isActive())
 
     def test_the_testing_switch(self):
-        import types
-        from unittest import mock
         from title_runs import config as configs
         engine = self.engine
-        job = types.SimpleNamespace(entry={"pr": 8104, "head": HEAD, "title": "t", "author": "a", "job": "8104-x"})
         with mock.patch.object(engine.client, "ready", return_value=(True, "")), \
                 mock.patch.object(engine.client, "allowed_now", return_value=(False, "outside the hours 01-07")), \
-                mock.patch.object(engine.client, "run") as run:
+                mock.patch.object(engine, "run_local", return_value="tested #8104 (a local test)") as run:
             engine.config.testing = "schedule"
-            with mock.patch.object(engine.client, "next_job", return_value=job):
-                self.assertEqual(engine.next_test(), "outside the hours 01-07")
-                run.assert_not_called()
-                engine.set_testing("now")  # whatever the hours
-                self.assertEqual(engine.next_test(), "ran 8104-x")
-                run.assert_called_once()
-            with mock.patch.object(engine.client, "next_job", return_value=None):
-                self.assertEqual(engine.next_test(), "nothing to test")
+            self.assertEqual(engine.next_test(), "outside the hours 01-07")
+            run.assert_not_called()
+            engine.set_testing("now")  # whatever the hours
+            self.assertEqual(engine.next_test(), "tested #8104 (a local test)")
+            run.assert_called_once()
+            run.return_value = None
+            self.assertEqual(engine.next_test(), "nothing to test")
         with mock.patch("title_runs.platform_info.stop_children", return_value=0):
             engine.stop()  # ends the test and switches testing off
         self.assertEqual(configs.load(self.config_path).testing, "off")
@@ -220,96 +173,7 @@ class WalkthroughAndOverview(unittest.TestCase):
         old.write_text(f'state_dir = "{self.root / "state"}"\n')
         self.assertEqual(configs.load(old).testing, "schedule")
 
-    def test_overview_approve_is_for_maintainers(self):
-        from title_runs.ui.window import MainWindow
-        self.engine.client.finish_onboarding({})
-        flow = self.engine.client.flow()
-        device = flow.start()
-        self.stand.authorize(device["user_code"], "standin-tester")
-        flow.poll(device)
-        issue = self.engine.client.register()
-        self.stand.tick()
-        self.engine.load(sync=True)
-        from title_runs.ui.maintainer import MaintainerWindow
-        window = MaintainerWindow(self.engine)
-        window.overview.refresh()
-        self.assertEqual(window.overview.pending.topLevelItemCount(), 1)
-        buttons = window.overview.pending.itemWidget(window.overview.pending.topLevelItem(0), 3)
-        approve = buttons.layout().itemAt(0).widget()
-        self.assertFalse(approve.isEnabled())
-        self.assertEqual(self.engine.decide_registration(issue, "approved"), "Only a maintainer can approve or decline machines.")
-        flow.sign_out()
-        device = flow.start()
-        self.stand.authorize(device["user_code"], "CPritch")
-        flow.poll(device)
-        window.overview.refresh()
-        approve = window.overview.pending.itemWidget(window.overview.pending.topLevelItem(0), 3).layout().itemAt(0).widget()
-        self.assertTrue(approve.isEnabled())
-        approve.click()
-        self.assertEqual(window.overview.pending.topLevelItem(0).text(3), "approved: next workflow run")
-        self.stand.tick()
-        self.engine.load(sync=True)
-        window.overview.refresh()
-        self.assertEqual(window.overview.pending.topLevelItemCount(), 0)
-        self.assertEqual(window.overview.machines.topLevelItem(0).text(0), "standin-tester/" + self.engine.config.machine)
-        self.assertEqual(window.overview.machines.topLevelItem(0).text(3), "@CPritch")
-
-    def test_settings_switch_the_results_repository(self):
-        from title_runs import standin
-        from title_runs.ui.window import MainWindow
-        from relay_helpers import History
-        (self.root / "h2").mkdir()
-        history = History(self.root / "h2")
-        other = standin.create(self.root / "moved", ["maintainer2"], history.dir, history.m2, [], {"maintainer2": "admin"},
-                               client_id="Iv1.maintainers-app", results="maintainer2/results")
-        window = MainWindow(self.engine)
-        window.settings.account.url.setText(str(other.results_git))
-        window.settings.account.save()
-        self.assertEqual(self.engine.client.results_repository(), "maintainer2/results")
-        self.assertIn("Now using maintainer2/results.", window.settings.account.check_label.text())
-        self.assertIn(f'url = "{other.results_git}"', self.config_path.read_text())
-
-    def test_an_ignored_comment_shows_in_the_overview_and_to_its_tester(self):
-        from title_runs import formats, standin
-        from title_runs.ui.window import MainWindow
-        self.engine.client.finish_onboarding({})
-        flow = self.engine.client.flow()
-        device = flow.start()
-        self.stand.authorize(device["user_code"], "standin-tester")
-        flow.poll(device)
-        self.stand.tick()
-        trust = self.engine.client.repo.cursors().get("tester_trust_issue") or json.loads(
-            standin.git(self.stand.results_git, "show", "main:cursors.json"))["tester_trust_issue"]
-        self.engine.client.github().create_comment(trust, formats.payload_body("result", {"machine": "laptop", "job": "x"}, "a result."))
-        self.stand.tick()
-        self.engine.load(sync=True)
-        from title_runs.ui.maintainer import MaintainerWindow
-        tools = MaintainerWindow(self.engine)
-        tools.refresh()
-        self.assertIn("1 comment from an account without a registered machine", tools.overview.ignored.text())
-        window = MainWindow(self.engine)
-        window.refresh()
-        self.assertIn("Your last report wasn't accepted", window.home.notice.text())
-
-    def test_a_new_tester_names_the_results_repository_in_the_walkthrough(self):
-        from title_runs import config as configs
-        from title_runs.ui import app
-        from title_runs.ui.walkthrough import Walkthrough
-        fresh = self.root / "fresh" / "config.toml"
-        app.new_config(fresh, "", self.stand.endpoint, self.root / "fresh-state")
-        engine = app.Engine(configs.load(fresh))
-        self.assertEqual(engine.config.results_url, "")
-        wizard = Walkthrough(engine, str(self.dumps))  # kept: its pages go with it
-        page = wizard.sign_in
-        self.assertTrue(page.where.isVisibleTo(page))
-        self.assertFalse(page.start_button.isEnabled())
-        page.location.setText(str(self.stand.results_git))
-        page.use()
-        self.assertTrue(page.start_button.isEnabled())
-        self.assertIn(f'url = "{self.stand.results_git}"', fresh.read_text())
-
     def test_find_games_however_the_folder_is_given(self):
-        from unittest import mock
         from title_runs.ui.walkthrough import Walkthrough
         wizard = Walkthrough(self.engine, "")
         page = wizard.dumps
@@ -337,24 +201,16 @@ class WalkthroughAndOverview(unittest.TestCase):
         self.assertEqual(len(found), 1)  # the same title and version once, and never from the state folder
         self.assertNotIn(str(Path(self.engine.config.state_dir)), found[0]["path"])
 
-    def test_owner_name_in_the_config_is_github(self):
-        from title_runs import config as configs
-        path = self.root / "owner-name.toml"
-        path.write_text('[results]\nurl = "CPritch/anyps5-title-runs-results"\n')
-        self.assertEqual(configs.load(path).results_url, "https://github.com/CPritch/anyps5-title-runs-results.git")
-
-    def test_the_listing_is_of_the_results_repositorys_repository(self):
-        from unittest import mock
+    def test_the_listing_is_of_the_local_tests_project(self):
         from title_runs import listing
-        self.engine.load(sync=True)
-        self.assertEqual(self.engine.repository, "CPritch/AnyPS5")
+        self.engine.config.local_repository = "CPritch/AnyPS5"
         other = listing.Listing.of(self.engine.config.state_dir, "boykopovar/AnyPS5")
         other.data["prs"]["6321"] = {"number": 6321}
         other.save()
         self.assertEqual(self.engine.listing(), [])  # another repository's listing is not shown
         self.assertEqual(self.engine.listing_note(), "Pull requests of CPritch/AnyPS5: not listed yet")
         pages = {"repository": {"pullRequests": {"nodes": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}
-        with mock.patch.object(self.engine.client, "tester", return_value="standin-tester"), \
+        with mock.patch.object(self.engine.client, "tester", return_value="tester"), \
                 mock.patch("title_runs.listing.GraphQL.query", return_value=pages) as query:
             self.engine.refresh_listing()
             self.engine.refresh_listing()  # fresh: not listed again
@@ -362,27 +218,64 @@ class WalkthroughAndOverview(unittest.TestCase):
         self.assertEqual(query.call_args[0][1]["owner"], "CPritch")
         self.assertIn("Pull requests of CPritch/AnyPS5, listed", self.engine.listing_note())
 
-    def test_a_note_on_a_registration_taken_since_is_not_shown(self):
-        from unittest import mock
-        from title_runs import formats
-        self.engine.client.finish_onboarding({})
-        flow = self.engine.client.flow()
-        device = flow.start()
-        self.stand.authorize(device["user_code"], "standin-tester")
-        flow.poll(device)
-        issue = self.engine.client.register()
-        self.stand.tick()
-        self.engine.load(sync=True)
-        stale = {"ignored": {"counts": {"registration": 1}, "recent": [
-            {"at": "2026-10-21T19:23:30Z", "issue": issue, "user": "standin-tester", "reason": "registration", "detail": "not in the expected form"}]}}
-        with mock.patch.object(self.engine.client.repo, "cursors", return_value=stale), \
-                mock.patch("title_runs.formats.now", return_value=formats.parse_time("2026-10-21T20:00:00Z")):
-            self.assertEqual(self.engine.ignored_mine(), "")  # the registration is pending now: the note is history
-            stale["ignored"]["recent"][0]["issue"] = issue + 100
-            self.assertIn("wasn't accepted", self.engine.ignored_mine())
-        with mock.patch.object(self.engine.client.repo, "cursors", return_value=stale), \
-                mock.patch("title_runs.formats.now", return_value=formats.parse_time("2026-10-23T20:00:00Z")):
-            self.assertEqual(self.engine.ignored_mine(), "")  # more than a day old
+
+@unittest.skipIf(QApplication is None, "PySide6 is not installed")
+class LocalTestsInTheWindow(unittest.TestCase):
+    """Signed in with the config's App, ready with nothing else to set up; Home shows the heads waiting and the results;
+    Add on All pull requests puts a pull request on the local tests list."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        import tempfile
+
+        from title_runs import listing
+        from title_runs.ui import app
+        self.listing = Path(tempfile.mkdtemp()) / "listing.json"
+        store = listing.Listing(self.listing)
+        store.data["repository"] = "boykopovar/AnyPS5"
+        store.merge([make_pr(6488, "a" * 40, body="- [x] Unblocks: PPSA04263"), make_pr(4287, "7" * 40)])
+        store.save()
+        self.config = make_config(github_app="Iv23testapp", local_repository="boykopovar/AnyPS5", local_prs=[4287])
+        self.engine = app.Engine(self.config, listing=self.listing)
+        self.engine.client.finish_onboarding({"idle": "hours"})
+        self.engine.client.flow().store({"login": "CPritch", "access_token": "t", "client_id": "Iv23testapp"})
+
+    def test_signed_in_with_the_configs_app(self):
+        self.assertEqual(self.engine.client.flow().client_id, "Iv23testapp")
+        self.assertEqual(self.engine.client.tester(), "CPritch")
+        self.assertEqual(self.engine.client.ready(), (True, ""))
+        self.assertEqual(self.engine.readiness(), (True, "", ""))
+
+    def test_home_shows_whats_waiting(self):
+        from title_runs.ui.home import HomePage
+        self.engine.local.write({"repository": "boykopovar/AnyPS5", "entries": [{"pr": 4287, "head": "7" * 40, "title": "perf(shader): pick", "author": "karanvora2599",
+                                                                              "added": "2026-10-23T12:00:00Z", "status": "queued"}]})
+        self.assertEqual(self.engine.up_next_rows()[0]["why"], "Waiting to be tested")
+        with mock.patch.object(self.engine.client, "allowed_now", return_value=(True, "")):
+            self.assertEqual(self.engine.home()["headline"], "Starting the next test")
+            self.engine.config.testing = "off"
+            self.assertEqual(self.engine.home()["kind"], "off")
+            home = HomePage(self.engine)
+            home.refresh()
+        self.assertIn("#4287", home.upcoming.rows[0])
+        self.assertIn("No results yet", home.recent.rows[0])
+
+    def test_add_on_all_pull_requests(self):
+        from title_runs.ui.window import PullRequestsTab
+        tab = PullRequestsTab(self.engine)
+        tab.refresh()
+        mine, mentions = tab.tree.topLevelItem(0), tab.tree.topLevelItem(1)
+        self.assertEqual((mine.text(0), mentions.text(0)), ("On your local tests (1)", "Mentions your titles (1)"))
+        self.assertIsNone(tab.tree.itemWidget(mine.child(0), 4))  # on the list already: no Add
+        add = tab.tree.itemWidget(mentions.child(0), 4)
+        self.assertEqual(add.text(), "Add")
+        add.click()
+        self.assertEqual(self.engine.config.local_prs, [4287, 6488])
+        self.assertTrue(tab.added.text().startswith("Added #6488."))
+        self.assertEqual(tab.tree.topLevelItem(0).text(0), "On your local tests (2)")
 
 
 @unittest.skipIf(QApplication is None, "PySide6 is not installed")
@@ -425,20 +318,6 @@ class MainScreenModel(unittest.TestCase):
                                 ("main run 2, 3/4", 6), ("PR run 2, 4/4", 7)):
             self.assertEqual(model.step(progress), index, progress)
 
-    def test_the_team_is_named_by_the_config(self):
-        from title_runs.ui import words
-        try:
-            words.set_team("CPritch")
-            self.assertEqual(model.header({}, True, "", "schedule", True, "", None)["detail"], "New tests from CPritch show up here by themselves.")
-            self.assertEqual(model.setup_text("waiting for a maintainer to approve this machine"),
-                             "CPritch still has to approve this machine. Nothing to do but wait.")
-            words.set_team("the AnyPS5 team")
-            self.assertEqual(words.Team(), "The AnyPS5 team")
-            words.set_team("")
-            self.assertEqual(words.team(), "whoever runs this testing")
-        finally:
-            words.set_team(None)
-
     def test_header_states(self):
         best = {"number": 1}
         running = {"state": "running", "job": {"pr": 1, "title": "perf: x"}, "progress": "PR run 1, 2/4"}
@@ -452,69 +331,6 @@ class MainScreenModel(unittest.TestCase):
         self.assertEqual(model.header({}, True, "", "now", False, "outside the hours 01-07", best)["kind"], "ready")  # Now: whatever the hours
         self.assertEqual(model.waiting_for("on battery"), "the computer is plugged in")
         self.assertEqual(model.waiting_for("gtav.elf is running"), "gtav.elf has closed")
-
-
-@unittest.skipIf(QApplication is None, "needs PySide6")
-@unittest.skipIf(QApplication is None, "PySide6 not installed")
-class LocalOnly(unittest.TestCase):
-    """A config with no results repository and an App to sign in with (a project that hasn't set up testing with this
-    tool, AnyPS5 today): signed in with that App, ready with nothing to register, only local tests, and the app says why."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-
-    def setUp(self):
-        from helpers import make_config
-        from title_runs.ui import app
-        self.config = make_config(results_url="", results_app="Iv23testapp", local_repository="boykopovar/AnyPS5", local_prs=[4287])
-        fork = self.config.state_dir / "client" / "results"  # the fork's checkout, from a config sharing this state folder
-        fork.mkdir(parents=True)
-        (fork / "config.json").write_text('{"repository": "CPritch/AnyPS5", "maintainers": ["CPritch"], "app": {"client_id": "Iv23testapp"}}')
-        (fork / "cursors.json").write_text('{"last_run": "2026-10-20T00:00:00Z"}')
-        self.engine = app.Engine(self.config)
-        self.engine.client.finish_onboarding({"idle": "hours"})
-        self.engine.client.flow().store({"login": "CPritch", "access_token": "t", "client_id": "Iv23testapp"})
-
-    def test_signed_in_with_the_configs_app_and_nothing_to_register(self):
-        from title_runs import client as clients
-        self.assertTrue(self.engine.client.local_only())
-        self.assertEqual(self.engine.client.flow().client_id, "Iv23testapp")
-        self.assertEqual(self.engine.client.tester(), "CPritch")
-        self.assertEqual(self.engine.client.ready(), (False, clients.LOCAL_ONLY))  # no queue to take tests from
-        self.assertEqual(self.engine.readiness(), (True, "", ""))  # but nothing left to set up for local tests
-        self.assertEqual(self.engine.local_only_note(), "AnyPS5 hasn't set up automated testing with this tool, so only your local tests run here.")
-        self.engine.load(sync=True)  # no results repository to read: nothing tried, nothing logged
-        self.assertEqual((self.engine.ranked, self.engine.repository), ([], "boykopovar/AnyPS5"))
-        # nothing of the fork's checkout: not its maintainer here, and no warning about its relay
-        self.assertEqual((self.engine.client.maintainer(), self.engine.client.stale(), self.engine.stale_text()), (False, None, ""))
-
-    def test_without_an_app_a_new_tester_still_joins(self):
-        from helpers import make_config
-        from title_runs.ui import app
-        self.assertFalse(app.Engine(make_config(results_url="", results_app="")).client.local_only())
-
-    def test_home_and_the_walkthrough_say_so(self):
-        from unittest import mock
-        from title_runs.ui.home import HomePage
-        from title_runs.ui.walkthrough import RegisterPage, SignInPage
-        self.engine.local.write({"repository": "boykopovar/AnyPS5", "entries": [{"pr": 4287, "head": "7" * 40, "title": "perf(shader): pick", "author": "karanvora2599",
-                                                                              "added": "2026-10-23T12:00:00Z", "status": "queued"}]})
-        self.assertEqual(self.engine.up_next_rows()[0]["why"], "Local test")
-        with mock.patch.object(self.engine, "schedule_allows", return_value=(True, "")):
-            self.assertEqual(self.engine.home()["headline"], "Starting the next test")  # on schedule: not "Almost ready"
-            self.engine.config.testing = "off"
-            self.assertEqual(self.engine.home()["kind"], "off")
-        home = HomePage(self.engine)
-        with mock.patch.object(self.engine, "schedule_allows", return_value=(True, "")):
-            home.refresh()
-        self.assertEqual(home.mode.text(), self.engine.local_only_note())
-        sign_in = SignInPage(self.engine)
-        self.assertFalse(sign_in.where.isVisibleTo(sign_in))  # no testing link to paste
-        self.assertIn("It posts nothing.", sign_in.subTitle())
-        register = RegisterPage(self.engine)
-        self.assertTrue(register.button.isHidden())
-        self.assertEqual(register.state.text(), "Nothing to register: " + self.engine.local_only_note())
 
 
 @unittest.skipIf(QApplication is None, "PySide6 not installed")

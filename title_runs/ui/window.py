@@ -1,32 +1,18 @@
 """The tester's window: a sidebar with Home (ui/home.py), Local tests (ui/local.py), All pull requests (the advanced view
-only) and Settings, the simple or advanced view, and the maintainers' window (ui/maintainer.py) for maintainers. Data
-comes from the engine (app.Engine) through ui/model.py; nothing here is platform-specific."""
+only) and Settings, and the simple or advanced view. Data comes from the engine (app.Engine) through ui/model.py;
+nothing here is platform-specific."""
 
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                               QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QStackedWidget,
+                               QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QStackedWidget,
                                QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from .. import platform_info, verdict
-from ..config import results_location as clients_location
-from ..relay import overview
-from ..relay.render import utc
-from . import model, theme, words
+from . import model, theme
 from .home import HomePage
 from .local import LocalTestsPage, ReportDialog
-from .trust_dialog import TrustDialog
-
-
-def tree(columns, widths=()):
-    widget = QTreeWidget()
-    widget.setHeaderLabels(columns)
-    widget.setRootIsDecorated(False)
-    widget.setUniformRowHeights(True)
-    for i, width in enumerate(widths):
-        widget.setColumnWidth(i, width)
-    return widget
 
 
 def bold(text):
@@ -35,38 +21,6 @@ def bold(text):
     font.setBold(True)
     label.setFont(font)
     return label
-
-
-def fit(widget, stretch):
-    """Columns sized to their contents, one stretched to the width: buttons in the last column stay in view."""
-    header = widget.header()
-    header.setStretchLastSection(False)
-    for column in range(widget.columnCount()):
-        header.setSectionResizeMode(column, QHeaderView.Stretch if column == stretch else QHeaderView.ResizeToContents)
-
-
-def banner():
-    """An amber strip for what keeps the client from working (not ready, the workflow not running); hidden when empty."""
-    label = QLabel("")
-    label.setWordWrap(True)
-    label.setTextFormat(Qt.RichText)
-    label.setStyleSheet("QLabel { background: #fff4d6; color: #5c4400; border: 1px solid #e0a100; border-radius: 4px; padding: 6px 10px; }")
-    label.hide()
-    return label
-
-
-def show(label, text):
-    label.setText(text)
-    label.setVisible(bool(text))
-
-
-def when(stamp):
-    return utc(stamp) if stamp else "never"
-
-
-def title_of(name):
-    """overview.coverage's class key is "<class>, <title ID>"."""
-    return name.rsplit(", ", 1)[-1]
 
 
 class PullRequestsTab(QWidget):
@@ -81,6 +35,8 @@ class PullRequestsTab(QWidget):
         refresh.setToolTip("List the pull requests again now (otherwise every 15 minutes)")
         refresh.clicked.connect(lambda: engine.work.put(("listing", None)))
         top.addWidget(refresh)
+        self.added = theme.mark(QLabel(""), role="muted")
+        top.addWidget(self.added)
         top.addStretch(1)
         self.search = QLineEdit()
         self.search.setPlaceholderText("search…")
@@ -89,10 +45,9 @@ class PullRequestsTab(QWidget):
         top.addWidget(self.search)
         layout.addLayout(top)
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["PR", "Title", "Priority", "Titles", "Status", ""])
-        for i, width in enumerate((110, 430, 70, 160, 150)):
+        self.tree.setHeaderLabels(["PR", "Title", "Titles", "", ""])
+        for i, width in enumerate((110, 500, 160, 130)):
             self.tree.setColumnWidth(i, width)
-        self.tree.itemDoubleClicked.connect(self.double_clicked)
         layout.addWidget(self.tree)
         self.expanded = {model.SECTIONS[0]: True, model.SECTIONS[1]: True, model.SECTIONS[2]: False, model.SECTIONS[3]: False}
 
@@ -113,24 +68,22 @@ class PullRequestsTab(QWidget):
             self.tree.addTopLevelItem(top)
             top.setFirstColumnSpanned(True)
             for row in rows[:400]:
-                item = QTreeWidgetItem([f"#{row['number']}", row["title"], row["priority"], row["titles"], row["badge"], ""])
+                item = QTreeWidgetItem([f"#{row['number']}", row["title"], row["titles"], row["badge"], ""])
                 item.setData(0, Qt.UserRole, row)
                 item.setToolTip(1, f"{row['title']}\nby {row['author']}, head {row['head'][:9]}")
-                if row["badge"].startswith("⚠"):
-                    item.setForeground(4, Qt.darkYellow)
-                elif row["badge"].startswith("✓"):
-                    item.setForeground(4, Qt.darkGreen)
+                if row["badge"]:
+                    item.setForeground(3, Qt.darkGreen)
                 top.addChild(item)
-                if row["run"] and name != model.SECTIONS[3]:
-                    button = QPushButton("Run…")
-                    button.clicked.connect(lambda _=False, r=row: self.engine.window.run_unchecked(r))
-                    self.tree.setItemWidget(item, 5, button)
+                if row["add"]:
+                    button = QPushButton("Add")
+                    button.setToolTip("Add it to your local tests: each head its author pushes is tested on this computer")
+                    button.clicked.connect(lambda _=False, r=row: self.add(r))
+                    self.tree.setItemWidget(item, 4, button)
             top.setExpanded(self.expanded.get(name, False))
 
-    def double_clicked(self, item, _column):
-        row = item.data(0, Qt.UserRole)
-        if isinstance(row, dict) and row.get("run"):
-            self.engine.window.run_unchecked(row)
+    def add(self, row):
+        self.added.setText(self.engine.local_add(str(row["number"])))
+        self.refresh()
 
 
 class ScheduleTab(QWidget):
@@ -278,36 +231,10 @@ class SettingsTab(QWidget):
         hardware.setWordWrap(True)
         hardware.setToolTip(f"Results are compared with machines of the same kind: {verdict.class_of(engine.client.machine_class)}")
         form.addRow("Graphics card, driver, system", hardware)
-        registration = QHBoxLayout()
-        self.registration = QLabel("")
-        self.registration.setTextFormat(Qt.RichText)
-        self.registration.setWordWrap(True)
-        self.registration.setOpenExternalLinks(True)
-        registration.addWidget(self.registration, 1)
-        self.register = QPushButton("Register this machine")
-        self.register.clicked.connect(self.register_machine)
-        registration.addWidget(self.register)
         again = QPushButton("Run the walkthrough again")
         again.clicked.connect(lambda: engine.window.walkthrough())
-        registration.addWidget(again)
-        form.addRow("Registration", registration)
+        form.addRow("First-run steps", again)
         layout.addWidget(machine)
-        results = QGroupBox("Testing")
-        form = QFormLayout(results)
-        self.url = QLineEdit(config.results_url)
-        self.url.setPlaceholderText("The testing link you were given (https://github.com/…)")
-        self.url.setToolTip("Saving another link switches to that testing: its tests, a new registration for this machine, "
-                            "and a new sign-in if it needs one.")
-        form.addRow("Testing link", self.url)
-        check = QHBoxLayout()
-        self.check_label = QLabel("")
-        self.check_label.setWordWrap(True)
-        check.addWidget(self.check_label, 1)
-        button = QPushButton("Check")
-        button.clicked.connect(self.check_connection)
-        check.addWidget(button)
-        form.addRow(check)
-        layout.addWidget(results)
         sandbox = QGroupBox("Sandbox")
         form = QFormLayout(sandbox)
         self.sandbox_label = QLabel("On: tests build and play in a sandbox, with no internet once the change is downloaded" if config.sandbox == "bwrap"
@@ -322,24 +249,8 @@ class SettingsTab(QWidget):
         layout.addWidget(sandbox)
         posted = QGroupBox("What's shared")
         form = QFormLayout(posted)
-        if engine.client.local_only():  # nothing is sent: a local test's result stays here
-            form.addRow(QLabel("Nothing is sent by itself. A local test's result stays on this computer."))
-        else:
-            form.addRow(QLabel("How fast each run was, and whether the game showed a picture. Never your game files."))
-        self.screenshots = QCheckBox("Also a screenshot of the test scene")
-        self.screenshots.setChecked(config.screenshots)
-        self.screenshots.setVisible(not engine.client.local_only())
-        form.addRow(self.screenshots)
+        form.addRow(QLabel("Nothing is sent by itself. Each result stays on this computer, with a report you can post yourself."))
         layout.addWidget(posted)
-        trusted = QGroupBox("People you chose to trust")
-        box = QHBoxLayout(trusted)
-        self.trusted = QListWidget()
-        box.addWidget(self.trusted, 1)
-        revoke = QPushButton("Revoke")
-        revoke.clicked.connect(self.revoke)
-        box.addWidget(revoke, 0, Qt.AlignTop)
-        layout.addWidget(trusted)
-        self.trusted_group = trusted
         logs = QGroupBox("Logs")
         box = QVBoxLayout(logs)
         self.log = QPlainTextEdit()
@@ -362,26 +273,7 @@ class SettingsTab(QWidget):
         login = self.engine.client.tester()
         self.account.setText(f"Signed in as {login}" if login else "not signed in")
         self.sign.setText("Sign out" if login else "Sign in…")
-        if self.engine.client.local_only():
-            self.registration.setText("Nothing to register: local tests only")
-            self.register.hide()
-        else:
-            state, record = self.engine.client.registration()
-            record = record or {}
-            issue = record.get("issue")
-            link = f" (<a href='{self.engine.issue_url(issue)}'>#{issue}</a>)" if issue else ""
-            self.registration.setText({"approved": f"Approved by {record.get('approved_by', '?')}{link}",
-                                       "pending": f"Waiting for {words.team()} to approve it{link}", "declined": f"Turned down by {words.team()}{link}",
-                                       "not registered": "Not registered yet, so this machine doesn't run tests"}[state])
-            self.register.setVisible(state == "not registered")
-            self.register.setEnabled(bool(login))
-        self.trusted.clear()
-        for entry in self.engine.client.trust.entries:
-            self.trusted.addItem(self.engine.client.trust.describe(entry))
         self.log.setPlainText(self.engine.log_tail())
-
-    def check_connection(self):
-        self.check_label.setText(self.engine.check_connection(self.url.text()))
 
     def sign_in_or_out(self):
         if self.engine.client.tester():
@@ -390,34 +282,11 @@ class SettingsTab(QWidget):
         else:
             self.engine.window.walkthrough("sign-in")
 
-    def register_machine(self):
-        self.engine.config.machine = self.machine.text().strip() or self.engine.config.machine
-        try:
-            self.engine.client.register()
-        except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "AnyPS5 title runs", f"Could not register: {error}")
-        self.refresh()
-
     def self_test(self):
         self.sandbox_label.setText(self.engine.sandbox_self_test())
 
-    def revoke(self):
-        row = self.trusted.currentRow()
-        if row >= 0:
-            self.engine.client.trust.revoke(row)
-            self.refresh()
-
     def save(self):
-        config = self.engine.config
-        config.machine = self.machine.text().strip()
-        location = self.url.text().strip()
-        if location and clients_location(location) != config.results_url:
-            try:
-                self.check_label.setText(self.engine.switch_results(location))
-            except Exception as error:  # noqa: BLE001
-                self.check_label.setText(f"Could not switch: {error}")
-            self.url.setText(self.engine.config.results_url)
-        config.screenshots = self.screenshots.isChecked()
+        self.engine.config.machine = self.machine.text().strip() or self.engine.config.machine
         self.engine.save_config()
 
 
@@ -434,7 +303,7 @@ class AppTab(QWidget):
             self.size.addItem(name, key)
         self.size.setCurrentIndex(max(0, self.size.findData(config.text_size)))
         form.addRow("Text size", self.size)
-        self.advanced = QCheckBox("Advanced view: every pull request, the scheduling details, logs")
+        self.advanced = QCheckBox("Advanced view: every pull request, more detail on Home, and the logs")
         self.advanced.setChecked(config.view == "advanced")
         form.addRow(self.advanced)
         self.tray = QCheckBox("Keep testing in the background when the window is closed (in the system tray)")
@@ -487,8 +356,7 @@ class SettingsPage(QScrollArea):
 
     def refresh(self):
         advanced = self.engine.config.view == "advanced"
-        self.account.trusted_group.setVisible(advanced)  # the simple view keeps to what a tester sets
-        self.account.logs_group.setVisible(advanced)
+        self.account.logs_group.setVisible(advanced)  # the simple view keeps to what a tester sets
         for part in (self.account, self.schedule, self.titles, self.app):
             part.refresh()
 
@@ -520,10 +388,6 @@ class MainWindow(QMainWindow):
             self.stack.addWidget(page)
             self.buttons[key] = button
         nav.addStretch(1)
-        self.maintain = QPushButton("Maintainer tools")
-        self.maintain.setToolTip("Queue tests, approve machines and see every machine's results (for the people running this testing)")
-        self.maintain.clicked.connect(self.open_maintainer)
-        nav.addWidget(self.maintain)
         self.view = QCheckBox("Advanced view")
         self.view.toggled.connect(self.view_toggled)
         nav.addWidget(self.view)
@@ -534,7 +398,6 @@ class MainWindow(QMainWindow):
         row.addWidget(side)
         row.addWidget(self.stack, 1)
         self.setCentralWidget(body)
-        self.maintainer_window = None
         self.buttons["home"].setChecked(True)
         self.apply_view()
         self.resize(1280, 860)
@@ -564,19 +427,7 @@ class MainWindow(QMainWindow):
         self.apply_view()
 
     def refresh(self):
-        self.maintain.setVisible(self.engine.client.maintainer())
-        current = self.stack.currentWidget()
-        current.refresh()
-        if self.maintainer_window is not None and self.maintainer_window.isVisible():
-            self.maintainer_window.refresh()
-
-    def open_maintainer(self):
-        from .maintainer import MaintainerWindow
-        if self.maintainer_window is None:
-            self.maintainer_window = MaintainerWindow(self.engine)
-        self.maintainer_window.refresh()
-        self.maintainer_window.show()
-        self.maintainer_window.raise_()
+        self.stack.currentWidget().refresh()
 
     def walkthrough(self, start="what"):
         from .walkthrough import Walkthrough
@@ -585,29 +436,14 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def fix_readiness(self):
-        """Home's Finish setting up: the walkthrough, sign-in or registration."""
+        """Home's Finish setting up: the walkthrough, or its sign-in."""
         _, _, fix = self.engine.readiness()
-        if fix == "Register this machine":
-            self.buttons["settings"].setChecked(True)
-            self.show_page(self.settings)
-            self.settings.account.register_machine()
-        else:
-            self.walkthrough({"Finish the walkthrough": "what", "Sign in…": "sign-in"}.get(fix, "what"))
+        self.walkthrough({"Finish the walkthrough": "what", "Sign in…": "sign-in"}.get(fix, "what"))
 
     def open_report(self, number):
         """A local test's report: the PR's link first, the text to copy, Mark as posted. Nothing is posted from here."""
         ReportDialog(self.engine, number, self).exec()
         self.refresh()
-
-    def run_unchecked(self, row):
-        """Run… on a PR no maintainer queued: the trust dialog, then the job on the tester's trust."""
-        ready, why, _ = self.engine.readiness()
-        if not ready:
-            QMessageBox.information(self, "AnyPS5 title runs", f"This machine can't test yet: {model.setup_text(why)}")
-            return
-        dialog = TrustDialog(row["number"], row["title"], row["author"], self)
-        if dialog.exec() == TrustDialog.Accepted and dialog.scope:
-            self.engine.run_on_trust(row, dialog.scope)
 
     def closeEvent(self, event):  # noqa: N802
         """Closing the window quits, and a running test stops with it, unless the tester chose the tray (Settings)."""

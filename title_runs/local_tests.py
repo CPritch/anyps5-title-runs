@@ -27,6 +27,7 @@ import threading
 from pathlib import Path
 
 from . import formats, gh, job, locks, protocol, sandbox, sources, verdict
+from .client import clean
 
 PIN_HOURS = 12  # a pin older than this starts a new night
 STALE_HOURS = 48  # a result not posted for this long is stale: main has moved on too far for it to say much
@@ -344,7 +345,7 @@ class LocalTests:
         results = job.run(self.config, self.config.state_dir, pr, head, lambda text: (self.log(text), progress(text) if text[:2] in ("A:", "B:") else None),
                           recheck=stopped, progress=progress, should_stop=stopped, remote=self.remote(), main=base)
         side, reason = failure(results)
-        result = report_result(results, head, client) if side != "A" else None
+        result = result_of(results) if side != "A" else None
 
         def record(data):
             match = [e for e in data["entries"] if e["pr"] == pr and e["head"] == head]
@@ -354,7 +355,7 @@ class LocalTests:
                 return None
             if side == "A":
                 # The base itself doesn't start the game: not this PR's fault, and every other PR would fail the same way.
-                # Local tests hold (held) until main is pinned again; the queue's tests, on their own main, go on.
+                # Local tests hold (held) until main is pinned again.
                 entry_now.update(status="queued")
                 data["paused"] = {"at": formats.iso(formats.now()), "main": main, "fixes": sorted(self.config.local_fixes),
                                   "reason": f"main {main[:9]}{''.join(' + #' + str(f['pr']) for f in fixes)} doesn't start the game: {reason}"}
@@ -640,9 +641,21 @@ def failure(results):
     return None, ""
 
 
-def report_result(results, head, client):
-    from .client import to_result
-    return to_result(results, head, client.config.machine, client.tester() or client.config.tester or "tester", client.machine_class, "local")
+SIDE_KEYS = ("p50", "p90", "p99", "gpu")
+
+
+def result_of(results):
+    """A job's results (job.run) as the verdict reads them: {"status", "titles": {title ID: {"sides", "outcome"}}, and
+    "error" when there is one}, every text cleaned of markup characters."""
+    titles = {}
+    for title_id, entry in results.get("titles", {}).items():
+        sides = (entry.get("verdict") or {}).get("sides", {})
+        titles[title_id] = {"sides": {key: {m: sides[key].get(m, []) for m in SIDE_KEYS} for key in sides},
+                            "outcome": {key: clean(entry.get("outcome", {}).get(key, "not run")) for key in ("A", "B")}}
+    out = {"status": results.get("status", "failed"), "titles": titles}
+    if results.get("error") or results.get("detail"):
+        out["error"] = clean(results.get("error") or results.get("detail"), 300)
+    return out
 
 
 def summary_words(result, rules):

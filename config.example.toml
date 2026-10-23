@@ -5,18 +5,23 @@
 # same file system as your dumps. Default: ~/.local/share/anyps5-title-runs (Linux), %LOCALAPPDATA% (Windows).
 # state_dir = "/path/to/a/big/disk/anyps5-title-runs"
 
-[results]
-# The results repository your maintainers named, as OWNER/NAME. The Settings tab or `title-runs client use` switches.
-# For a project that hasn't set up testing with this tool, leave url empty and set app to the GitHub App to sign in
-# with (its client ID), so the app can read the project's PRs: then only your local tests run, and nothing is registered.
-url = "OWNER/NAME"
-# app = "Iv23..."
-# "github". (The local stand-in, for development only, is "standin:/path/to/github.json".)
-github = "github"
+[github]
+# The GitHub App you sign in with (its client ID). The tool reads the project's pull requests with the sign-in and
+# posts nothing; the App needs no permissions for that. Leave it out for the tool's own App.
+# app = "Iv23liikPAbKjFujfrIB"
+
+[local]
+# Local tests: the project, and the pull requests to test (the Local tests page sets these too). Each head a pull
+# request's own author pushes is tested once, against the project's main.
+repository = "boykopovar/AnyPS5"
+prs = []
+# Every open pull request of these people too: each new head they push is tested without you looking at it first.
+# people = ["LOGIN"]
+# Pull requests merged onto main for both sides, for a main that can't run your games without them.
+# fixes = []
 
 [tester]
-# This machine's name in the results repository: 1 to 32 letters, digits and hyphens. Your GitHub account comes
-# from signing in.
+# This machine's name, as the window shows it. Your GitHub account comes from signing in.
 machine = "my-pc"
 
 [schedule]
