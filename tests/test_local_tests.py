@@ -13,7 +13,7 @@ import helpers  # noqa: F401
 from helpers import make_config
 from test_client import INFO, fake_results
 
-from title_runs import client, config as configs, configfile, formats, local_tests
+from title_runs import client, config as configs, configfile, formats, job, local_tests
 
 A, B = "a" * 40, "b" * 40
 
@@ -119,6 +119,35 @@ class Run(unittest.TestCase):
         with mock.patch("title_runs.job.run", return_value=results):
             self.night.run(self.night.queued()[0], self.client)
         self.assertEqual(self.night.read()["entries"][0]["job"], f"8104-{A[:12]}-franklins-house")
+
+    def test_test_again_keeps_the_earlier_result(self):
+        def run(config, state_dir, pr, head, log, **kwargs):  # job.run's folder and results, with the PR faster the second time
+            folder = job.job_folder(Path(state_dir) / "jobs", f"{pr}-{head[:12]}")
+            results = dict(fake_results(pr, head), job=folder.name)
+            for one in results["titles"]["PPSA04263"]["ab"]["runs"]:
+                one["summary"]["frame_ms"]["p50"] = 74 if one["side"] == "B" and folder.name.endswith("-2") else 78
+            (folder / "results.json").write_text(json.dumps(results))
+            return results
+        with mock.patch("title_runs.job.run", side_effect=run), mock.patch("title_runs.sources.main_tip", return_value="d" * 40), \
+                mock.patch("title_runs.sources.carry", return_value=("d" * 40, [], [])):
+            self.night.run(self.night.queued()[0], self.client)
+            self.night.again(8104)
+            self.night.run(self.night.queued()[0], self.client)
+        done = [e for e in self.night.read()["entries"] if e["status"] == "done"]
+        self.assertEqual([e["job"] for e in done], [f"8104-{A[:12]}", f"8104-{A[:12]}-2"])
+        self.assertEqual([Path(e["draft"]).name for e in done], [f"8104-{A[:12]}.md", f"8104-{A[:12]}-2.md"])
+        first, second = (self.night.report(e) for e in done)
+        self.assertIn("with #8104 78.0, 78.0 ms", first)  # the first test's own numbers, not the second's
+        self.assertIn("with #8104 74.0, 74.0 ms", second)
+
+    def test_a_job_folder_per_finished_test(self):
+        import tempfile
+        jobs = Path(tempfile.mkdtemp())
+        first = job.job_folder(jobs, "4287-7aea3fe29ff7-prologue")
+        self.assertEqual(first, jobs / "4287-7aea3fe29ff7-prologue")
+        self.assertEqual(job.job_folder(jobs, "4287-7aea3fe29ff7-prologue"), first)  # nothing finished in it: used again
+        (first / "results.json").write_text("{}")
+        self.assertEqual(job.job_folder(jobs, "4287-7aea3fe29ff7-prologue"), jobs / "4287-7aea3fe29ff7-prologue-2")
 
     def crashed(self, side):
         runs = self.config.state_dir / "runs" / "PPSA04263"

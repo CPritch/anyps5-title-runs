@@ -101,7 +101,7 @@ def cmd_run(config, args):
         state.save()
         print(f"#{number}: running {head['head'][:9]}")
         results = job.run(config, state_dir, number, head["head"], lambda text: print(f"  {text}", flush=True))
-        poller.finish(state, number, head["head"], DONE if results["status"] == "done" else FAILED, state_dir / "jobs" / f"{number}-{head['head'][:12]}")
+        poller.finish(state, number, head["head"], DONE if results["status"] == "done" else FAILED, state_dir / "jobs" / results["job"])
         publish(config, state, number, results, args.post)
         state.save()
     return 0
@@ -114,7 +114,8 @@ def cmd_render(config, args):
         results = json.loads(Path(args.results).read_text())
     else:
         head = state.current(args.pr)
-        results = json.loads((state_dir / "jobs" / f"{args.pr}-{head['head'][:12]}" / "results.json").read_text())
+        job_dir = Path(head["job"]) if head.get("job") else state_dir / "jobs" / f"{args.pr}-{head['head'][:12]}"
+        results = json.loads((job_dir / "results.json").read_text())
     history = [h for h in entry.get("history", []) if h["head"] != results["head"]]
     print(report.render(config, args.pr, results, history, notes(config)))
     return 0

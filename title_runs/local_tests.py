@@ -10,7 +10,7 @@ PIN_HOURS, so the PRs tested together are measured against the same main and tha
   state/client/local-tests.json          the list: {"repository", "pinned": {"main", "base", "fixes", "at"}, "prs", "fixes",
                                          "entries": [...], "removed", "paused"}
   state/local-tests/<night>.md           a summary per night
-  state/local-tests/drafts/<pr>-<head>.md   the report per tested head, as written when it ran
+  state/local-tests/drafts/<job>.md       the report per test, as written when it ran
   state/local-tests/attach/<job>/        its traces under the report's names, for the tester to drag into the comment
 
 Fixes (the [local] fixes setting) are pull requests merged onto main for both sides, for a main that can't run the
@@ -429,7 +429,7 @@ class LocalTests:
     def write_report(self, entry, results):
         drafts = self.out / "drafts"
         drafts.mkdir(parents=True, exist_ok=True)
-        path = drafts / f"{entry['pr']}-{entry['head'][:12]}.md"
+        path = drafts / f"{entry.get('job') or str(entry['pr']) + '-' + entry['head'][:12]}.md"
         path.write_text(report_text(results, entry, self.graphics(results)))
         return path
 

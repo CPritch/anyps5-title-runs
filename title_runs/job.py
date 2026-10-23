@@ -3,6 +3,7 @@ sandbox, then run on the tester's titles in the title sandbox."""
 
 import contextlib
 import datetime
+import itertools
 import json
 import os
 import shlex
@@ -69,7 +70,7 @@ def boot_and_classify(config, title, build_dir, work, out, log):
 
 
 def run(config, state_dir, number, head, log, recheck=None, progress=None, should_stop=None, remote=None, main=None):
-    """Build and run head (the approved SHA); returns the job's results (also written to jobs/<number>-<head>/results.json).
+    """Build and run head (the approved SHA); returns the job's results (also written to the job's folder, job_folder()).
 
     recheck() -> a reason or None, called after the trees are ready and just before anything is built: the client asks
     the queue again whether this SHA is still the approved one. progress(text) and should_stop() go to the A/B protocol:
@@ -83,8 +84,7 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
         chosen, unknown = {title_id: scenarios.of(title) for title_id, title in config.titles.items()}, None
     except scenarios.ScenarioError as error:  # failed below, in the job's own folder
         chosen, unknown = {title_id: None for title_id in config.titles}, error
-    job_dir = state_dir / "jobs" / (f"{number}-{head[:12]}" + "".join(f"-{scenario['id']}" for scenario in chosen.values() if scenario))
-    job_dir.mkdir(parents=True, exist_ok=True)
+    job_dir = job_folder(state_dir / "jobs", f"{number}-{head[:12]}" + "".join(f"-{scenario['id']}" for scenario in chosen.values() if scenario))
     results = {"pr": number, "head": head, "started": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
                "machine": config.machine, "sandbox": config.sandbox, "titles": {}, "job": job_dir.name}
 
@@ -192,6 +192,17 @@ def outcome_of(ab):
         else:
             out[key] = "not run"
     return out
+
+
+def job_folder(jobs, name):
+    """A new job's folder: jobs/<name>, or <name>-2, -3 and on when an earlier test of the same head in the same scenarios
+    finished in it (results.json), so each test keeps its own results (Test again on the Local tests page). A folder
+    without results.json, from a job that never finished, is used again."""
+    for number in itertools.count(1):
+        path = Path(jobs) / (name if number == 1 else f"{name}-{number}")
+        if not (path / "results.json").exists():
+            path.mkdir(parents=True, exist_ok=True)
+            return path
 
 
 def finish(job_dir, results):
