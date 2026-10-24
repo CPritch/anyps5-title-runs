@@ -1,10 +1,13 @@
 """Controller input (pad.py): the pad file in the form AnyPS5 reads, controllers found and read from evdev, a recording
-passing the controller through (at rest for its first second), and a track played back at its times."""
+passing the controller through (at rest for its first second), a track played back on the game's pad reads, and the
+reads seen."""
 
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import helpers  # noqa: F401
 
@@ -28,27 +31,25 @@ H: Handlers=mouse2 event22
 '''
 
 
-class Clock:
-    """time.monotonic and time.sleep, standing still until slept."""
+class Reads:
+    """PadReads for a game that reads its pad once per take(); reads counts them."""
 
     def __init__(self):
-        self.now = 1000.0
+        self.reads = 0
 
-    def __call__(self):
-        return self.now
-
-    def sleep(self, seconds):
-        self.now += seconds
+    def take(self):
+        self.reads += 1
+        return 1
 
 
 class Written:
-    """A PadFile that keeps what was written, with the clock's time in milliseconds."""
+    """A PadFile that keeps what was written, with how many reads the game had made by then."""
 
-    def __init__(self, clock):
-        self.clock, self.states = clock, []
+    def __init__(self, reads):
+        self.reads, self.states = reads, []
 
     def write(self, state):
-        self.states.append((round((self.clock() - 1000.0) * 1000), tuple(state)))
+        self.states.append((self.reads.reads, tuple(state)))
 
 
 def anyps5_reads(line):
@@ -105,54 +106,74 @@ class Controllers(unittest.TestCase):
 
 class Recording(unittest.TestCase):
     def test_the_controller_passes_through_and_its_changes_are_kept(self):
-        clock = Clock()
-        out = Written(clock)
+        reads = Reads()
+        out = Written(reads)
 
         class Played:
             def poll(self):
                 pass
 
             def state(self):
-                at = clock() - 1000.0
-                if at < 2:
+                if reads.reads < 20:
                     return (pad.BUTTONS["cross"], 128, 128, 128, 128)  # held from the start: locked out for the first second
-                if at < 3:
+                if reads.reads < 30:
                     return (0, 128, 0, 128, 128)  # walking forward
                 return pad.NEUTRAL
 
         seconds = []
-        track = pad.record(Played(), out, 4, progress=seconds.append, clock=clock, sleep=clock.sleep)
+        track = pad.record(Played(), out, reads, 4, progress=seconds.append, wait=lambda _: None)
         self.assertEqual(track, [[0, *pad.NEUTRAL], [1000, pad.BUTTONS["cross"], 128, 128, 128, 128], [2000, 0, 128, 0, 128, 128],
                                  [3000, *pad.NEUTRAL], [4000, *pad.NEUTRAL]])
-        self.assertEqual(seconds, [0, 1, 2, 3])
-        self.assertEqual(out.states[0], (0, pad.NEUTRAL))
-        self.assertEqual(out.states[20], (1000, (pad.BUTTONS["cross"], 128, 128, 128, 128)))  # every 50 ms
-        self.assertEqual(out.states[-1], (4000, pad.NEUTRAL))  # at rest when it ends
+        self.assertEqual(seconds, [0, 1, 2, 3, 4])
+        self.assertEqual(out.states[0], (0, pad.NEUTRAL))  # before the first read
+        self.assertEqual(out.states[10], (10, (pad.BUTTONS["cross"], 128, 128, 128, 128)))  # after the 10th: for the 11th
+        self.assertEqual(out.states[-1], (40, pad.NEUTRAL))  # at rest when it ends
         pad.check_track(track)
 
     def test_stopping_keeps_what_was_recorded(self):
-        clock = Clock()
-        track = pad.record(type("Still", (), {"poll": lambda self: None, "state": lambda self: pad.NEUTRAL})(), Written(clock), 60,
-                           should_stop=lambda: "stopped" if clock() - 1000.0 >= 2 else None, clock=clock, sleep=clock.sleep)
+        reads = Reads()
+        track = pad.record(type("Still", (), {"poll": lambda self: None, "state": lambda self: pad.NEUTRAL})(), Written(reads), reads, 60,
+                           should_stop=lambda: "stopped" if reads.reads >= 20 else None, wait=lambda _: None)
         self.assertEqual(track[-1], [2000, *pad.NEUTRAL])
 
 
 class Playing(unittest.TestCase):
-    def test_each_state_at_its_time(self):
-        clock = Clock()
-        out = Written(clock)
+    def test_each_state_on_its_read(self):
+        reads = Reads()
+        out = Written(reads)
         track = [[0, *pad.NEUTRAL], [1000, 0, 128, 0, 128, 128], [1500, pad.BUTTONS["cross"], 128, 0, 128, 128], [2000, *pad.NEUTRAL]]
-        self.assertEqual(pad.play(track, out, clock=clock, sleep=clock.sleep), 2000)
-        states = dict(out.states[:-1])
-        self.assertEqual((states[950], states[1000], states[1450], states[1500]),
+        self.assertEqual(pad.play(track, out, reads, wait=lambda _: None), 2000)
+        seen = dict(out.states[:-1])  # the read after which each state was written: the next read sees it
+        self.assertEqual((seen[9], seen[10], seen[14], seen[15]),
                          (pad.NEUTRAL, (0, 128, 0, 128, 128), (0, 128, 0, 128, 128), (pad.BUTTONS["cross"], 128, 0, 128, 128)))
-        self.assertEqual(out.states[-1], (2000, pad.NEUTRAL))
+        self.assertEqual(out.states[-1], (20, pad.NEUTRAL))
 
     def test_stopped_part_way(self):
-        clock = Clock()
+        reads = Reads()
         track = [[0, 0, 128, 0, 128, 128], [10000, *pad.NEUTRAL]]
-        played = pad.play(track, Written(clock), should_stop=lambda: clock() - 1000.0 >= 3, clock=clock, sleep=clock.sleep)
+        played = pad.play(track, Written(reads), reads, should_stop=lambda: reads.reads >= 30, wait=lambda _: None)
         self.assertEqual(played, 3000)
+
+    def test_a_game_that_stops_reading(self):
+        reads = type("None", (), {"take": lambda self: 0})()
+        with mock.patch.object(pad, "STALLED_S", 0.05), self.assertRaisesRegex(pad.PadError, "stopped reading its pad"):
+            pad.play([[0, *pad.NEUTRAL], [1000, *pad.NEUTRAL]], Written(Reads()), reads, wait=time.sleep)
+
+
+class GameReads(unittest.TestCase):
+    def test_the_game_opening_its_file_is_seen_and_our_writes_are_not(self):
+        path = Path(tempfile.mkdtemp()) / "pad-input"
+        out = pad.PadFile(path)
+        out.write(pad.NEUTRAL)
+        with pad.PadReads(path) as reads:
+            out.write(pad.NEUTRAL)  # replaced, never opened
+            path.read_text()  # the game's read: InputCommandFile.hpp opens the file
+            (path.parent / "frame_001.bmp").write_text("")
+            deadline = time.monotonic() + 2
+            while not reads.times and time.monotonic() < deadline:
+                time.sleep(0.02)
+            time.sleep(0.1)
+            self.assertEqual(reads.take(), 1)
 
 
 class Tracks(unittest.TestCase):

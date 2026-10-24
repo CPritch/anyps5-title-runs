@@ -13,6 +13,7 @@ it the same every time. A scenario file:
               "url": the download, pinned to a commit, "sha256": of the download,
               "file": the member of a zip download that is the save (optional), "file_sha256": of that member,
               "into": {"memory_slot": 0}},                    where the title finds it (below; optional)
+     "start": {"track": [[ms, buttons, lx, ly, rx, ry], ...], "why": "..."},  input played when the scene shows (optional)
      "still": {"press": "left", "every": 10, "why": "..."},  a button pressed every few seconds from Resume Story (optional)
      "frame": {"colours": [64 shares], "max_distance": 0.3},  the scene's colours, which every run is checked against
      "input": {"track": [[ms, buttons, lx, ly, rx, ry], ...], recorded play, played from when the scene shows (optional)
@@ -22,6 +23,14 @@ The save is downloaded once, outside the sandbox, checked against its sha256 and
 never stored in this repository (a save's licence is its source's). "into" says where AnyPS5 keeps it in the game
 directory: memory_slot N is save-data memory, _sd_mem/u<user>/slot<N>.bin (libSceSaveData.native's mem_path), where
 GTA V keeps its autosave on PS4 and reads it on PS5. Save directories (_sd/<name>/) are not supported yet.
+
+"start" is for a title that loads its scene a little differently each time: input played on the game's pad reads
+(pad.py) once the scene shows, before anything else. GTA V loads Franklin's house with the camera at a height and pitch
+of its own choosing (boots of the same save were 160 px apart or more, always up and down, never sideways); holding the
+right stick up to the camera's pitch limit, then down at a third of its travel (170) for 32 reads, put three boots on
+the same pixel (2026-10-24; a half push, 180, for 15 reads left timed runs up to 60 px apart, as a faster turn moves further
+in the frame a read lands in). A scenario with a start is only in its scene once the start has played: a run where the
+scene never showed, so it didn't, doesn't count.
 
 "still" is for a title that moves its camera when nobody touches the controller: GTA V starts its idle camera after
 about 30 s without input, and turns it differently on every boot, so the same save showed 64 to 119 ms frames depending
@@ -106,6 +115,14 @@ def load(path):
     frame = scenario.get("frame")
     if frame is not None and (len(frame.get("colours") or []) != BINS ** 3 or not 0 < frame.get("max_distance", 0) < 1):
         raise ScenarioError(f"{path}: frame needs {BINS ** 3} colours and a max_distance between 0 and 1")
+    start = scenario.get("start")
+    if start is not None:
+        if not frame:
+            raise ScenarioError(f"{path}: start needs the scene's colours (frame), to start from")
+        try:
+            pad.check_track(start.get("track") if isinstance(start, dict) else None)
+        except pad.PadError as error:
+            raise ScenarioError(f"{path}: start: {error}") from error
     played = scenario.get("input")
     if played is not None:
         if not frame:
@@ -218,14 +235,17 @@ def input_words(scenario):
     """The report's words for the input during a run in the scenario."""
     still = (scenario or {}).get("still")
     played = (scenario or {}).get("input")
+    start = (scenario or {}).get("start")
+    first = f"with a set {start['track'][-1][0] / 1000:g} s of input when the scene appeared ({start['why']}), then " if start else "with "
     if played:
         when = str((played.get("recorded") or {}).get("at", ""))[:10]
-        words = f"with input recorded from a controller{' on ' + when if when else ''} ({pad.words(played['track'])}), replayed from when the scene appeared"
+        words = (f"{first}input recorded from a controller{' on ' + when if when else ''} ({pad.words(played['track'])}), "
+                 f"replayed on the game's pad reads{'' if start else ' from when the scene appeared'}")
         return words + (f", then {BUTTONS[still['press']]} every {still['every']} s" if still else "")
     if not still:
-        return "with no input"
+        return f"{first}no other input" if start else "with no input"
     why = f" ({still['why']})" if still.get("why") else ""
-    return f"with {BUTTONS[still['press']]} pressed every {still['every']} s{why} and no other input"
+    return f"{first}{BUTTONS[still['press']]} pressed every {still['every']} s{why}" + ("" if start else " and no other input")
 
 
 def colours(frame):

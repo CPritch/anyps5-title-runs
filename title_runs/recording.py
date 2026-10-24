@@ -1,7 +1,8 @@
 """Recording a scenario (DESIGN.md, "Recorded play"): the game started on this computer's main build in a scenario, as
-a run starts it, and from the first frame in that scenario's scene the tester's controller passed through to the game
-and recorded (pad.record), at rest for the first second. The result is a new scenario: the one it started from (its
-route, save, still button and scene colours) with the track, kept in <state>/scenarios/<TITLE ID>/<id>.json.
+a run starts it, and from the first frame in that scenario's scene its start input played (as every run plays it), then
+the tester's controller passed through to the game and recorded on the game's pad reads (pad.record), at rest for the
+first second. The result is a new scenario: the one it started from (its route, save, start, still button and scene
+colours) with the track, kept in <state>/scenarios/<TITLE ID>/<id>.json.
 
 Main's build is the last local test's (<state>/builds/main, from <state>/trees/main): a local test builds it.
 """
@@ -94,9 +95,16 @@ def session(config, title, base, seconds, controller, log, progress, should_stop
         found = measure.wait_for_scene(side, running, time.time() - 1, gone)
         if found is None:
             raise RecordError(stopping() or "the scene never showed after Resume Story")
-        measure.log(run, f"recording from here ({found})")
-        track = pad.record(controller, pad.PadFile(side.work / "pad-input"), seconds, stopping,
-                           progress=lambda second: progress(f"play now: {second} of {seconds} s" if second >= 1 else "hands off for a second"))
+        out = pad.PadFile(side.work / "pad-input")
+        with pad.PadReads(out.path) as reads:
+            start = base.get("start")
+            if start:
+                progress("hands off: setting the camera")
+                measure.log(run, f"playing the start input from here ({found})")
+                pad.play(start["track"], out, reads, stopping)
+            measure.log(run, "recording from here")
+            track = pad.record(controller, out, reads, seconds, stopping,
+                               progress=lambda second: progress(f"play now: {second} of {seconds} s" if second >= 1 else "hands off for a second"))
         measure.keep_last_frame(side, run)
     except routes.RouteFailed as error:
         raise RecordError(f"the game didn't get to the scene: {error}") from error
@@ -117,7 +125,7 @@ def save(config, title_id, base, scenario_id, name, scene, track, commit, contro
     data = {"title_id": title_id, "name": name.strip(), "scene": scene.strip(),
             "route": str(route.relative_to(ROOT)) if route.is_relative_to(ROOT) else str(route),
             "source": f"recorded from {base['name']} on main {commit[:9]}"}
-    for key in ("save", "still", "frame"):
+    for key in ("save", "start", "still", "frame"):
         if base.get(key):
             data[key] = base[key]
     data["input"] = {"from": base["id"], "recorded": {"at": (at or datetime.datetime.now(datetime.timezone.utc)).isoformat(timespec="seconds"),

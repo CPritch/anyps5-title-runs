@@ -142,10 +142,12 @@ title-runs games scenario PPSA04263 out-of-the-house       # tests of GTA V then
 ```
 
 The game starts on the main build (a local test builds it) in the scenario you start from, and goes to its starting
-scene on its own. Then you take over. The first second is ignored, and after that everything you do on the controller
-goes to the game and is recorded, for 100 to 600 s (timing starts about 30 s in and lasts up to 60). Stop ends the
-recording without saving it. Every test in the new scenario replays the recording from the first frame of that scene,
-at the same times. A run where the scene never appears doesn't count. Recorded scenarios are kept in the state folder,
+scene on its own. If that scenario sets the camera first (Franklin's front door does), keep your hands off for those
+few seconds. Then you take over. The first second is ignored, and after that everything you do on the controller goes
+to the game and is recorded, for 100 to 600 s (timing starts about 30 s in and lasts up to 60). Stop ends the
+recording without saving it. Every test in the new scenario sets the camera the same way and replays the recording
+from there, each input on the same pad read of the game's as when you recorded it. A run where the scene never appears
+doesn't count. Recorded scenarios are kept in the state folder,
 `scenarios/<TITLE ID>/<id>.json`, and can be copied into this repository's `scenarios/` to share them.
 
 The controller is read through Linux's evdev, which systemd lets the logged-in user read; `title-runs check` shows

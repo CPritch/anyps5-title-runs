@@ -15,6 +15,10 @@
       "memory_slot": 0
     }
   },
+  "start": {
+    "track": [[0, 0, 128, 128, 128, 0], [2000, 0, 128, 128, 128, 128], [2500, 0, 128, 128, 128, 170], [5700, 0, 128, 128, 128, 128], [6700, 0, 128, 128, 128, 128]],
+    "why": "to put the camera at the same height and pitch every time: up to its limit, then back down the same amount"
+  },
   "still": {
     "press": "left",
     "every": 10,

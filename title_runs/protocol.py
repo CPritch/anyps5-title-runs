@@ -11,8 +11,9 @@ Per side (A = main at the merge base, B = GitHub's merge of the PR):
     pseudo-terminal (script(1)), frame dumps that stop before the window; each checked by capture.py check
     (counts / not counted), a run that does not count repeated once;
   - main's tools/trace_digest.py on each trace and tools/performance_compare.py on each pair.
-A scenario with recorded play (scenarios.py, "input") plays it in every run from the first frame in its scene after
-Resume Story (play_input); a run where that never happens doesn't count, and a warm-up waits for the play to end.
+A scenario with a start or recorded play (scenarios.py, "start" and "input") plays them in every run, on the game's pad
+reads, from the first frame in its scene after Resume Story (play_input); a run where that never happens doesn't count,
+and a warm-up waits for them to end.
 Run directories have the harness's layout (meta, actions, aps5-summary.jsonl, the trace, digest.txt, capture), so the
 vendored capture.py reads them unchanged.
 """
@@ -169,7 +170,7 @@ class Protocol:
                     time.sleep(2)
                 if played["problem"]:
                     raise routes.RouteFailed(played["problem"])
-            else:
+            if not (self.scenario or {}).get("input"):
                 self.in_scene(side, run, latest(side.work))
             result["reached"] = True
             hold_end = time.monotonic() + WARM_HOLD_S
@@ -208,7 +209,7 @@ class Protocol:
         starting; warm-ups and timed runs alike) until the run stops, on a thread of its own. Returns the Event that
         stops it, or None."""
         still = (self.scenario or {}).get("still")
-        if not still or (self.scenario or {}).get("input"):  # recorded play presses it after the play (play_input)
+        if not still or (self.scenario or {}).get("input") or (self.scenario or {}).get("start"):  # play_input presses it after
             return None
         stop = threading.Event()
         self.meta(run, f"still={still['press']} every {still['every']} s from resume")
@@ -225,16 +226,21 @@ class Protocol:
         return stop
 
     def play_input(self, side, run, game, driver):
-        """The scenario's recorded play (scenarios.py, "input"), on a thread of its own: from the first frame dumped after
-        the route's resume mark that is in the scenario's scene, the track (pad.play), then the still button until the
-        run stops. Returns {"stop": the Event that stops it, "started", "ended", "problem"}, or None for a scenario with
-        no recorded play."""
-        played = (self.scenario or {}).get("input")
-        if not played:
+        """The scenario's start and recorded play (scenarios.py, "start" and "input"), on a thread of its own: from the
+        first frame dumped after the route's resume mark that is in the scenario's scene, each track on the game's pad
+        reads (pad.play), then the still button until the run stops. Returns {"stop": the Event that stops it, "started",
+        "ended", "problem"}, or None for a scenario with neither."""
+        start, played = (self.scenario or {}).get("start"), (self.scenario or {}).get("input")
+        if not start and not played:
             return None
-        state = {"stop": threading.Event(), "started": None, "ended": None, "problem": None}
-        stop, track = state["stop"], played["track"]
-        self.meta(run, f"input=recorded play ({pad.words(track)}) from the first frame in the scene after resume")
+        what = "the recorded play" if played else "the start input"
+        state = {"stop": threading.Event(), "started": None, "start_done": not start, "ended": None, "problem": None}
+        stop = state["stop"]
+        if start:
+            self.meta(run, f"start=set input ({pad.words(start['track'])}) from the first frame in the scene after resume")
+        if played:
+            self.meta(run, f"input=recorded play ({pad.words(played['track'])}) from the first frame in the scene after resume"
+                           + (", after the start" if start else ""))
 
         def play():
             while "resume" not in driver.marks:
@@ -243,17 +249,28 @@ class Protocol:
             found = self.wait_for_scene(side, game, time.time() - 1, stop)
             if found is None:
                 if not stop.is_set():
-                    state["problem"] = "the scene never showed after Resume Story, so the recorded play didn't start"
+                    state["problem"] = f"the scene never showed after Resume Story, so {what} didn't start"
                     self.log(run, state["problem"])
                     self.meta(run, "input_started=no")
                 return
             state["started"] = time.monotonic()
             self.meta(run, f"input_started=yes: {found}")
-            self.log(run, f"playing the recorded play from here ({found})")
+            self.log(run, f"playing {'the start input' if start else 'the recorded play'} from here ({found})")
             out = pad.PadFile(side.work / "pad-input")
-            played_ms = pad.play(track, out, stop.is_set)
+            try:
+                with pad.PadReads(out.path) as reads:
+                    if start:
+                        start_ms = pad.play(start["track"], out, reads, stop.is_set)
+                        self.meta(run, f"start_played={start_ms} of {start['track'][-1][0]} ms")
+                        state["start_done"] = start_ms == start["track"][-1][0]
+                    if played and not stop.is_set():
+                        played_ms = pad.play(played["track"], out, reads, stop.is_set)
+                        self.meta(run, f"input_played={played_ms} of {played['track'][-1][0]} ms")
+            except pad.PadError as error:
+                state["problem"] = f"{what} stopped: {error}"
+                self.log(run, state["problem"])
+                return
             state["ended"] = time.monotonic()
-            self.meta(run, f"input_played={played_ms} of {track[-1][0]} ms")
             still = self.scenario.get("still")
             while still and not stop.wait(still["every"]) and game.alive():
                 out.write((pad.BUTTONS[still["press"]], 128, 128, 128, 128))
@@ -352,10 +369,10 @@ class Protocol:
             result["stop"] = self.stop(game, run)
             result["exit_code"] = game.process.returncode
         self.keep_last_frame(side, run)
-        if played:  # the scene was checked when the play started; the run ends wherever the play went
-            if not played["started"]:
-                result["scene_failed"] = played["problem"] or "the recorded play didn't start before the run ended"
-        else:
+        if played and (played["problem"] or not played["started"] or not played["start_done"]):
+            result["scene_failed"] = played["problem"] or ("the scenario's input didn't start before the run ended" if not played["started"]
+                                                           else "the start input didn't finish before the run ended")
+        elif not (self.scenario or {}).get("input"):  # with recorded play, the scene was checked when it started
             try:
                 self.in_scene(side, run, run / "last-frame.bmp")
             except routes.RouteFailed as error:

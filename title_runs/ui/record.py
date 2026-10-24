@@ -15,7 +15,8 @@ class RecordDialog(QDialog):
         self.setWindowTitle("Record a scenario")
         self.setMinimumWidth(640)
         layout = QVBoxLayout(self)
-        intro = QLabel("The game starts on the main build and goes to the starting scene on its own. Then you take over. The "
+        intro = QLabel("The game starts on the main build and goes to the starting scene on its own, where it may set the "
+                       "camera for a few seconds: hands off until Home says to play. Then you take over. The "
                        "first second is ignored, and after that everything you do on the controller is recorded until time runs "
                        "out. Tests in the new scenario replay it from the same scene. Pressing Stop on Home ends the recording "
                        "without saving it.")

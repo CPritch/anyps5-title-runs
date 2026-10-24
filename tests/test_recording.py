@@ -67,7 +67,7 @@ class Saved(unittest.TestCase):
         self.assertEqual(path, config.state_dir / "scenarios" / "PPSA04263" / "out-of-the-house.json")
         saved = json.loads(path.read_text())
         self.assertEqual(saved["route"], "routes/PPSA04263.json")
-        self.assertEqual((saved["save"], saved["still"], saved["frame"]), (base["save"], base["still"], base["frame"]))
+        self.assertEqual((saved["save"], saved["start"], saved["still"], saved["frame"]), (base["save"], base["start"], base["still"], base["frame"]))
         self.assertEqual(saved["input"]["from"], "franklins-house")
         self.assertEqual(saved["input"]["recorded"]["main"], "1" * 40)
         found = scenarios.available("PPSA04263", config.state_dir)

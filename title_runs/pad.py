@@ -2,19 +2,29 @@
 AnyPS5's pad command file (APS5_PAD_INPUT_FILE) written, and a track of recorded play written back.
 
 A state is (buttons, left x, left y, right x, right y): the buttons as main's tools/pad_input.py has them, the sticks 0
-to 255 with 128 at rest and 0 at the top and the left. AnyPS5 reads the pad file at most every 100 ms; PadFile writes a
-command every STEP_MS with a HOLD_MS hold, so the input stops by itself soon after the writing does.
+to 255 with 128 at rest and 0 at the top and the left.
+
+Input goes to the game on its pad reads. AnyPS5 (InputCommandFile.hpp) opens the pad file at most every 100 ms of
+process time, when the game reads the pad, and the game sees that command until the next read; GTA V reads it every
+101 ms whatever its frame rate. PadReads sees each open (inotify on the file's folder: PadFile replaces the file at
+every write, so the file itself can't be watched), and record() and play() write the next state just after each read,
+so the game's Nth read gets the track's state at (N - 1) x READ_MS, in every run. Written by time instead, a state lands
+on whichever read comes next, up to 100 ms late, differently each run, and a camera turn held a read longer turns
+further. Nothing else may open the file meanwhile (main's pad_input.py opens it to read the last sequence number).
 
 A track is [[ms, buttons, lx, ly, rx, ry], ...]: the state from that many milliseconds after the start until the next
-entry; the last entry, at rest, is where it ends. record() passes a controller through to the game and keeps its
-changes; play() writes a track back the same way.
+entry, in steps of READ_MS; the last entry, at rest, is where it ends. record() passes a controller through to the game
+and keeps its changes; play() writes a track back.
 """
 
+import collections
+import ctypes
 import fcntl
 import os
 import re
 import select
 import struct
+import threading
 import time
 from pathlib import Path
 
@@ -23,8 +33,9 @@ BUTTONS = {"l3": 0x2, "r3": 0x4, "options": 0x8, "up": 0x10, "right": 0x20, "dow
            "square": 0x8000, "touchpad": 0x100000}  # main's tools/pad_input.py
 ALL_BUTTONS = sum(BUTTONS.values())
 NEUTRAL = (0, 128, 128, 128, 128)
-STEP_MS = 50  # a command this often: AnyPS5 takes the latest each time it reads the file (at most every 100 ms)
+READ_MS = 100  # a track's step: one pad read of the game's
 HOLD_MS = 250  # each command's hold: the input stops by itself this long after the writing does
+STALLED_S = 10  # no read for this long: the game stopped reading its pad
 LOCKOUT_MS = 1000  # the first second of a recording is at rest, whatever the controller does
 DEADZONE = 12  # a stick this close to 128 is at rest
 STICK_STEP = 4  # sticks are kept in steps of this, so a thumb resting on a stick doesn't record noise
@@ -159,54 +170,118 @@ class Controller:
         return (sum(BUTTONS[name] for name in names), *sticks)
 
 
-def _paced(clock, sleep, start, step):
-    sleep(max(0.0, start + step * STEP_MS / 1000 - clock()))
+IN_OPEN = 0x20
+INOTIFY_EVENT = struct.Struct("iIII")  # struct inotify_event: wd, mask, cookie, len, then the name
 
 
-def record(controller, pad_file, seconds, should_stop=lambda: None, progress=None, clock=time.monotonic, sleep=time.sleep):
-    """Pass the controller through to the game for seconds (at rest for the first LOCKOUT_MS), and return the track:
-    the state at each change. Ends early, with what was recorded so far, when should_stop() says why."""
-    track, last, start, step, second = [], None, clock(), 0, -1
+class PadReads:
+    """The game's reads of its pad file (the times it opened it), seen on a thread of its own. take() returns how many
+    came since the last take()."""
+
+    def __init__(self, pad_path):
+        self.name = Path(pad_path).name.encode()
+        libc = ctypes.CDLL(None, use_errno=True)
+        self.fd = libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+        if self.fd < 0 or libc.inotify_add_watch(self.fd, str(Path(pad_path).parent).encode(), IN_OPEN) < 0:
+            raise PadError(f"can't watch {pad_path}: {os.strerror(ctypes.get_errno())}")
+        self.times, self.stopped = collections.deque(), threading.Event()
+        self.thread = threading.Thread(target=self.watch, name="pad reads", daemon=True)
+        self.thread.start()
+
+    def watch(self):
+        while not self.stopped.is_set():
+            if not select.select([self.fd], [], [], 0.2)[0]:
+                continue
+            at = time.monotonic()
+            try:
+                data = os.read(self.fd, 65536)
+            except BlockingIOError:
+                continue
+            offset = 0
+            while offset + INOTIFY_EVENT.size <= len(data):
+                _, mask, _, length = INOTIFY_EVENT.unpack_from(data, offset)
+                name = data[offset + INOTIFY_EVENT.size:offset + INOTIFY_EVENT.size + length].rstrip(b"\0")
+                if mask & IN_OPEN and name == self.name:
+                    self.times.append(at)
+                offset += INOTIFY_EVENT.size + length
+
+    def take(self):
+        count = 0
+        while self.times:
+            self.times.popleft()
+            count += 1
+        return count
+
+    def close(self):
+        self.stopped.set()
+        self.thread.join()
+        os.close(self.fd)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+
+def _next_reads(reads, should_stop, wait, poll=lambda: None):
+    """Waits for the game's next pad read(s): their count, or 0 when should_stop() says to stop. Raises PadError when
+    the game reads nothing for STALLED_S."""
+    since = time.monotonic()
+    while not should_stop():
+        poll()
+        count = reads.take()
+        if count:
+            return count
+        if time.monotonic() - since > STALLED_S:
+            raise PadError(f"the game stopped reading its pad (nothing for {STALLED_S} s)")
+        wait(0.002)
+    return 0
+
+
+def record(controller, pad_file, reads, seconds, should_stop=lambda: None, progress=None, wait=time.sleep):
+    """Pass the controller through to the game for seconds of its pad reads (at rest for the first LOCKOUT_MS), and
+    return the track: the state at each change. Ends early, with what was recorded so far, when should_stop() says why."""
+    track, last, tick, second = [[0, *NEUTRAL]], NEUTRAL, 0, -1
+    pad_file.write(NEUTRAL)
     try:
-        while True:
-            elapsed = int((clock() - start) * 1000)
-            if elapsed >= seconds * 1000 or should_stop():
+        while tick * READ_MS < seconds * 1000:
+            count = _next_reads(reads, should_stop, wait, controller.poll)
+            if not count:
                 break
-            controller.poll()
-            state = NEUTRAL if elapsed < LOCKOUT_MS else controller.state()
-            pad_file.write(state)
+            tick += count
+            at = tick * READ_MS
+            state = NEUTRAL if at < LOCKOUT_MS else controller.state()
+            pad_file.write(state)  # for the next read
             if state != last:
-                track.append([elapsed, *state])
+                track.append([at, *state])
                 last = state
-            if progress and elapsed // 1000 != second:
-                second = elapsed // 1000
+            if progress and at // 1000 != second:
+                second = at // 1000
                 progress(second)
-            step += 1
-            _paced(clock, sleep, start, step)
     finally:
         pad_file.write(NEUTRAL)
-    track.append([min(elapsed, seconds * 1000), *NEUTRAL])
+    track.append([max(min(tick * READ_MS, seconds * 1000), track[-1][0]), *NEUTRAL])
     return track
 
 
-def play(track, pad_file, should_stop=lambda: None, clock=time.monotonic, sleep=time.sleep):
-    """Write the track to the game from now, a state every STEP_MS, until its end or should_stop(). Returns how many
+def play(track, pad_file, reads, should_stop=lambda: None, wait=time.sleep):
+    """Give the track to the game on its pad reads from now, until its end or should_stop(). Returns how many
     milliseconds of it were played."""
-    start, step, index, end = clock(), 0, 0, track[-1][0]
-    elapsed = 0
+    tick, index, end = 0, 0, track[-1][0]
+    pad_file.write(tuple(track[0][1:]))
     try:
-        while True:
-            elapsed = int((clock() - start) * 1000)
-            if elapsed >= end or should_stop():
+        while tick * READ_MS < end:
+            count = _next_reads(reads, should_stop, wait)
+            if not count:
                 break
-            while index + 1 < len(track) and track[index + 1][0] <= elapsed:
+            tick += count
+            while index + 1 < len(track) and track[index + 1][0] <= tick * READ_MS:
                 index += 1
-            pad_file.write(tuple(track[index][1:]))
-            step += 1
-            _paced(clock, sleep, start, step)
+            pad_file.write(tuple(track[index][1:]))  # for the next read
     finally:
         pad_file.write(NEUTRAL)
-    return min(elapsed, end)
+    return min(tick * READ_MS, end)
 
 
 def check_track(track):

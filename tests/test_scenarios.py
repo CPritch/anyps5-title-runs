@@ -1,11 +1,14 @@
 """Scenarios (scenarios.py): the scenario file, the save's download and checks, where it goes, the scene check, and
 what scenarios change elsewhere (runs folders, combined verdicts, the result format, the report, the config file)."""
 
+import contextlib
 import hashlib
 import io
 import json
 import struct
 import tempfile
+import threading
+import time
 import unittest
 import zipfile
 from pathlib import Path
@@ -200,8 +203,8 @@ class RecordedPlay(unittest.TestCase):
         self.assertEqual(scenarios.of(configs.Title("PPSA04263", Path("/dump"), scenario="walk"), state)["id"], "walk")
         self.recorded(state, "prologue")  # the tool's own of the same id comes first
         self.assertTrue(scenarios.available("PPSA04263", state)["prologue"].get("default"))
-        self.assertEqual(scenarios.input_words(walk), "with input recorded from a controller on 2026-10-24 (1 s using the sticks), replayed "
-                                                      "from when the scene appeared, then D-pad left every 10 s")
+        self.assertEqual(scenarios.input_words(walk), "with input recorded from a controller on 2026-10-24 (1 s using the sticks), replayed on "
+                                                      "the game's pad reads from when the scene appeared, then D-pad left every 10 s")
 
     def test_what_recorded_play_needs(self):
         state = self.dir / "state"
@@ -210,44 +213,79 @@ class RecordedPlay(unittest.TestCase):
         with self.assertRaisesRegex(scenarios.ScenarioError, "input: a track ends at rest"):
             scenarios.load(self.recorded(state, input={"track": [[0, *pad.NEUTRAL], [10, 0, 0, 128, 128, 128]]}))
 
-    def play(self, alive=True):
+    def play(self, alive=True, **changes):
         work = self.dir / "work"
         work.mkdir()
         run = self.dir / "run"
         run.mkdir()
         (run / "meta").write_text("")
         (run / "actions").write_text("")
-        scenario = scenarios.load(self.recorded(self.dir / "state"))
+        scenario = scenarios.load(self.recorded(self.dir / "state", **changes))
         measure = protocol.Protocol(helpers.make_config(), None, {"steps": []}, self.dir / "runs", [], lambda text: None, scenario=scenario)
         side = mock.Mock(work=work)
         game = mock.Mock()
         game.alive.return_value = alive
         driver = mock.Mock(marks={} if alive else {"resume": 12.0})  # a game gone after Resume Story
+        self.assertIsNone(measure.keep_still(side, run, game, driver))  # the play presses the still button after it
         state = measure.play_input(side, run, game, driver)
         bmp(work / "frame_001.bmp", (230, 230, 240))  # the menu, before Resume Story
         driver.marks["resume"] = 12.0
+        done = threading.Event()
+        self.addCleanup(done.set)
+
+        def reading():  # the game: AnyPS5 opens the pad file at each read, every 100 ms (faster here)
+            while not done.wait(0.02):
+                with contextlib.suppress(FileNotFoundError):
+                    (work / "pad-input").read_text()
+        threading.Thread(target=reading, daemon=True).start()
         return state, work, run
 
-    def test_the_play_starts_with_the_scene(self):
-        state, work, run = self.play()
-        import time
+    def until_played(self, state, work):
         time.sleep(1.2)
         self.assertIsNone(state["started"])  # the menu isn't the scene
         bmp(work / "frame_002.bmp", (120, 90, 60))
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 15
         while state["ended"] is None and time.monotonic() < deadline:
             time.sleep(0.1)
         state["stop"].set()
         self.assertIsNotNone(state["started"])
         self.assertIsNotNone(state["ended"])
+
+    def test_the_play_starts_with_the_scene(self):
+        state, work, run = self.play()
+        self.until_played(state, work)
         meta = (run / "meta").read_text()
         self.assertIn("input_started=yes: frame_002.bmp is 0.00 from the scene's colours", meta)
         self.assertIn("input_played=1300 of 1300 ms", meta)
         self.assertEqual((work / "pad-input").read_text().split()[1:], ["0", "250", "128", "128", "128", "128"])
 
+    def test_the_start_plays_first(self):
+        start = {"track": [[0, 0, 128, 128, 128, 0], [500, *pad.NEUTRAL]], "why": "the camera"}
+        state, work, run = self.play(start=start)
+        self.until_played(state, work)
+        meta = (run / "meta").read_text()
+        self.assertLess(meta.index("start_played=500 of 500 ms"), meta.index("input_played=1300 of 1300 ms"))
+        self.assertTrue(state["start_done"])
+
+    def test_a_start_without_recorded_play(self):
+        start = {"track": [[0, 0, 128, 128, 128, 0], [500, *pad.NEUTRAL]], "why": "the camera"}
+        state, work, run = self.play(start=start, input=None)
+        self.until_played(state, work)
+        meta = (run / "meta").read_text()
+        self.assertIn("start_played=500 of 500 ms", meta)
+        self.assertNotIn("input_played", meta)
+        words = scenarios.input_words(scenarios.load(self.recorded(self.dir / "state", "walk2", start=start, input=None, still={"press": "left", "every": 10})))
+        self.assertEqual(words, "with a set 0.5 s of input when the scene appeared (the camera), then D-pad left pressed every 10 s")
+
+    def test_what_a_start_needs(self):
+        state = self.dir / "state"
+        with self.assertRaisesRegex(scenarios.ScenarioError, "start needs the scene's colours"):
+            scenarios.load(self.recorded(state, frame=None, input=None, start={"track": [[0, *pad.NEUTRAL], [500, *pad.NEUTRAL]]}))
+        with self.assertRaisesRegex(scenarios.ScenarioError, "start: a track ends at rest"):
+            scenarios.load(self.recorded(state, start={"track": [[0, *pad.NEUTRAL], [10, 0, 0, 128, 128, 128]]}))
+
     def test_no_scene_no_play(self):
         state, work, run = self.play(alive=False)
-        import time
         time.sleep(1.5)
         self.assertEqual(state["problem"], "the scene never showed after Resume Story, so the recorded play didn't start")
         self.assertIsNone(state["started"])
