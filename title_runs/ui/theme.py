@@ -75,8 +75,7 @@ def apply(app, size="normal"):
                                       background: {ACCENT}; color: white; border-color: {ACCENT}; font-weight: 600; }}
         QPushButton[danger="true"] {{ background: #c8423b; color: white; border: none; font-weight: 600;
                                      padding: {pixels // 2}px {round(pixels * 1.5)}px; }}
-        QLineEdit, QSpinBox, QComboBox {{ padding: {pixels // 4}px {pixels // 2}px; border: 1px solid {c['mid']}; border-radius: 6px;
-                                         background: {c['base']}; }}
+        QLineEdit {{ padding: {pixels // 4}px {pixels // 2}px; border: 1px solid {c['mid']}; border-radius: 6px; background: {c['base']}; }}
         QGroupBox {{ font-weight: 600; border: 1px solid {c['mid']}; border-radius: 10px; margin-top: {pixels}px; padding: {pixels}px; }}
         QGroupBox::title {{ subcontrol-origin: margin; left: {pixels}px; padding: 0 {pixels // 3}px; }}
         QTreeWidget, QTableWidget, QListWidget, QPlainTextEdit {{ border: 1px solid {c['mid']}; border-radius: 8px; background: {c['base']}; }}

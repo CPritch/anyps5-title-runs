@@ -5,7 +5,7 @@ running; Stop there ends it with nothing saved."""
 from PySide6.QtWidgets import QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QVBoxLayout
 
 from .. import recording
-from . import theme
+from . import dialogs, theme
 
 
 class RecordDialog(QDialog):
@@ -61,6 +61,7 @@ class RecordDialog(QDialog):
         buttons.addWidget(self.record)
         layout.addLayout(buttons)
         self.fill_starts()
+        dialogs.fit(self, parent, 0.55)
 
     def fill_starts(self, *_):
         """The scenarios a recording can start from: those with scene colours and no recorded play of their own."""

@@ -6,11 +6,11 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-                               QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QStackedWidget,
+                               QMainWindow, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QStackedWidget,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from .. import platform_info, sandbox, verdict
-from . import model, theme
+from . import dialogs, model, theme
 from .games import GamesPage
 from .home import HomePage
 from .local import LocalTestsPage, ReportDialog
@@ -409,9 +409,7 @@ class MainWindow(QMainWindow):
             self.hide()
             return
         if self.engine.running():
-            answer = QMessageBox.question(self, "AnyPS5 title runs", "A test is running. Stop it and quit?",
-                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if answer != QMessageBox.Yes:
+            if not dialogs.ask(self, "A test is running. Stop it and quit?", "Stop and quit", danger=True):
                 event.ignore()
                 return
         event.accept()

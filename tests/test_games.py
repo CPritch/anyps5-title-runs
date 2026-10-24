@@ -17,7 +17,7 @@ from title_runs import cli, configfile, engine as engines, pad, scenarios
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 try:
-    from PySide6.QtWidgets import QApplication, QMessageBox
+    from PySide6.QtWidgets import QApplication, QWidget
 except ImportError:
     QApplication = None
 
@@ -125,14 +125,35 @@ class Page(unittest.TestCase):
         self.assertEqual((page.recorded.rowCount(), page.recorded.item(0, 0).text()), (1, "House walk (?)"))
         games = Path(tempfile.mkdtemp())
         dump(games, "PPSA01325", "Another Game")
-        with mock.patch("title_runs.ui.games.QFileDialog.getExistingDirectory", return_value=str(games)):
+        with mock.patch("title_runs.ui.dialogs.folder", return_value=str(games)):
             page.add()
         self.assertEqual(page.note.text(), "Added Another Game (PPSA01325).")
         self.assertEqual(page.games.rowCount(), 2)
-        with mock.patch("title_runs.ui.games.QMessageBox.question", return_value=QMessageBox.Yes):
+        with mock.patch("title_runs.ui.dialogs.ask", return_value=True) as asked:
             page.recorded.cellWidget(0, 3).click()  # Delete
+        self.assertEqual(asked.call_args.kwargs, {"danger": True})
         self.assertTrue(page.recorded.isHidden())
         self.assertFalse(page.none_recorded.isHidden())
+
+
+@unittest.skipIf(QApplication is None, "PySide6 is not installed")
+class Dialogs(unittest.TestCase):
+    """Sized from the window they come from: Qt's own open small on a tiling desktop."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_a_dialog_takes_a_share_of_its_window(self):
+        from PySide6.QtWidgets import QDialog
+        from title_runs.ui import dialogs
+        window = QWidget()
+        window.resize(1400, 1000)
+        dialog = QDialog(window)
+        dialogs.fit(dialog, window, 0.8, 0.75)
+        self.assertEqual((dialog.width(), dialog.height()), (1120, 750))
+        dialogs.fit(dialog, None, 0.1)  # no window: left as it is
+        self.assertEqual(dialog.width(), 1120)
 
 
 if __name__ == "__main__":

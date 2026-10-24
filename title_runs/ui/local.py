@@ -208,7 +208,7 @@ class ReportDialog(QDialog):
         for result in self.results:
             entry = result["entry"]
             base = f"main {entry.get('main', '?')[:9]}" + "".join(f" + #{f['pr']}" for f in entry.get("fixes", []))
-            self.pick.addItem(f"{utc(entry.get('at', ''))} · {entry['head'][:9]} against {base} · {entry.get('verdict', '')}")
+            self.pick.addItem(f"{utc(entry.get('at', ''))} · {entry['head'][:9]} against {base} · {engine.local.words(entry)}")
         self.pick.currentIndexChanged.connect(self.show_result)
         self.pick.setVisible(len(self.results) > 1)
         layout.addWidget(self.pick)

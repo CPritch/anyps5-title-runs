@@ -5,10 +5,10 @@ app.Engine (titles, add_games, remove_game, set_scenario, delete_recording)."""
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton, QTableWidget,
-                               QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
+                               QWidget)
 
-from . import theme
+from . import dialogs, theme
 from .home import card, rich
 
 
@@ -107,23 +107,19 @@ class GamesPage(QWidget):
         self.note.show()
 
     def add(self):
-        folder = QFileDialog.getExistingDirectory(self, "The folder your game is in", str(Path.home()))
+        folder = dialogs.folder(self, "The folder your game is in")
         if folder:
             self.say(self.engine.add_games(folder))
             self.refresh()
 
     def remove(self, row):
-        answer = QMessageBox.question(self, "AnyPS5 title runs", f"Remove {row['name']} from your games? Its folder and any "
-                                      "recordings stay where they are.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if answer == QMessageBox.Yes:
+        if dialogs.ask(self, f"Remove {row['name']} from your games? Its folder and any recordings stay where they are.", "Remove"):
             self.engine.remove_game(row["title_id"])
             self.say(f"Removed {row['name']}.")
             self.refresh()
 
     def delete(self, row, choice):
-        answer = QMessageBox.question(self, "AnyPS5 title runs", f"Delete the recording {choice['name']}? This can't be undone.",
-                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if answer == QMessageBox.Yes:
+        if dialogs.ask(self, f"Delete the recording {choice['name']}? This can't be undone.", "Delete", danger=True):
             self.engine.delete_recording(row["title_id"], choice["id"])
             self.say(f"Deleted {choice['name']}.")
             self.refresh()

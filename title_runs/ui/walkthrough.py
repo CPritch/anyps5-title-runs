@@ -6,11 +6,12 @@ the config and marks the walkthrough done (client.finish_onboarding)."""
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QSpinBox,
+from PySide6.QtWidgets import (QCheckBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QSpinBox,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWizard, QWizardPage)
 
 from .. import ROOT, configfile, platform_info
 from ..config import Title
+from . import dialogs
 
 
 def text(html):
@@ -178,7 +179,7 @@ class DumpsPage(QWizardPage):
             self.scan()
 
     def browse(self):
-        chosen = QFileDialog.getExistingDirectory(self, "Folder with your dumps", self.folder.text() or str(Path.home()))
+        chosen = dialogs.folder(self, "Folder with your dumps", self.folder.text() or None)
         if chosen:
             self.folder.setText(chosen)
             self.scan()

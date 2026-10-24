@@ -366,7 +366,8 @@ class ReportWindowTraces(unittest.TestCase):
                 item["file"].write_bytes(b"")
         entry = {"pr": 4287, "head": "7" * 40, "main": "4" * 40, "at": "2026-10-23T12:00:00Z", "job": "4287-777777777777-prologue"}
         engine = types.SimpleNamespace(local_results=lambda number: [{"entry": entry, "text": "Ran this on ...", "stale": "", "link": "https://example.org/pull/4287"}],
-                                       local_attachments=lambda entry: (folder, files))
+                                       local_attachments=lambda entry: (folder, files),
+                                       local=types.SimpleNamespace(words=lambda entry: "main 12.4 fps, PR 12.9 fps: faster"))
         return ReportDialog(engine, 4287)
 
     def test_the_traces_are_selected_to_drag_together(self):
