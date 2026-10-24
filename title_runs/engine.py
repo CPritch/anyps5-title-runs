@@ -387,9 +387,13 @@ class Engine:
         net = subprocess.run(sandbox.build_command("bwrap", probe, "/tmp"), capture_output=True)
         home = subprocess.run(sandbox.build_command("bwrap", ["ls", str(Path.home())], "/tmp"), capture_output=True)
         gpu = subprocess.run(sandbox.command("bwrap", ["sh", "-c", "ls /dev/dri /dev/nvidia0 2>/dev/null | head -1"], "/tmp"), capture_output=True, text=True)
+        refused = ["python3", "-I", "-c", "import os; os.unshare(os.CLONE_NEWUSER)"]
+        filtered = sandbox.seccomp_file() is None or subprocess.run(sandbox.build_command("bwrap", refused, "/tmp"), capture_output=True).returncode != 0
         parts = ["no internet" if net.returncode != 0 else "IT CAN REACH THE INTERNET", "your files out of sight" if home.returncode != 0 else "IT CAN SEE YOUR FILES",
+                 ("risky system calls blocked" if sandbox.seccomp_file() else "no system call filter on this kind of processor") if filtered
+                 else "RISKY SYSTEM CALLS ARE NOT BLOCKED",
                  "the graphics card available to the game" if gpu.stdout.strip() else "no graphics card inside, so games won't run"]
-        ok = net.returncode != 0 and home.returncode != 0
+        ok = net.returncode != 0 and home.returncode != 0 and filtered
         return ("The sandbox works: " if ok else "The sandbox is NOT working: ") + ", ".join(parts) + "."
 
     def run_local(self):

@@ -111,6 +111,9 @@ class Protocol:
         for key in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY", "XDG_SESSION_TYPE"):
             if os.environ.get(key):
                 env[key] = os.environ[key]
+        if sandbox.wayland_socket():  # only Wayland's socket is in the sandbox (sandbox.display_binds)
+            env.pop("DISPLAY", None)
+            env.pop("XAUTHORITY", None)
         if sandbox.game_display() == "x11":
             # The app shows the game inside its window: an X11 window (XWayland on Wayland), which a Wayland window can't be.
             env.pop("WAYLAND_DISPLAY", None)

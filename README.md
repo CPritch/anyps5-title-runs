@@ -161,10 +161,16 @@ A pull request's code runs on the tester's machine. What stands between that cod
   the commit, main and submodule pins happens before, outside it. A malicious PR still runs its code at build time,
   inside the sandbox.
 - **The title runs in bubblewrap:** `/usr`, `/etc`, `/sys` read-only; an empty `/home`, `/tmp` and `/run`; its own PID
-  namespace (the host's processes are not visible in its `/proc`); a minimal `/dev` with only the GPU's device nodes (`/dev/dri`, `/dev/nvidia*`); the display sockets
-  (Wayland, X11) and nothing else of the session (no D-Bus, no audio server, no SSH agent); no network (its own
-  network namespace). The dump, `app0` (hard links to the dump's files) and `libs` are read-only; only the title's
-  game directory, its caches and the run directory are writable.
+  and IPC namespaces (the host's processes are not visible in its `/proc`); a new session, so it can't type into the
+  terminal that started it; a minimal `/dev` with only the GPU nodes Vulkan needs (the render nodes, and on NVIDIA
+  `nvidia0`, `nvidiactl` and `nvidia-modeset`; not the card nodes that set display modes, or CUDA's); one display socket,
+  Wayland's when the game shows on Wayland (so it can't reach other X11 windows), X11's when the window shows it; nothing
+  else of the session (no D-Bus, no audio server, no SSH agent); no network (its own network namespace). The dump,
+  `app0` (hard links to the dump's files) and `libs` are read-only; only the title's game directory, its caches and
+  the run directory are writable.
+- **A seccomp filter**, in builds and runs alike (x86_64): the system calls that kernel escapes go through and a game
+  has no use for are refused (new namespaces, ptrace, bpf, io_uring, perf events, keyrings, mounts, kernel modules and
+  more; `title_runs/sandbox.py` lists them), and 32-bit system calls end the process. `title-runs check` tests it.
 
 What this does not protect against:
 
