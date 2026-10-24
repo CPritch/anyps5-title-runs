@@ -327,6 +327,12 @@ to drop the App and read without a sign-in:
 4. **When the limit is used up**, nothing more is read until GitHub's reset time, and Home says until when.
 5. **What goes**: the App, the sign-in and its token on disk (a token kept from before is deleted), the walkthrough's
    sign-in page, `title-runs sign-in` and `sign-out`, and `[github] app`. Charlie can delete the App, title-runs-dev.
+6. **An optional token** (Charlie, 2026-10-24: "We should definitely add an optional github sign in to remove the rate
+   limit"; he chose a pasted token over a sign-in code, which would need an OAuth app registered on his account). A
+   token made without any scopes reads only public data and raises the limit to 5,000 an hour. Settings, GitHub opens
+   GitHub's new-token page filled in, and takes the token; `title-runs github sign-in` reads it from standard input.
+   It is kept in `<state>/client/github-token` (mode 600), never in the config file, and sent only to the API; the
+   sandboxes never see that folder.
 
 ## Recorded play (Charlie, 2026-10-23)
 

@@ -15,6 +15,11 @@ This computer
   check                   Check this computer can test: the sandbox, your games and a controller to record with.
   log                     The last lines of this computer's log, and of the latest test's.
 
+Reading GitHub (an optional sign-in raises its limit)
+  github status           Whether this computer reads GitHub signed in, and its hourly limit.
+  github sign-in          Sign in to GitHub with a token read from standard input.
+  github sign-out         Sign out of GitHub: forget the token.
+
 Local tests (pull requests you choose, tested on this computer)
   local list              Your local tests: what's waiting, and each pull request's newest result.
   local add               Add pull requests to your local tests, by number or link.
@@ -194,6 +199,74 @@ JSON (--json): {"lines": [...]}
 Examples:
   title-runs log
   title-runs log --lines 50
+```
+
+## Reading GitHub (an optional sign-in raises its limit)
+
+### `title-runs github status`
+
+Whether this computer reads GitHub signed in, and its hourly limit.
+
+```
+usage: title-runs github status [-h]
+
+Whether this computer reads GitHub signed in, and its hourly limit.
+
+Without a sign-in GitHub allows 60 reads an hour, enough for a short list of pull requests; signed
+in, 5,000.
+
+options:
+  -h, --help  show this help message and exit
+
+Changes: Nothing.
+JSON (--json): {"signed_in", "login", "limit", "error"}
+
+Examples:
+  title-runs github status
+```
+
+### `title-runs github sign-in`
+
+Sign in to GitHub with a token read from standard input.
+
+```
+usage: title-runs github sign-in [-h]
+
+Sign in to GitHub with a token read from standard input.
+
+Make the token without any scopes (it can then only read public data), at
+https://github.com/settings/tokens/new?description=AnyPS5%20title%20runs&scopes=. It is read from
+standard input, so it isn't kept in your shell's history, checked with GitHub, and kept on this
+computer readable only by you, sent only to GitHub.
+
+options:
+  -h, --help  show this help message and exit
+
+Changes: Keeps the token in the state folder (client/github-token).
+JSON (--json): {"signed_in", "login", "limit"}
+
+Examples:
+  title-runs github sign-in < token.txt
+  title-runs github sign-in   # then paste it and press Enter
+```
+
+### `title-runs github sign-out`
+
+Sign out of GitHub: forget the token.
+
+```
+usage: title-runs github sign-out [-h]
+
+Sign out of GitHub: forget the token.
+
+options:
+  -h, --help  show this help message and exit
+
+Changes: Deletes the token from the state folder.
+JSON (--json): {"signed_in": false}
+
+Examples:
+  title-runs github sign-out
 ```
 
 ## Local tests (pull requests you choose, tested on this computer)

@@ -101,7 +101,7 @@ class LocalTests:
         if not self.enabled():
             return []
         now = now or formats.now()
-        repo = gh.GitHubRepo(self.config.local_repository)
+        repo = gh.GitHubRepo(self.config.local_repository, gh.read_token(self.config.state_dir))
         heads = sources.pull_heads(self.remote())
         known = self.read()
         removed = set(known.get("removed", []))

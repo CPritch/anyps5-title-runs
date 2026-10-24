@@ -30,6 +30,7 @@ class Engine:
         self.local = local_tests.LocalTests(config, log=self.log)
         self._local_checked = None
         self.github_wait = None  # GitHub's limit is used up until then (gh.RateLimited)
+        self._github = (None, {})  # (the token GitHub was asked about, what it said): github()
         self.listing_file = Path(listing) if listing else None
         self.window = None
         self.work = queues.Queue()
@@ -82,7 +83,8 @@ class Engine:
                          f"main, or when you change the fixes on the Local tests page.")
         if self.github_wait and formats.now() < self.github_wait:
             notes.append(f"<b>GitHub's hourly limit is used up</b> until {self.github_wait.astimezone():%H:%M}, so new commits show up "
-                         f"after that.")
+                         f"after that." + ("" if gh.read_token(self.config.state_dir) else
+                                           " Signing in to GitHub (Settings, GitHub) raises the limit from 60 reads an hour to 5,000."))
         return "<br>".join(notes)
 
     @property
@@ -127,7 +129,7 @@ class Engine:
         if self.github_wait and formats.now() < self.github_wait:
             return
         try:
-            count = self.listing_store().refresh(gh.GitHubRepo(self.repository))
+            count = self.listing_store().refresh(gh.GitHubRepo(self.repository, gh.read_token(self.config.state_dir)))
             self.log(f"listed {count} open pull requests of {self.repository}")
         except gh.RateLimited as error:
             self.limited(error)
@@ -482,7 +484,37 @@ class Engine:
     def limited(self, error):
         """GitHub's limit is used up: nothing more is read from it until its reset."""
         self.github_wait = error.reset
-        self.log(f"GitHub's limit for reading without a sign-in is used up: nothing more is read from it until {error.reset:%H:%M} UTC")
+        self.log(f"GitHub's limit for reading {'with' if gh.read_token(self.config.state_dir) else 'without'} a sign-in is used up: "
+                 f"nothing more is read from it until {error.reset:%H:%M} UTC")
+
+    def github(self):
+        """{"login", "limit"} when signed in to GitHub, else {}; GitHub is asked once and the answer kept."""
+        token = gh.read_token(self.config.state_dir)
+        if not token:
+            return {}
+        if self._github[0] != token:
+            try:
+                login, limit = gh.signed_in_as(token)
+                self._github = (token, {"login": login, "limit": limit})
+            except gh.GitHubError as error:
+                self._github = (token, {"error": str(error)})
+            except OSError as error:  # offline: asked again next time
+                return {"error": f"couldn't reach GitHub ({error})"}
+        return self._github[1]
+
+    def sign_in(self, token):
+        """Check the token with GitHub, then keep it: (login, hourly limit). Raises gh.GitHubError for one it doesn't take."""
+        login, limit = gh.signed_in_as(token.strip())
+        gh.save_token(self.config.state_dir, token)
+        self._github = (token.strip(), {"login": login, "limit": limit})
+        self.github_wait = None  # the new limit starts now
+        self.log(f"signed in to GitHub as {login}: {limit} reads an hour")
+        return login, limit
+
+    def sign_out(self):
+        gh.forget_token(self.config.state_dir)
+        self._github = (None, {})
+        self.log("signed out of GitHub")
 
     # -- the worker thread ---------------------------------------------------------------------------------------------
 

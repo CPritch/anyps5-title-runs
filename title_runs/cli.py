@@ -20,13 +20,14 @@ from contextlib import redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import config as configs
+from . import config as configs, gh
 
 EXIT_OK, EXIT_FAILED, EXIT_USAGE = 0, 1, 2
 CONFIG_ENV = "TITLE_RUNS_CONFIG"
 
 GROUPS = {
     "computer": "This computer",
+    "github": "Reading GitHub (an optional sign-in raises its limit)",
     "local": "Local tests (pull requests you choose, tested on this computer)",
     "games": "Your games and the window",
 }
@@ -179,6 +180,33 @@ def run_testing(ctx, args):
     if args.mode:
         engine.set_testing(args.mode)
     return Out(SWITCH[ctx.config.testing], {"testing": ctx.config.testing, "meaning": SWITCH[ctx.config.testing]})
+
+
+def run_github(ctx, args):
+    state = ctx.engine.github()
+    if state.get("login"):
+        text = f"Signed in to GitHub as {state['login']}: {state['limit']:,} reads an hour."
+    elif state.get("error"):
+        text = f"Not signed in to GitHub: {state['error']}."
+    else:
+        text = "Not signed in to GitHub: 60 reads an hour. `title-runs github sign-in` raises it to 5,000."
+    return Out(text, {"signed_in": bool(state.get("login")), **{k: v for k, v in state.items() if k in ("login", "limit", "error")}})
+
+
+def run_github_sign_in(ctx, args):
+    token = sys.stdin.readline().strip()
+    if not token:
+        raise Failed(f"No token on standard input. Make one without any scopes at {gh.TOKEN_PAGE} and pipe it in, or paste it at the prompt.")
+    try:
+        login, limit = ctx.engine.sign_in(token)
+    except (gh.GitHubError, OSError) as error:
+        raise Failed(f"Not signed in: {error}.") from error
+    return Out(f"Signed in to GitHub as {login}: {limit:,} reads an hour.", {"signed_in": True, "login": login, "limit": limit})
+
+
+def run_github_sign_out(ctx, args):
+    ctx.engine.sign_out()
+    return Out("Signed out of GitHub: 60 reads an hour.", {"signed_in": False})
 
 
 def run_stop(ctx, args):
@@ -486,6 +514,17 @@ COMMANDS = [
             SETTINGS + " Only when a mode is given.", '{"testing": "off|schedule|now", "meaning"}',
             ("title-runs testing", "title-runs testing now", "title-runs testing off"),
             lambda p: p.add_argument("mode", nargs="?", choices=configs.TESTING, help="off, schedule or now"), run_testing),
+    Command(("github", "status"), "github", "Whether this computer reads GitHub signed in, and its hourly limit.",
+            "Without a sign-in GitHub allows 60 reads an hour, enough for a short list of pull requests; signed in, 5,000.",
+            NOTHING, '{"signed_in", "login", "limit", "error"}', ("title-runs github status",), None, run_github),
+    Command(("github", "sign-in"), "github", "Sign in to GitHub with a token read from standard input.",
+            f"Make the token without any scopes (it can then only read public data), at {gh.TOKEN_PAGE}. It is read from "
+            "standard input, so it isn't kept in your shell's history, checked with GitHub, and kept on this computer readable "
+            "only by you, sent only to GitHub.",
+            "Keeps the token in the state folder (client/github-token).", '{"signed_in", "login", "limit"}',
+            ("title-runs github sign-in < token.txt", "title-runs github sign-in   # then paste it and press Enter"), None, run_github_sign_in),
+    Command(("github", "sign-out"), "github", "Sign out of GitHub: forget the token.", "", "Deletes the token from the state folder.",
+            '{"signed_in": false}', ("title-runs github sign-out",), None, run_github_sign_out),
     Command(("stop",), "computer", "End the running test now, and set testing to off.",
             "Ends the test running on this computer, whether it was started from the window or `title-runs run`. Its build or game "
             "stops within a few seconds, and the pull request waits to be tested again. Testing is switched off, so another test "

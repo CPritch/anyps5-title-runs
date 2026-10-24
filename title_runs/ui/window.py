@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFormLayout, 
                                QMainWindow, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QStackedWidget,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from .. import platform_info, sandbox, verdict
+from .. import gh, platform_info, sandbox, verdict
 from . import dialogs, model, theme
 from .games import GamesPage
 from .home import HomePage
@@ -205,6 +205,34 @@ class SettingsTab(QWidget):
         form = QFormLayout(posted)
         form.addRow(QLabel("Nothing is uploaded automatically. Results stay on this computer until you post a report."))
         layout.addWidget(posted)
+        github = QGroupBox("GitHub")
+        box = QVBoxLayout(github)
+        self.github_state = QLabel("")
+        self.github_state.setWordWrap(True)
+        box.addWidget(self.github_state)
+        about = QLabel("Optional. Without a sign-in GitHub allows 60 reads an hour, enough for a short list of pull requests. "
+                       "Signed in, 5,000. Make the token without any scopes: it can then only read public data. It's kept on "
+                       "this computer, readable only by you, and sent only to GitHub.")
+        about.setWordWrap(True)
+        theme.mark(about, role="muted")
+        box.addWidget(about)
+        line = QHBoxLayout()
+        make = QPushButton("Make a token…")
+        make.setToolTip("Opens GitHub's page for a new token, filled in: no scopes. Generate it there, then paste it here.")
+        make.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(gh.TOKEN_PAGE)))
+        line.addWidget(make)
+        self.token = QLineEdit()
+        self.token.setEchoMode(QLineEdit.Password)
+        self.token.setPlaceholderText("paste the token here")
+        line.addWidget(self.token, 1)
+        self.sign_in = theme.mark(QPushButton("Sign in"), primary="true")
+        self.sign_in.clicked.connect(self.github_sign_in)
+        line.addWidget(self.sign_in)
+        self.sign_out = QPushButton("Sign out")
+        self.sign_out.clicked.connect(self.github_sign_out)
+        line.addWidget(self.sign_out)
+        box.addLayout(line)
+        layout.addWidget(github)
         logs = QGroupBox("Logs")
         box = QVBoxLayout(logs)
         self.log = QPlainTextEdit()
@@ -225,6 +253,32 @@ class SettingsTab(QWidget):
 
     def refresh(self):
         self.log.setPlainText(self.engine.log_tail())
+        if not self.github_state.text():
+            self.show_github()
+
+    def show_github(self):
+        state = self.engine.github()
+        if state.get("login"):
+            self.github_state.setText(f"Signed in as <b>{state['login']}</b>: {state['limit']:,} reads an hour.")
+        elif state.get("error"):
+            self.github_state.setText(f"<b>Not signed in</b>: {state['error']}.")
+        else:
+            self.github_state.setText("Not signed in: 60 reads an hour.")
+        self.sign_out.setVisible(bool(state))
+        self.sign_in.setText("Sign in again" if state else "Sign in")
+
+    def github_sign_in(self):
+        try:
+            self.engine.sign_in(self.token.text())
+        except (gh.GitHubError, OSError) as error:
+            self.github_state.setText(f"<b>Not signed in</b>: {error}.")
+            return
+        self.token.clear()
+        self.show_github()
+
+    def github_sign_out(self):
+        self.engine.sign_out()
+        self.show_github()
 
     def self_test(self):
         self.sandbox_label.setText(self.engine.sandbox_self_test())

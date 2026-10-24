@@ -24,10 +24,12 @@ plugged in; paused while something is fullscreen). It then finds your games and 
 runs until you've finished it. After that, add the pull requests you want tested on the Local tests page, or with
 `title-runs local add`.
 
-There's nothing to sign in to. The tool reads GitHub without an account: the latest commit of every pull request comes
-from git, and GitHub's API is only asked for what git can't tell it, within the 60 requests an hour GitHub allows
-without a sign-in. The All pull requests page only loads when you press Refresh. If the hourly limit is used up, Home
-says when it resets.
+Signing in is optional. The tool reads GitHub without an account: the latest commit of every pull request comes from
+git, and GitHub's API is only asked for what git can't tell it, within the 60 requests an hour GitHub allows without a
+sign-in. The All pull requests page only loads when you press Refresh. If the hourly limit is used up, Home says when it
+resets. For a longer list, sign in under Settings, GitHub (or `title-runs github sign-in`) with a token made without any
+scopes, which can only read public data: the limit becomes 5,000 an hour. The token is kept on this computer, readable
+only by you, and sent only to GitHub.
 
 ## The command line
 
@@ -188,7 +190,8 @@ What this does not protect against:
 
 ## What leaves the machine
 
-Nothing, unless the tester posts a report. Pull requests are read from GitHub without a sign-in. A posted report has
+Nothing, unless the tester posts a report. Pull requests are read from GitHub without a sign-in, or with the tester's
+token if they gave one, which can only read public data. A posted report has
 timings (frame times, GPU time per present), the summary lines AnyPS5 prints (build commit, GPU, driver, OS, CPU,
 memory, environment switches, top phases), and any traces and digests the tester attaches. Game files, save data and
 the dump's contents are never included.
