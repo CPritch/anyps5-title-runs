@@ -33,9 +33,14 @@ still runs on GitHub's schedule, hours apart.
 
 ## Open
 
-- **The house scenario isn't fit for verdicts**: GTA V picks a camera framing at each load (main's two runs 86.8 and
-  92.0 ms). Recorded play from it (longer, so more of each run is the same) is the next thing to try; saves in
-  missions would come from play too, as none are published decrypted.
+- **The house scenario**: GTA V picks a camera height and pitch at each load (main's two runs 86.8 and 92.0 ms). Its
+  start now sets the camera the same way in every run (DESIGN.md, "Charlie's walk, the pad reads and a set start");
+  seven timed runs with an earlier start were 82.2 to 86.1 ms, and the spread still followed the camera. Not yet
+  timed enough with the current start to say whether it is fit for verdicts.
+- **A timed run's window can come before the route is done**: with a window from a quick warm-up and slow menus, the
+  frame dumps stop before the route sees Resume Story's load (5 of 16 runs on 2026-10-24, none of 137 before).
+- **Recorded play reproduces deliberate play, not long free play**: input lands on the same pad reads every run, but
+  a frame's timing error per stick change compounds; exact frames need an AnyPS5 change.
 - **Dragging traces from the window into a browser** is untested (the window and Chrome are both X11 windows here).
 - **Not built yet**: spotting reports posted by hand, a packaged release, and renting machines (Vast).
 - **Not run yet**: Windows.

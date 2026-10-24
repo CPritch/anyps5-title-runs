@@ -339,15 +339,15 @@ tool already do decided how:
 - **The pad file.** AnyPS5 (15e71dbe1, `InputCommandFile.hpp`) reads it at most every 100 ms of its process time, when
   the game reads the pad. A command is a sequence number, buttons, a hold of up to 5 s, and optionally both sticks.
   Its timeline form (`APS5_PAD_TIMELINE`) is exact to the millisecond but has buttons only, and walking needs the
-  sticks. So the tool writes a command every 50 ms with a 250 ms hold (input stops by itself if the tool does), and
-  the game takes the latest one each time it reads the file.
+  sticks. So the tool writes commands with a 250 ms hold (input stops by itself if the tool does), one just after each
+  of the game's reads (below, 2026-10-24).
 - **The controller** is read from Linux's evdev with the standard library: systemd gives joystick devices to the
   logged-in user (`70-uaccess.rules`), so no root is needed. Buttons follow the Linux gamepad layout (south is Cross);
   Select (Create, or Xbox's View) is the touchpad; triggers count as L2 and R2 past a third of their travel.
-- **Playback is by time, not by frames.** In a timed run there is no live frame count to follow: frame dumps must stop
-  before the window (the project's capture rules), and the window's summary comes only at its end. Time is also what
-  GTA V's world moves by. Both recording and playback start at the same point: the first frame dumped after Resume
-  Story that is in the starting scenario's scene (its colours), so a slower load doesn't shift the input.
+- **Playback was by time at first** (replaced on 2026-10-24, below): in a timed run there is no live frame count to
+  follow, as frame dumps must stop before the window (the project's capture rules). Both recording and playback start
+  at the same point: the first frame dumped after Resume Story that is in the starting scenario's scene (its colours),
+  so a slower load doesn't shift the input.
 - **A recorded scenario** is the starting scenario (its route, save and start colours) plus the track: the state at
   each change, in milliseconds from that start. The window opens about 30 s after the scene loads and lasts up to 60 s,
   so a recording is at least 100 s. After the track ends, the starting scenario's still button carries on. A run whose
@@ -368,3 +368,41 @@ The first test (2026-10-23, main 15e71dbe1, Franklin's front door, a scripted co
   (the house scenario's runs) never brought it up. A player answers it, but a recorded answer only lands if it comes at
   the same moment; turning autosave off in the game's settings (they are in the profile save the title's seed copies
   in) keeps it from asking.
+
+### Charlie's walk, the pad reads and a set start (2026-10-24)
+
+Charlie recorded 150 s around Franklin's house (1,222 stick and button changes, the controller over USB). Played back
+twice by time, the playbacks parted within 10 s; by 95 s one had walked out of the front door and stood at the
+autosave Alert (Charlie never left the house). Charlie: "it should be bound to the recording frame speed". What the
+game allows, measured on main 15e71dbe1 on this laptop:
+
+- **The pad reads are no frame clock.** GTA V opens the pad file every 101 ms whatever its frame rate: 1,986 reads in
+  199 s, never more than 104 ms apart, through loading screens too. But they are where input lands: written by time, a
+  change waits up to 100 ms for the next read, differently in each run. So recording and playback now go by the
+  reads (pad.py): the tool writes just after each one, and the game's Nth read gets the track's state at
+  (N - 1) x 100 ms in the recording and in every playback.
+- **GTA V's camera at the load** differs only in height and pitch (boots of the same save 160 px apart or more, never
+  sideways), so the stick sends Franklin the same way in every run. Charlie (2026-10-24): "Worth trying more to get
+  idempotent starts, I vote keep trying to get that stable camera start." Three boots each, sorted by the shift that
+  lines up the backgrounds with Franklin masked out: the touchpad (view mode) lands differently from boot to boot; the
+  right stick up for 2 s to the pitch limit gives the same picture (looking at the ceiling); from there, back down at
+  a full push for 5 reads was up to 100 px apart, at 180 for 15 reads 20 px, at 170 for 32 reads the same pixel. That last
+  is the house scenario's start (scenarios.py, "start"), played on the reads when the scene shows, before anything
+  else, in every run, warm-up and recording.
+- **What the reads can't fix.** The game turns the camera and moves Franklin a little each frame, and at 5 to 15 fps
+  here a frame is 70 to 200 ms: a change seen a frame earlier or later turns the camera that much more or less. One
+  deliberate 2 s turn after the start ends within 2 degrees on every boot, and a scripted 21 s walk (14 changes),
+  recorded and played back twice, took the same path through the same rooms to the same spot. Charlie's walk, with
+  its 1,222 changes, still parted within 5 s of play. Input exact to the frame would need AnyPS5 to apply it on given
+  frames (its pad file is read every 100 ms): an AnyPS5 change, not made.
+- **Timed runs in the house with the start** (main alone, a runs folder of its own, the 180 start): the cameras were
+  within 60 px of each other at the end (before: #4287's two main runs 160 px), and the medians 82.2, 82.4,
+  82.6, 83.7, 83.9, 85.6 and 86.1 ms (before: 86.8 and 92.0). What is left still follows the camera: the runs whose camera
+  sat 20 to 40 px off were the slower ones, hence the 170 start.
+- **A run whose start never saw the scene doesn't count.** Three such runs had their window over the load (maximum
+  frame times 284 to 347 ms, against 117 to 165 in the others): they counted before, as only the last frame was
+  checked.
+- **The window can come before the route is done** (open). A timed run's frame dumps stop at a limit set by the window
+  (77 frames, present 2,310, for a window at 2,500 from a quick warm-up), and the route sees Resume Story's load by
+  its newest dumped frame turning black. With slow menus the dumps stopped first: 5 of 16 timed runs failed their
+  route ("Resume Story did not start a load"), where the 137 runs before, with windows at 3,100, never did.
