@@ -5,7 +5,7 @@ it the same every time. A scenario file:
 
   scenarios/<TITLE ID>/<id>.json
     {"title_id": "PPSA04263",
-     "name": "Franklin's front door (100% save)",            the Titles page's words
+     "name": "Franklin's front door (100% save)",            the Games page's words
      "scene": "...",                                          the report's words for what is on screen, at most 120 characters
      "route": "routes/PPSA04263.json",                        how to get there
      "default": true,                                         the title's scenario when the config names none (optional)

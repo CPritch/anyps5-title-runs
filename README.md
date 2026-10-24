@@ -127,7 +127,7 @@ Every timed run is in a scenario (`scenarios/<ID>/<id>.json`, `title_runs/scenar
 which may or may not load a save. A scenario names the route that gets there, the report's words for what is on screen,
 the save if it has one (downloaded from its source and checked against its sha256, never stored in this repository), a
 button pressed every few seconds to keep the title's idle camera from turning if it needs one, and the scene's colours,
-which each run is checked against. A title runs in one scenario (`scenario = "<id>"` in its section, or the Titles
+which each run is checked against. A title runs in one scenario (`scenario = "<id>"` in its section, or the Games
 page), its default when none is named. GTA V's are `prologue` (the default: a new game, no save) and `franklins-house`
 (Franklin at his front door in Vinewood Hills, from Apollo's PS4 100% save).
 
