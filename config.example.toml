@@ -6,13 +6,13 @@
 # state_dir = "/path/to/a/big/disk/anyps5-title-runs"
 
 [local]
-# Local tests: the project, and the pull requests to test (the Local tests page sets these too). Each head a pull
-# request's own author pushes is tested once, against the project's main.
+# Local tests: the project, and the pull requests to test (the Local tests page sets these too). Each commit a pull
+# request's author pushes is tested once, against the project's main.
 repository = "boykopovar/AnyPS5"
 prs = []
-# Every open pull request of these people too: each new head they push is tested without you looking at it first.
+# Also test every open pull request by these people, including each new commit, without you checking it first.
 # people = ["LOGIN"]
-# Pull requests merged onto main for both sides, for a main that can't run your games without them.
+# Pull requests merged into both builds, for when main can't run your games without them.
 # fixes = []
 
 [tester]

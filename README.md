@@ -1,9 +1,9 @@
 # anyps5-title-runs
 
-Test AnyPS5 pull requests on your own games and hardware. You pick the pull requests; each head is built, run in a
-sandbox on a game you own, and timed against main the way the project's performance reports ask. The result stays on
-your computer, with a report in the project's own form that you post yourself if you want to. Nothing is posted for
-you, and the project's maintainers have nothing to set up.
+Test AnyPS5 pull requests on your own games and hardware. You choose the pull requests. Each new commit is built, run
+in a sandbox on a game you own, and timed against AnyPS5's main branch the way the project's performance reports ask.
+The result stays on your computer with a report in the project's format, which you can post yourself. Nothing is
+posted for you, and AnyPS5's maintainers don't have to set anything up.
 
 Python 3.11 or later, the standard library only; the window needs PySide6. Linux, with bubblewrap for the sandbox; the
 Windows paths are written but not run yet.
@@ -18,14 +18,16 @@ sudo pacman -S bubblewrap                    # or your distribution's package; a
 ~/src/anyps5-title-runs/title-runs window    # a new config: the first-run walkthrough sets it up
 ```
 
-The walkthrough covers what the tool does and what leaves the computer, the sandbox and what it doesn't protect
-against, when tests may run (idle where the computer can tell, otherwise set hours; on mains power; a pause while
-something is fullscreen), and your games and the AnyPS5 clone. Nothing runs before it is done. Then add the pull
-requests you want tested on the Local tests page, or with `title-runs local add`.
+The walkthrough explains what the tool does and what leaves your computer, what the sandbox does and doesn't protect
+against, and when tests can run (when you're away, if the computer can tell, otherwise in hours you choose; only when
+plugged in; paused while something is fullscreen). It then finds your games and your copy of AnyPS5's source. Nothing
+runs until you've finished it. After that, add the pull requests you want tested on the Local tests page, or with
+`title-runs local add`.
 
-There is nothing to sign in to. The tool reads GitHub as anyone can: every pull request's head from git, and from the
-API only what git can't tell, within the 60 requests an hour GitHub allows without a sign-in. All pull requests reads
-the project's open pull requests only when you press Refresh. When the limit is used up, Home says until when.
+There's nothing to sign in to. The tool reads GitHub without an account: the latest commit of every pull request comes
+from git, and GitHub's API is only asked for what git can't tell it, within the 60 requests an hour GitHub allows
+without a sign-in. The All pull requests page only loads when you press Refresh. If the hourly limit is used up, Home
+says when it resets.
 
 ## The command line
 
@@ -35,7 +37,7 @@ the project's open pull requests only when you press Refresh. When the limit is 
 title-runs status                    what this computer is doing, and anything to fix
 title-runs testing now               the testing switch: off, schedule or now
 title-runs local add 4287            a pull request for your local tests
-title-runs run --once                one test now, whatever the switch says
+title-runs run --once                one test now, ignoring the switch
 title-runs local report 4287         its report: the link to post it on first, then the text
 title-runs local files 4287          the traces to drag into the comment
 title-runs local posted 4287         record that you posted it
@@ -52,9 +54,9 @@ themselves.
 
 - **Home**: the testing switch (Off, On schedule, Now), the test running with its step and the game itself inside the
   window, what's next, and the results.
-- **Local tests**: add a pull request by number or link, follow people, test again, the fixes carried on both sides
-  and the main they're measured against. Each result has a report window: the link to post it on, the text to copy,
-  the traces to drag into the comment, and Mark as posted.
+- **Local tests**: add a pull request by number or link, follow people, test again, choose fixes to include, and see
+  which version of main they're tested against. Each result has a report window with the link to post it on, the text
+  to copy, the traces to drag into the comment, and Mark as posted.
 - **All pull requests** (the advanced view): the project's open pull requests (those on your list, those that mention
   your games, those labelled perf, agc or shader, then the rest), each with Add to put it on your local tests.
 - **Settings**: this machine, the sandbox check, what's shared, when to test, your games and their scenarios, the
@@ -64,23 +66,23 @@ Closing the window quits and ends a running test, unless it is set to keep runni
 
 ## Local tests
 
-Each head a pull request's own author pushes is tested once. Following someone tests every open pull request of theirs
-the same way, each new head without you looking at it first. Main is pinned for 12 hours, so the pull requests tested
-together are measured against the same main, built and warmed up once. Fixes (pull requests main needs to run your
-games) are merged onto both sides. The report is in the project's form: what ran where, main against main plus the
-pull request in the order A B A B, the summary lines, one trace per run under GitHub's 25 MB and each trace's digest.
-Posting is yours: a result not posted goes stale when the pull request gets a new head, closes or merges, or after 48
-hours. Testing a head again keeps the earlier result. DESIGN.md has the details ("Local tests and the testing switch",
-"Reports with their traces").
+Each commit a pull request's author pushes is tested once. Following someone tests all their open pull requests the
+same way, including every new commit, without you checking it first. Main stays at one version for 12 hours, so the
+pull requests tested together are compared with the same main, which is built and warmed up once. Fixes (pull requests
+main needs before it can run your games) are merged into both builds. The report follows the project's format: what
+ran where, main against main plus the pull request in the order A B A B, the summary lines, one trace per run under
+GitHub's 25 MB limit, and each trace's digest. You decide whether to post it. A result you haven't posted is marked out
+of date when the pull request gets new commits, closes or merges, or after 48 hours. Testing a commit again keeps the
+earlier result. DESIGN.md has the details ("Local tests and the testing switch", "Reports with their traces").
 
 ## What a test does
 
-A test is one head of a pull request on your local tests:
+A test is one commit of a pull request on your local tests:
 
-1. **Job**: fetch the head by its SHA and the pinned main, with the fixes merged onto it, and merge the head onto that
-   main locally (a fixed identity and the head's own date, so every machine makes the same merge). Both sides are
-   built in two worktrees of the tester's clone, with build directories that are kept and rebuilt incrementally. A
-   head that doesn't merge is reported as such.
+1. **Job**: fetch the commit by its SHA and the version of main being tested against, with the fixes merged into it,
+   and merge the commit onto that main locally (with a fixed identity and the commit's own date, so every machine makes
+   the same merge). Both sides are built in two worktrees of the tester's clone, with build directories that are kept
+   and rebuilt incrementally. A commit that doesn't merge is reported as such.
 2. **Run**, per title, in the sandbox (below):
    - a title with a route (`routes/<ID>.json`): the harness's measurement protocol, main against the PR:
      warm-ups only for a build whose caches are cold, each running the route and then staying in the scene until its
@@ -130,36 +132,36 @@ page), its default when none is named. GTA V's are `prologue` (the default: a ne
 
 ### Recording a scenario
 
-A scenario can carry play recorded from a controller, so each run plays the same part of the game, not just stands
-in one place: Settings, Your games, **Record a scenario…**, or
+A scenario can include input recorded from a controller, so each run plays through the same part of the game instead
+of standing in one place. Use Settings, Your games, **Record a scenario…**, or:
 
 ```
 title-runs games record PPSA04263 --from franklins-house --name "Out of the house" --scene "Franklin walks to the road"
 title-runs games scenario PPSA04263 out-of-the-house       # tests of GTA V then run in it
 ```
 
-The game starts on main's build (a local test builds it) in the scenario you start from and gets to its scene by
-itself. Then it's yours: the first second is ignored, and everything the controller does goes to the game and is
-recorded, for 100 to 600 s (the timed window opens about 30 s in and lasts up to 60). Stop ends it with nothing saved.
-Every run in the new scenario plays the recording back from the first frame in that scene, at the same times; a run
-where the scene never shows doesn't count. Recorded scenarios are kept in the state folder,
-`scenarios/<TITLE ID>/<id>.json`, and can be copied into this repository's `scenarios/` to share.
+The game starts on the main build (a local test builds it) in the scenario you start from, and goes to its starting
+scene on its own. Then you take over. The first second is ignored, and after that everything you do on the controller
+goes to the game and is recorded, for 100 to 600 s (timing starts about 30 s in and lasts up to 60). Stop ends the
+recording without saving it. Every test in the new scenario replays the recording from the first frame of that scene,
+at the same times. A run where the scene never appears doesn't count. Recorded scenarios are kept in the state folder,
+`scenarios/<TITLE ID>/<id>.json`, and can be copied into this repository's `scenarios/` to share them.
 
-The controller is read from Linux's evdev, which systemd lets the logged-in user read; `title-runs check` says which
-one it finds. Any controller with the Linux gamepad layout works: its Select (Create, or Xbox's View) is the touchpad.
-DESIGN.md ("Recorded play") says why it works this way.
+The controller is read through Linux's evdev, which systemd lets the logged-in user read; `title-runs check` shows
+which controller it finds. Any controller with the standard Linux gamepad layout works, and its Select button (Create,
+or the Xbox View button) acts as the touchpad. DESIGN.md ("Recorded play") explains why it works this way.
 
 ## The trust model
 
 A pull request's code runs on the tester's machine. What stands between that code and the machine:
 
-- **Which heads run.** Only pull requests the tester added, or opened by people they follow, and of those only a head
-  the PR's own author pushed (the PR's first workflow run for that head names its pusher). Nobody checks a change
-  before it runs: choosing it is the tester's trust in its author.
-- **The build runs in the build sandbox** (round 2): the same bubblewrap setup without GPU, display or network; the
-  source tree, its git directory and prebuilt dependencies read-only, only the build directory writable. Fetching
-  the commit, main and submodule pins happens before, outside it. A malicious PR still runs its code at build time,
-  inside the sandbox.
+- **Which commits run.** Only pull requests the tester added, or that were opened by people they follow, and of those
+  only commits the pull request's author pushed (GitHub's first workflow run for a commit names who pushed it). Nobody
+  reviews a change before it runs, so choosing it means trusting its author.
+- **The build runs in the build sandbox**: the same bubblewrap setup without the GPU, the display or the network. The
+  source tree, its git directory and prebuilt dependencies are read-only, and only the build directory is writable.
+  The commit, main and submodule pins are fetched before the build, outside the sandbox. A malicious pull request
+  still runs code at build time, but only inside the sandbox.
 - **The title runs in bubblewrap:** `/usr`, `/etc`, `/sys` read-only; an empty `/home`, `/tmp` and `/run`; its own PID
   and IPC namespaces (the host's processes are not visible in its `/proc`); a new session, so it can't type into the
   terminal that started it; a minimal `/dev` with only the GPU nodes Vulkan needs (the render nodes, and on NVIDIA
@@ -182,10 +184,10 @@ What this does not protect against:
 
 ## What leaves the machine
 
-Nothing by itself. Pull requests are read from GitHub without a sign-in. A report goes out only when the tester posts
-it: timings (frame times, GPU time per present), the summary lines AnyPS5 prints (build commit, GPU, driver, OS, CPU,
-memory, environment switches, top phases), and the traces and digests they attach. Never game files, save data or the
-dump's contents.
+Nothing, unless the tester posts a report. Pull requests are read from GitHub without a sign-in. A posted report has
+timings (frame times, GPU time per present), the summary lines AnyPS5 prints (build commit, GPU, driver, OS, CPU,
+memory, environment switches, top phases), and any traces and digests the tester attaches. Game files, save data and
+the dump's contents are never included.
 
 ## Built on
 
