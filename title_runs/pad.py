@@ -233,11 +233,11 @@ def button_words(name):
 
 
 def words(track):
-    """What a track uses, for the report: "152 s: the sticks, Cross and R2"."""
+    """What a track uses, for the report: "152 s using the sticks, Cross and R2"."""
     used, sticks = 0, False
     for _, buttons, *axes in track:
         used |= buttons
         sticks = sticks or any(axis != 128 for axis in axes)
     parts = (["the sticks"] if sticks else []) + [button_words(name) for name, bit in BUTTONS.items() if used & bit]
-    said = ", ".join(parts[:-1]) + " and " + parts[-1] if len(parts) > 1 else parts[0] if parts else "nothing pressed"
-    return f"{track[-1][0] / 1000:.0f} s: {said}"
+    said = ", ".join(parts[:-1]) + " and " + parts[-1] if len(parts) > 1 else parts[0] if parts else ""
+    return f"{track[-1][0] / 1000:.0f} s using {said}" if said else f"{track[-1][0] / 1000:.0f} s with nothing pressed"

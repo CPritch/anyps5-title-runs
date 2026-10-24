@@ -78,11 +78,11 @@ class Engine:
         notes = []
         paused = self.local.held() if self.local.enabled() else None
         if paused:
-            notes.append(f"<b>Local tests are paused</b>: {paused['reason'][:240]}. They try again with the next main, or when you change "
-                         f"the fixes on the Local tests page.")
+            notes.append(f"<b>Local tests are paused</b> because {paused['reason'][:240]}. They'll try again with the next version of "
+                         f"main, or when you change the fixes on the Local tests page.")
         if self.github_wait and formats.now() < self.github_wait:
-            notes.append(f"<b>GitHub's limit for reading without a sign-in is used up</b> until {self.github_wait.astimezone():%H:%M}, so "
-                         f"new pushes show up after that.")
+            notes.append(f"<b>GitHub's hourly limit is used up</b> until {self.github_wait.astimezone():%H:%M}, so new commits show up "
+                         f"after that.")
         return "<br>".join(notes)
 
     @property
@@ -115,7 +115,7 @@ class Engine:
         store = self.listing_store()
         when = store.refreshed()
         note = (f"Pull requests of {self.repository}, listed {formats.parse_time(when).astimezone():%H:%M}" if when
-                else f"Pull requests of {self.repository}: not listed yet, Refresh reads them")
+                else f"Pull requests of {self.repository}: not loaded yet. Press Refresh.")
         if self.github_wait and formats.now() < self.github_wait:
             note += f" (GitHub's limit is used up until {self.github_wait.astimezone():%H:%M})"
         return note
@@ -145,7 +145,7 @@ class Engine:
         state, lines = model.tray_view(self.status(), self.up_next_rows(), waiting, self.config.testing)
         ready, why, _ = self.readiness()
         if not ready:
-            lines = [f"Doesn't test yet: {why}"] + [line for line in lines[1:]]
+            lines = [f"Not ready: {model.setup_text(why)}"] + [line for line in lines[1:]]
             state = "waiting" if state == "idle" else state
         return state, lines, waiting
 
@@ -193,7 +193,7 @@ class Engine:
                     self.log(f"recording {scenario_id}: {error}")
                     raise
                 self.client.status.update(state="idle", job={}, progress="",
-                                          line=f"Recorded {name}: choose it as {title_id}'s scenario in Settings, Your games")
+                                          line=f"Recorded {name}. To use it, pick it as the scenario in Settings, Your games.")
                 self.log(f"recorded {scenario_id}: {path}")
                 return path
         finally:
@@ -258,7 +258,7 @@ class Engine:
             self.save_config()
         self.local.added(number)
         self.work.put(("local", None))
-        return f"Added #{number}. It's read from GitHub within a minute."
+        return f"Added #{number}. It shows up in the list within a minute."
 
     def local_remove(self, number):
         if number in self.config.local_prs:
@@ -286,12 +286,14 @@ class Engine:
     def local_base(self):
         """What local tests are measured against now, in words."""
         pinned = self.local.pinned() or {}
+
+        def plus(numbers):
+            return f", with fix{'es' if len(numbers) > 1 else ''} {', '.join('#' + str(n) for n in numbers)}" if numbers else ""
         if not pinned.get("main"):
-            fixes = "".join(f" + #{n}" for n in self.config.local_fixes)
-            return f"main as it is when the next test starts{fixes}"
-        words_ = f"main {pinned['main'][:9]}" + "".join(f" + #{f['pr']}" for f in pinned.get("fixes", []))
+            return f"the newest main at the next test{plus(self.config.local_fixes)}"
+        words_ = f"main at {pinned['main'][:9]}{plus([f['pr'] for f in pinned.get('fixes', [])])}"
         if pinned.get("in_main"):
-            words_ += f" (main already has {', '.join('#' + str(n) for n in pinned['in_main'])})"
+            words_ += f" (main already includes {', '.join('#' + str(n) for n in pinned['in_main'])})"
         return f"{words_}, since {formats.utc_text(pinned['at'])}"
 
     def home(self):
@@ -510,12 +512,12 @@ class Engine:
 
 
 def report_state(entry, data):
-    """A result's report: Posted, Stale (why) or Not posted."""
+    """A result's report: Posted, Out of date (why) or Not posted."""
     from .local_tests import stale
     if entry.get("posted"):
         return "Posted"
     why = stale(entry, data)
-    return f"Stale: {why}" if why else "Not posted"
+    return f"Out of date: {why}" if why else "Not posted"
 
 
 def new_config(path, state_dir=None):

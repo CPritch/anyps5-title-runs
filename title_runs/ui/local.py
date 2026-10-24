@@ -39,8 +39,8 @@ def result_words(row):
 
 def report_words(row):
     report = row.get("report", "")
-    if report.startswith("Stale: "):
-        return f"<b style='color:#a36a00'>Stale</b><br><small>{report[len('Stale: '):]}</small>"
+    if report.startswith("Out of date: "):
+        return f"<b style='color:#a36a00'>Out of date</b><br><small>{report[len('Out of date: '):]}</small>"
     if report == "Posted":
         return f"Posted<br><small style='color:{theme.COLOURS['muted']}'>{utc(row['entry']['posted']['at'])}</small>"
     return report or "—"
@@ -63,8 +63,8 @@ class LocalTestsPage(QWidget):
         self.toggle.toggled.connect(lambda on: self.settings.setVisible(on))
         heading.addWidget(self.toggle, 0, Qt.AlignTop)
         box.addLayout(heading)
-        box.addWidget(rich("Pull requests you pick, tested on this computer against the project's main. Nothing is posted: each result "
-                           "has a report you can post yourself.", role="muted"))
+        box.addWidget(rich("Pull requests you choose are tested on this computer against AnyPS5's main branch. Nothing is posted for "
+                           "you. Each result comes with a report you can post.", role="muted"))
         self.notice = amber()
         box.addWidget(self.notice)
         add = QHBoxLayout()
@@ -83,7 +83,7 @@ class LocalTestsPage(QWidget):
         self.base = rich("")
         base.addWidget(self.base, 1)
         latest = QPushButton("Use the latest main")
-        latest.setToolTip("The next local test is measured against main as it is then")
+        latest.setToolTip("Test against the newest version of main from the next test on")
         latest.clicked.connect(lambda: (engine.local_unpin(), self.refresh()))
         base.addWidget(latest)
         box.addLayout(base)
@@ -112,12 +112,12 @@ class LocalTestsPage(QWidget):
         self.people = QLineEdit(", ".join(config.local_people))
         self.people.setPlaceholderText("GitHub names (optional)")
         form.addRow("People", self.people)
-        form.addRow(rich("Their open pull requests are tested too: each new head they push, without you looking at it first.", role="muted"))
+        form.addRow(rich("Their open pull requests are tested too, including every new commit they push, without you checking it first.", role="muted"))
         self.fixes = QLineEdit(", ".join(str(n) for n in config.local_fixes))
         self.fixes.setPlaceholderText("pull request numbers (optional)")
-        form.addRow("Fixes on both sides", self.fixes)
-        form.addRow(rich("Merged onto main for both sides, for when main can't run your games without them. One main already has "
-                         "is left out by itself.", role="muted"))
+        form.addRow("Fixes to include", self.fixes)
+        form.addRow(rich("Pull requests merged into both builds, for when main can't run your games without them. Any that main "
+                         "already includes are skipped.", role="muted"))
         save = QPushButton("Save")
         save.clicked.connect(self.save)
         form.addRow(save)
@@ -143,7 +143,7 @@ class LocalTestsPage(QWidget):
         held = self.engine.local_notice()
         self.notice.setText(held)
         self.notice.setVisible(bool(held))
-        self.base.setText(f"Measured against {self.engine.local_base()}.")
+        self.base.setText(f"Tested against {self.engine.local_base()}.")
         rows = self.engine.local_rows()
         shown = [(r["pr"], r["entry"].get("head"), r["entry"]["status"], r.get("report"), r["entry"].get("at")) for r in rows]
         if shown == self.shown:  # unchanged: no rebuild on the two-second refresh
@@ -231,7 +231,7 @@ class ReportDialog(QDialog):
         files.addLayout(heading)
         self.too_big = amber()
         files.addWidget(self.too_big)
-        self.files_hint = rich("The project's form asks for each trace. Drag them into your comment under Traces, or from the folder.", role="muted")
+        self.files_hint = rich("The project's form asks for every trace. Drag them into your comment under Traces, from here or from the folder.", role="muted")
         files.addWidget(self.files_hint)
         self.files = FileList()
         files.addWidget(self.files)
@@ -266,7 +266,7 @@ class ReportDialog(QDialog):
             return
         self.text.setPlainText(result["text"])
         self.show_files(result["entry"])
-        self.stale.setText(f"<b>Stale</b>: {result['stale']}. Test it again before posting." if result["stale"] else "")
+        self.stale.setText(f"<b>Out of date</b>: {result['stale']}. Test it again before posting." if result["stale"] else "")
         self.stale.setVisible(bool(result["stale"]))
         posted = result["entry"].get("posted")
         self.posted_note.setText(f"You marked this posted on {utc(posted['at'])}." if posted else "")
@@ -296,8 +296,8 @@ class ReportDialog(QDialog):
         self.files_hint.setVisible(bool(attachable))
         big = [item for item in files if item["size"] is not None and not item["fits"]]
         which = "None of these traces can" if len(big) == len(files) else f"{len(big)} of these traces can't"
-        self.too_big.setText(f"<b>{which} be attached</b>: over {limit} for a file, so this report doesn't have what the "
-                             "project's form asks for. Test it again for traces that fit." if big else "")
+        self.too_big.setText(f"<b>{which} be attached</b> because GitHub's limit is {limit} a file. The project's form asks for "
+                             "every trace, so test it again to get smaller ones." if big else "")
         self.too_big.setVisible(bool(big))
 
     def copy_text(self):

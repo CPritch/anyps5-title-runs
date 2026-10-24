@@ -15,9 +15,10 @@ class RecordDialog(QDialog):
         self.setWindowTitle("Record a scenario")
         self.setMinimumWidth(640)
         layout = QVBoxLayout(self)
-        intro = QLabel("The game starts on main's build and gets to the scene by itself. Then it's yours: the first second is "
-                       "ignored, then everything your controller does is recorded until the time is up. Every test in the new "
-                       "scenario plays it back from the same scene. Stop on Home ends it with nothing saved.")
+        intro = QLabel("The game starts on the main build and goes to the starting scene on its own. Then you take over. The "
+                       "first second is ignored, and after that everything you do on the controller is recorded until time runs "
+                       "out. Tests in the new scenario replay it from the same scene. Pressing Stop on Home ends the recording "
+                       "without saving it.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
         form = QFormLayout()
@@ -33,16 +34,16 @@ class RecordDialog(QDialog):
         form.addRow("Name", self.name)
         self.scene = QLineEdit()
         self.scene.setMaxLength(120)
-        self.scene.setPlaceholderText("what happens, for reports: e.g. Franklin walks out of his house to the road")
+        self.scene.setPlaceholderText("what happens, for reports, e.g. Franklin walks out of his house to the road")
         form.addRow("What happens", self.scene)
         self.seconds = QSpinBox()
         self.seconds.setRange(recording.MIN_SECONDS, recording.MAX_SECONDS)
         self.seconds.setValue(recording.DEFAULT_SECONDS)
         self.seconds.setSuffix(" s")
-        self.seconds.setToolTip("The timed window opens about 30 s after the scene and lasts up to 60 s, so at least 100")
+        self.seconds.setToolTip("Timing starts about 30 s after the scene appears and lasts up to 60 s, so record at least 100 s")
         form.addRow("Length", self.seconds)
         controller = engine.controller()
-        self.controller = QLabel(controller["name"] if controller else "No controller found: connect one, then open this again")
+        self.controller = QLabel(controller["name"] if controller else "No controller found. Connect one, then open this again.")
         form.addRow("Controller", self.controller)
         layout.addLayout(form)
         self.note = theme.mark(QLabel(""), role="muted")

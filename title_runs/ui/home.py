@@ -126,11 +126,11 @@ class HomePage(QWidget):
         layout.addWidget(top)
 
         self.game_card, game = card()
-        game.addWidget(theme.mark(QLabel("The test, running here in the sandbox"), role="heading"))
+        game.addWidget(theme.mark(QLabel("The game, running in the sandbox"), role="heading"))
         self.game = GameView(lambda: list(self.engine.names.values()) + [d.get("name", "") for d in self.engine.dumps.values()], engine.log,
                              title_ids=lambda: list(self.engine.names))
         game.addWidget(self.game, 1)
-        game.addWidget(rich("Stop ends it at once. Nothing you click here reaches the game.", role="muted"))
+        game.addWidget(rich("Stop ends the test straight away. Clicking here doesn't reach the game.", role="muted"))
         layout.addWidget(self.game_card, 3)
 
         lists = QHBoxLayout()
@@ -156,7 +156,7 @@ class HomePage(QWidget):
     def stop_clicked(self):
         self.engine.stop()
         self.headline.setText("Stopping")
-        self.detail.setText("Ending the test. Nothing is sent, and testing is now Off.")
+        self.detail.setText("Stopping the test. Testing is now off.")
 
     def testing_clicked(self, mode):
         if mode != self.engine.config.testing:
@@ -169,8 +169,8 @@ class HomePage(QWidget):
             if self.idle_detectable is None:  # asked once: it asks the desktop
                 from .. import platform_info
                 self.idle_detectable = platform_info.idle_detection()[0]
-            return "Tests start by themselves " + model.schedule_words(self.engine.config.schedule, self.idle_detectable) + "."
-        return model.TESTING[mode][1]
+            return "Tests run automatically " + model.schedule_words(self.engine.config.schedule, self.idle_detectable) + "."
+        return "" if mode == "off" else model.TESTING[mode][1]  # off: the headline already says so
 
     def refresh(self):
         state = self.engine.home()
@@ -214,7 +214,7 @@ class HomePage(QWidget):
         muted = theme.COLOURS["muted"]
         out = []
         for row in rows:
-            extra = f"<br><small style='color:{muted}'>head {row['head'][:9]}, added {utc(row['added'])}</small>" if self.advanced() else ""
+            extra = f"<br><small style='color:{muted}'>commit {row['head'][:9]}, added {utc(row['added'])}</small>" if self.advanced() else ""
             who = f"by {row['author']} · " if row["author"] else ""
             out.append(f"<b>#{row['number']}</b> {row['title']}<br><span style='color:{muted}'>{who}</span><b>{row['why']}</b>{extra}")
         self.upcoming.set_rows(out)
@@ -222,12 +222,12 @@ class HomePage(QWidget):
     def fill_recent(self):
         rows = self.engine.recent_rows()
         if not rows:
-            self.recent.set_rows(["No results yet. Each result stays on this computer, with a report you can post yourself."])
+            self.recent.set_rows(["No results yet. Results stay on this computer until you post a report."])
             return
         out = []
         for row in rows:
             report = row.get("report", "")
-            state = "<b style='color:#a36a00'>Stale</b>" if report.startswith("Stale") else report
+            state = "<b style='color:#a36a00'>Out of date</b>" if report.startswith("Out of date") else report
             where = f" · {state} · <a href='report:{row['number']}'>Report</a>"
             out.append(f"<b>#{row['number']}</b> {row['verdict']}<br><small style='color:{theme.COLOURS['muted']}'>{utc(row['at'])}{where}</small>")
         self.recent.set_rows(out)

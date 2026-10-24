@@ -200,8 +200,8 @@ class RecordedPlay(unittest.TestCase):
         self.assertEqual(scenarios.of(configs.Title("PPSA04263", Path("/dump"), scenario="walk"), state)["id"], "walk")
         self.recorded(state, "prologue")  # the tool's own of the same id comes first
         self.assertTrue(scenarios.available("PPSA04263", state)["prologue"].get("default"))
-        self.assertEqual(scenarios.input_words(walk), "with play recorded from a controller on 2026-10-24 (1 s: the sticks), played back "
-                                                      "from when the scene showed, then D-pad left every 10 s")
+        self.assertEqual(scenarios.input_words(walk), "with input recorded from a controller on 2026-10-24 (1 s using the sticks), replayed "
+                                                      "from when the scene appeared, then D-pad left every 10 s")
 
     def test_what_recorded_play_needs(self):
         state = self.dir / "state"

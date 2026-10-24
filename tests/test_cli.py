@@ -46,7 +46,7 @@ class Help(unittest.TestCase):
     def test_nothing_writes_to_github(self):
         for command in cli.COMMANDS:
             self.assertNotIn("GitHub as you", command.changes, command.name)
-        self.assertIn("Nothing here posts anything or writes to GitHub", cli.overview())
+        self.assertIn("No command posts anything or writes to GitHub", cli.overview())
 
     def test_a_group_alone_lists_its_commands(self):
         code, text, _ = run("local", "--help")
@@ -96,7 +96,7 @@ class Commands(unittest.TestCase):
         local.write({"repository": "boykopovar/AnyPS5", "pinned": None, "entries": [entry]})
 
     def test_the_testing_switch(self):
-        self.assertEqual(self.cli("testing"), (0, "Testing is off: no test starts.\n", ""))
+        self.assertEqual(self.cli("testing"), (0, "Testing is off.\n", ""))
         self.assertEqual(self.cli("testing", "now")[0], 0)
         self.assertEqual(self.config().testing, "now")
         self.assertEqual(self.json("testing")[1]["testing"], "now")
@@ -158,11 +158,11 @@ class Commands(unittest.TestCase):
         # the walkthrough done: nothing left to set up
         clients.Client(self.config(), log=lambda *_: None).finish_onboarding({"idle": "hours"})
         lines = self.cli("status")[1].splitlines()
-        self.assertEqual(lines[:2], ["No tests waiting. New heads of your local tests show up here by themselves.",
-                                     "Testing is off: no test starts."])
+        self.assertEqual(lines[:2], ["Nothing to test. When a pull request on your list gets new commits, they're tested next.",
+                                     "Testing is off."])
 
     def test_run_once_starts_one_test_whatever_the_switch_says(self):
-        self.assertEqual(self.json("run", "--once")[1]["error"], "Go through the first-run walkthrough first (title-runs window): nothing runs before it.")
+        self.assertEqual(self.json("run", "--once")[1]["error"], "Go through the first-run steps first (title-runs window). Nothing runs before then.")
         clients.Client(self.config(), log=lambda *_: None).finish_onboarding({"idle": "hours"})
         with mock.patch("title_runs.engine.Engine.refresh_local") as refresh, \
                 mock.patch("title_runs.engine.Engine.next_test", return_value="tested #4287 (a local test)") as next_test:

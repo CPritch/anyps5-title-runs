@@ -71,7 +71,7 @@ class Tray(QObject):
             if state == "error" and self.last[0] != "error":
                 self.icon.showMessage("AnyPS5 title runs", lines[0], QSystemTrayIcon.Critical)
             elif len(waiting) > self.last[1]:
-                self.icon.showMessage("AnyPS5 title runs", f"{len(waiting)} PR(s) waiting for you", QSystemTrayIcon.Information)
+                self.icon.showMessage("AnyPS5 title runs", f"{len(waiting)} pull request{'s mention' if len(waiting) > 1 else ' mentions'} your games", QSystemTrayIcon.Information)
         self.last = (state, len(waiting))
 
     def show(self):

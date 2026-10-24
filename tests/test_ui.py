@@ -42,8 +42,8 @@ class Model(unittest.TestCase):
 
     def test_tray_states(self):
         self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, [], [], "schedule")[0], "idle")
-        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, [], [{"number": 1}], "schedule"), ("waiting", ["Idle", "1 PR waiting for you"]))
-        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, [], [], "off")[1], ["Idle", "Testing is off: no test starts."])
+        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, [], [{"number": 1}], "schedule"), ("waiting", ["Idle", "1 pull request mentions your games"]))
+        self.assertEqual(model.tray_view({"state": "idle", "line": "Idle"}, [], [], "off")[1], ["Idle", "Testing is off."])
         self.assertEqual(model.tray_view({"state": "error", "line": "Error: build failed"}, [], [], "schedule")[0], "error")
         state, lines = model.tray_view({"state": "running", "line": "Testing #8104 (a local test)"}, [{"number": 7922, "title": "perf: x"}], [], "schedule")
         self.assertEqual((state, lines), ("running", ["Testing #8104 (a local test)", "Next: #7922 perf: x"]))
@@ -176,7 +176,7 @@ class Window(unittest.TestCase):
         other.data["prs"]["6321"] = {"number": 6321}
         other.save()
         self.assertEqual(self.engine.listing(), [])  # another repository's listing is not shown
-        self.assertEqual(self.engine.listing_note(), "Pull requests of CPritch/AnyPS5: not listed yet, Refresh reads them")
+        self.assertEqual(self.engine.listing_note(), "Pull requests of CPritch/AnyPS5: not loaded yet. Press Refresh.")
         with mock.patch("title_runs.gh.GitHubRepo.pages", return_value=[make_pr(6321, "a" * 40)]) as pages:
             self.engine.refresh_listing()  # Refresh
         self.assertEqual(pages.call_args.args[0], "/repos/CPritch/AnyPS5/pulls")
@@ -331,10 +331,10 @@ class MainScreenModel(unittest.TestCase):
         self.assertEqual(model.header({}, True, "", "schedule", True, "", None)["kind"], "idle")
         self.assertEqual(model.header({}, True, "", "off", True, "", best)["kind"], "off")
         waiting = model.header({}, True, "", "schedule", False, "outside the hours 01-07", best)
-        self.assertEqual(waiting["detail"], "The next test starts by itself between 01:00 and 07:00, the hours you chose.")
+        self.assertEqual(waiting["detail"], "The next test starts between 01:00 and 07:00 (your chosen hours).")
         self.assertEqual(model.header({}, True, "", "now", False, "outside the hours 01-07", best)["kind"], "ready")  # Now: whatever the hours
-        self.assertEqual(model.waiting_for("on battery"), "the computer is plugged in")
-        self.assertEqual(model.waiting_for("gtav.elf is running"), "gtav.elf has closed")
+        self.assertEqual(model.waiting_for("on battery"), "when the computer is plugged in")
+        self.assertEqual(model.waiting_for("gtav.elf is running"), "when gtav.elf closes")
 
 
 @unittest.skipIf(QApplication is None, "PySide6 not installed")

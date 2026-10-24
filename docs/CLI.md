@@ -11,28 +11,28 @@ This computer
   status            What this computer is doing: the test running, the testing switch, what's next, anything to fix.
   testing           Show or set the testing switch: off, schedule or now.
   stop              End the running test now, and set testing to off.
-  run               Run tests here without the window, as the switch and the schedule allow, until stopped.
+  run               Run tests here without the window, when the switch and the schedule allow, until stopped.
   check             Check this computer can test: the sandbox, your games and a controller to record with.
   log               The last lines of this computer's log, and of the latest test's.
 
-Local tests: pull requests you pick, tested on this computer. Nothing is posted.
+Local tests (pull requests you choose, tested on this computer)
   local list        Your local tests: what's waiting, and each pull request's newest result.
   local add         Add pull requests to your local tests, by number or link.
   local remove      Take pull requests off your local tests; their results stay.
-  local again       Test a pull request's latest tested head again; the earlier result stays.
+  local again       Test a pull request's last tested commit again, keeping the earlier result.
   local report      A pull request's report: the link to post it on, then its text in the project's form.
   local files       The traces to attach to a pull request's report, and the folder they're in.
   local posted      Mark a pull request's report as posted by you (--undo: not posted).
   local follow      Also test every open pull request of these people.
   local unfollow    Stop following these people; pull requests you added by number stay.
-  local fixes       Show or set the fixes merged onto main for both sides (--none: no fixes).
-  local main        What local tests are measured against now (--latest: main afresh at the next test).
-  local repository  Show or set the project whose pull requests your local tests come from.
+  local fixes       Show or set the pull requests merged into both builds as fixes (--none: no fixes).
+  local main        The version of main local tests are tested against (--latest: the newest, from the next test).
+  local repository  Show or set the project whose pull requests you test.
 
 Your games and the window
-  games list        Your games: each one's test, scenario and folder.
-  games scenario    Show or choose the scenario a game is timed in.
-  games record      Record a scenario: play from a scenario's scene with a controller, and runs play it back.
+  games list        Your games, with each one's test, scenario and folder.
+  games scenario    Show or choose the scenario a game is tested in.
+  games record      Record a scenario: play from a scenario's starting scene with a controller, for tests to replay.
   window            Open the window (the first-run walkthrough if the config is new).
 
 Options
@@ -40,7 +40,7 @@ Options
   --json          print JSON: one object, or one per line for run and games record
 
 Exit codes: 0 done, 1 couldn't (the message says why), 2 the command was written wrong.
-Nothing here posts anything or writes to GitHub: you post reports yourself.
+No command posts anything or writes to GitHub. You post reports yourself.
 `title-runs help COMMAND` says more about each.
 ```
 
@@ -55,8 +55,8 @@ usage: title-runs status [-h]
 
 What this computer is doing: the test running, the testing switch, what's next, anything to fix.
 
-Shows the test running on this computer (in the window, `title-runs run`, or here), the testing
-switch and what it means now, the next test, and anything that keeps tests from starting.
+Shows the test running on this computer (from the window, `title-runs run`, or here), the testing
+switch, the next test, and anything that's stopping tests from starting.
 
 options:
   -h, --help  show this help message and exit
@@ -78,9 +78,10 @@ usage: title-runs testing [-h] [{off,schedule,now}]
 
 Show or set the testing switch: off, schedule or now.
 
-off: no test starts. schedule: tests start by themselves at the times set in the window's When to
-test. now: one test after another, whatever the time, until you switch back. A running test goes on
-either way; `title-runs stop` ends it. An open window follows within a few seconds.
+off: no tests start. schedule: tests run automatically at the times set in the window's When to
+test. now: tests run one after another, even outside those times, until you switch back. Switching
+doesn't end a running test; `title-runs stop` does. An open window picks up the change within a few
+seconds.
 
 positional arguments:
   {off,schedule,now}  off, schedule or now
@@ -106,9 +107,9 @@ usage: title-runs stop [-h]
 
 End the running test now, and set testing to off.
 
-Ends the test running on this computer, wherever it was started (the window, `title-runs run`): its
-build or game ends within a few seconds, and its head waits to be tested again. Testing goes to off,
-so another test doesn't start a minute later.
+Ends the test running on this computer, whether it was started from the window or `title-runs run`.
+Its build or game stops within a few seconds, and the pull request waits to be tested again. Testing
+is switched off, so another test doesn't start a minute later.
 
 options:
   -h, --help  show this help message and exit
@@ -122,22 +123,22 @@ Examples:
 
 ### `title-runs run`
 
-Run tests here without the window, as the switch and the schedule allow, until stopped.
+Run tests here without the window, when the switch and the schedule allow, until stopped.
 
 ```
 usage: title-runs run [-h] [--once]
 
-Run tests here without the window, as the switch and the schedule allow, until stopped.
+Run tests here without the window, when the switch and the schedule allow, until stopped.
 
-Does what the open window does in the background: your local tests, whenever the testing switch and
-the schedule let one start. It runs until Ctrl+C, which also ends the test running. --once: start
-one test now, whatever the switch and the schedule say, and exit when it's done. One test runs on a
-computer at a time: while the window is testing, this waits, and the other way round. Nothing runs
-before the first-run walkthrough (`title-runs window`) is done.
+Does what the open window does in the background: runs your local tests whenever the testing switch
+and the schedule allow. It runs until Ctrl+C, which also ends the running test. --once starts one
+test now, ignoring the switch and the schedule, and exits when it's done. Only one test runs on a
+computer at a time, so while the window is testing this waits, and the other way round. Nothing runs
+until the first-run steps (`title-runs window`) are done.
 
 options:
   -h, --help  show this help message and exit
-  --once      one test now, whatever the switch says, then exit
+  --once      one test now, ignoring the switch, then exit
 
 Changes: Builds and runs tests on this computer. Their results stay here.
 JSON (--json): one object per line: {"log": text} as it goes, then {"result": text}
@@ -157,8 +158,9 @@ usage: title-runs check [-h]
 
 Check this computer can test: the sandbox, your games and a controller to record with.
 
-Runs the sandbox's self-test (no internet and none of your files inside; the graphics card available
-to the game) and says whether anything else keeps tests from starting.
+Runs the sandbox's self-test (no internet or files of yours inside, risky system calls blocked, the
+graphics card available to the game), and says whether anything else is stopping tests from
+starting.
 
 options:
   -h, --help  show this help message and exit
@@ -191,7 +193,7 @@ Examples:
   title-runs log --lines 50
 ```
 
-## Local tests: pull requests you pick, tested on this computer. Nothing is posted.
+## Local tests (pull requests you choose, tested on this computer)
 
 ### `title-runs local list`
 
@@ -202,14 +204,14 @@ usage: title-runs local list [-h]
 
 Your local tests: what's waiting, and each pull request's newest result.
 
-`title-runs local` alone does the same. Each pull request shows its newest result, whether its
-report is posted or stale, and how many earlier results it has.
+`title-runs local` on its own does the same. Each pull request shows its newest result, whether its
+report has been posted or is out of date, and how many earlier results it has.
 
 options:
   -h, --help  show this help message and exit
 
 Changes: Nothing.
-JSON (--json): {"repository", "main", "people", "fixes", "prs": [{"pr", "title", "author", "state": "waiting|tested|failed|not tested", "head", "verdict", "at", "main", "report": "Posted|Stale: why|Not posted", "stale", "earlier", "removed"}]}
+JSON (--json): {"repository", "main", "people", "fixes", "prs": [{"pr", "title", "author", "state": "waiting|tested|failed|not tested", "head", "verdict", "at", "main", "report": "Posted|Out of date: why|Not posted", "stale", "earlier", "removed"}]}
 
 Examples:
   title-runs local
@@ -225,8 +227,8 @@ usage: title-runs local add [-h] PR [PR ...]
 
 Add pull requests to your local tests, by number or link.
 
-Each head its author pushes is tested once, against the project's main, when testing allows. A head
-someone else pushed isn't tested. An open window shows them within a minute.
+Each commit the pull request's author pushes is tested once against the project's main, when testing
+allows. Commits pushed by anyone else aren't tested. An open window shows them within a minute.
 
 positional arguments:
   PR          numbers or links
@@ -266,15 +268,15 @@ Examples:
 
 ### `title-runs local again`
 
-Test a pull request's latest tested head again; the earlier result stays.
+Test a pull request's last tested commit again, keeping the earlier result.
 
 ```
 usage: title-runs local again [-h] PR
 
-Test a pull request's latest tested head again; the earlier result stays.
+Test a pull request's last tested commit again, keeping the earlier result.
 
-It waits for testing like any other; `title-runs run --once` starts it now. Main is pinned afresh
-for it.
+It waits its turn like any other test; `title-runs run --once` starts it now. It's tested against
+the newest main.
 
 positional arguments:
   PR          a pull request's number or link
@@ -299,8 +301,8 @@ usage: title-runs local report [-h] [--test N] [--text] PR
 A pull request's report: the link to post it on, then its text in the project's form.
 
 The newest result's report (--test N for an earlier one), with the traces to attach. Nothing is
-posted: you post it yourself, then mark it with `title-runs local posted`. --text prints only the
-report, to paste.
+posted for you. Post it yourself, then mark it with `title-runs local posted`. --text prints only
+the report, ready to paste.
 
 positional arguments:
   PR          a pull request's number or link
@@ -328,8 +330,8 @@ usage: title-runs local files [-h] [--test N] PR
 
 The traces to attach to a pull request's report, and the folder they're in.
 
-Each counted run's trace, named for its run, linked into one folder to drag into the comment under
-Traces. A trace over GitHub's 25 MB is listed but can't be attached.
+Each counted run's trace, named after its run, in one folder you can drag them from into the comment
+under Traces. A trace over GitHub's 25 MB limit is listed but can't be attached.
 
 positional arguments:
   PR          a pull request's number or link
@@ -354,7 +356,8 @@ usage: title-runs local posted [-h] [--test N] [--undo] PR
 
 Mark a pull request's report as posted by you (--undo: not posted).
 
-A posted result never goes stale. This only records it here; it doesn't post anything.
+A posted result is never marked out of date. This only records it on this computer; it doesn't post
+anything.
 
 positional arguments:
   PR          a pull request's number or link
@@ -381,8 +384,8 @@ usage: title-runs local follow [-h] LOGIN [LOGIN ...]
 
 Also test every open pull request of these people.
 
-Each new head they push to one of their pull requests is tested, without you looking at it first:
-follow people whose code you'd run.
+Every new commit they push to one of their pull requests is tested without you checking it first, so
+only follow people whose code you'd run.
 
 positional arguments:
   LOGIN
@@ -421,22 +424,22 @@ Examples:
 
 ### `title-runs local fixes`
 
-Show or set the fixes merged onto main for both sides (--none: no fixes).
+Show or set the pull requests merged into both builds as fixes (--none: no fixes).
 
 ```
 usage: title-runs local fixes [-h] [--none] [PR ...]
 
-Show or set the fixes merged onto main for both sides (--none: no fixes).
+Show or set the pull requests merged into both builds as fixes (--none: no fixes).
 
-For a main that can't run your games without them. A fix main already has is left out; one that
-doesn't merge, or whose head its author didn't push, holds local tests and says why.
+For when main can't run your games without them. Any that main already includes are skipped. If one
+doesn't merge, or its latest commit wasn't pushed by its author, local tests pause and say why.
 
 positional arguments:
   PR
 
 options:
   -h, --help  show this help message and exit
-  --none      carry no fixes
+  --none      no fixes
 
 Changes: Your settings, when given.
 JSON (--json): {"fixes": [PR, ...]}
@@ -449,19 +452,19 @@ Examples:
 
 ### `title-runs local main`
 
-What local tests are measured against now (--latest: main afresh at the next test).
+The version of main local tests are tested against (--latest: the newest, from the next test).
 
 ```
 usage: title-runs local main [-h] [--latest]
 
-What local tests are measured against now (--latest: main afresh at the next test).
+The version of main local tests are tested against (--latest: the newest, from the next test).
 
-Main is pinned for 12 hours, so the pull requests tested together are measured against the same
-main, and it's built and warmed up once.
+Main stays at one version for 12 hours, so the pull requests tested together are compared with the
+same main, which is built and warmed up once.
 
 options:
   -h, --help  show this help message and exit
-  --latest    take main as it is at the next test
+  --latest    use the newest main from the next test on
 
 Changes: With --latest: your local tests list.
 JSON (--json): {"main", "pinned": {"main", "base", "fixes", "at"} or null}
@@ -473,12 +476,12 @@ Examples:
 
 ### `title-runs local repository`
 
-Show or set the project whose pull requests your local tests come from.
+Show or set the project whose pull requests you test.
 
 ```
 usage: title-runs local repository [-h] [OWNER/NAME]
 
-Show or set the project whose pull requests your local tests come from.
+Show or set the project whose pull requests you test.
 
 positional arguments:
   OWNER/NAME
@@ -498,14 +501,14 @@ Examples:
 
 ### `title-runs games list`
 
-Your games: each one's test, scenario and folder.
+Your games, with each one's test, scenario and folder.
 
 ```
 usage: title-runs games list [-h]
 
-Your games: each one's test, scenario and folder.
+Your games, with each one's test, scenario and folder.
 
-`title-runs games` alone does the same.
+`title-runs games` on its own does the same.
 
 options:
   -h, --help  show this help message and exit
@@ -519,15 +522,15 @@ Examples:
 
 ### `title-runs games scenario`
 
-Show or choose the scenario a game is timed in.
+Show or choose the scenario a game is tested in.
 
 ```
 usage: title-runs games scenario [-h] TITLE_ID [SCENARIO]
 
-Show or choose the scenario a game is timed in.
+Show or choose the scenario a game is tested in.
 
 A scenario is one specific run of a game, which may or may not load a save first (GTA V's prologue,
-or Franklin's house). The next tests of the game run in it.
+or Franklin's house). The game's next tests run in it.
 
 positional arguments:
   TITLE_ID
@@ -546,21 +549,21 @@ Examples:
 
 ### `title-runs games record`
 
-Record a scenario: play from a scenario's scene with a controller, and runs play it back.
+Record a scenario: play from a scenario's starting scene with a controller, for tests to replay.
 
 ```
 usage: title-runs games record [-h] --from SCENARIO --name NAME --scene SCENE
                                [--seconds SECONDS] [--id ID]
                                TITLE_ID
 
-Record a scenario: play from a scenario's scene with a controller, and runs play it back.
+Record a scenario: play from a scenario's starting scene with a controller, for tests to replay.
 
-Starts the game on main's build (a local test builds it) in the scenario named by --from, gets to
-its scene by itself, then passes your controller through to the game: the first second is ignored,
-then everything the controller does is recorded for --seconds (100 to 600; the timed window opens
-about 30 s in and lasts up to 60). The new scenario is the one it started from with your play, and
-every run in it plays that back from when the scene shows. Stop (title-runs stop, or the window's)
-ends it with nothing saved.
+Starts the game on the main build (a local test builds it) in the scenario named by --from and goes
+to its starting scene on its own. Then you take over: the first second is ignored, and after that
+everything you do on the controller is recorded for --seconds (100 to 600; timing starts about 30 s
+in and lasts up to 60). The new scenario is the one you started from plus your recording, and every
+test in it replays the recording from the same scene. Stopping (title-runs stop, or Stop in the
+window) ends it without saving.
 
 positional arguments:
   TITLE_ID
@@ -606,7 +609,7 @@ options:
                         render the window's pages to this folder, offscreen,
                         and exit
 
-Changes: Nothing by itself; the window changes what you change in it.
+Changes: Nothing, until you change something in the window.
 
 Examples:
   title-runs window

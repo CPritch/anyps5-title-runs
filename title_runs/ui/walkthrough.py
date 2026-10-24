@@ -25,19 +25,19 @@ class WhatPage(QWizardPage):
     def __init__(self):
         super().__init__()
         self.setTitle("What this does")
-        self.setSubTitle("A few steps before anything runs. Nothing runs until you finish.")
+        self.setSubTitle("A few steps first. Nothing runs until you've finished them.")
         layout = QVBoxLayout(self)
         layout.addWidget(text(
-            "You pick changes to AnyPS5 to try on your games: pull requests on GitHub, by number, or every one from people you follow. "
-            "When your computer is free, this app builds AnyPS5 with and without the change, plays a short part of <b>your own copy</b> "
-            "of a game with each, and writes a report of how fast each ran, in the form the AnyPS5 project asks for. You read it, and "
-            "post it on the change yourself if you want to."))
+            "You choose changes to AnyPS5 to try on your games: pull requests on GitHub, picked one by one or every one from people you "
+            "follow. When your computer is free, this app builds AnyPS5 with and without the change, plays a short part of <b>your own "
+            "copy</b> of a game with each, and writes a report of how fast each ran, in the format the AnyPS5 project asks for. You "
+            "can read it, and post it on the pull request if you want to."))
         leaves = QGroupBox("What leaves this computer")
         box = QVBoxLayout(leaves)
         box.addWidget(text(
-            "<ul><li>Nothing by itself. The app reads the project's pull requests on GitHub, as anyone can, and posts nothing.</li>"
-            "<li>A report you post says what it ran on (your graphics card, driver and system) and how fast each run was, with the "
-            "traces you attach.</li></ul>"
+            "<ul><li>Nothing, unless you post a report yourself. The app only reads AnyPS5's public pull requests from GitHub.</li>"
+            "<li>A report you post says what it ran on (your graphics card, driver and system) and how fast each run was, along with "
+            "any traces you attach.</li></ul>"
             "<b>Never your game files, your saves, or anything else on this computer.</b>"))
         layout.addWidget(leaves)
         layout.addStretch(1)
@@ -50,18 +50,19 @@ class SandboxPage(QWizardPage):
         self.setSubTitle("The changes come from people you don't know, so they run in a sandbox. A sandbox has limits.")
         layout = QVBoxLayout(self)
         layout.addWidget(text(
-            "Building and playing happen in a sandbox. Once the change is downloaded it has no internet, it can't see your files, and your "
-            "games are read-only to it. It can only write to the test's own folders. Only what a pull request's own author pushed is "
+            "Building and playing happen in a sandbox. Once the change is downloaded, it has no internet, it can't see your files, and "
+            "it can't change your games. It can only write to the test's own folders. Only commits pushed by a pull request's author are "
             "tested."))
         limits = QGroupBox("What the sandbox can't protect against")
         box = QVBoxLayout(limits)
         box.addWidget(text(
-            "<ul><li>A change that attacks your graphics driver or the system itself. The game needs the graphics card, so the sandbox lets it "
-            "reach it.</li>"
+            "<ul><li>A change that attacks your graphics driver or the system itself. The game needs the graphics card, so the sandbox "
+            "has to let it use it.</li>"
             "<li>Your screen. The game shows on it, like any program.</li>"
             "<li>Filling your disk or keeping the computer busy. Settings has limits for that.</li>"
             "<li>Anything run with the sandbox turned off.</li>"
-            "<li>The change itself. Nobody checks what you pick before it runs, so pick changes, and people to follow, you trust.</li></ul>"))
+            "<li>The change itself. Nobody reviews a change before it runs on your computer, so only test changes, and follow people, "
+            "you trust.</li></ul>"))
         layout.addWidget(limits)
         self.read = QCheckBox("I've read what the sandbox can't protect against")
         self.read.toggled.connect(self.completeChanged)
@@ -76,7 +77,7 @@ class WhenPage(QWizardPage):
     def __init__(self, schedule):
         super().__init__()
         self.setTitle("When to test")
-        self.setSubTitle("It should keep out of your way.")
+        self.setSubTitle("Tests should stay out of your way.")
         layout = QVBoxLayout(self)
         self.idle_ok, idle_how = platform_info.idle_detection()
         self.full_ok, full_how = platform_info.fullscreen_detection()
@@ -91,7 +92,7 @@ class WhenPage(QWizardPage):
             form.addRow(text("This computer can tell when you're away from it."))
             self.idle.setChecked(True)
         else:
-            away = text("<b>This computer can't tell when you're away from it</b>, so choose the hours it may test instead.")
+            away = text("<b>This computer can't tell when you're away from it</b>, so choose the hours it can test in instead.")
             away.setToolTip(f"{idle_how}. On Hyprland, an idle daemon such as hypridle or swayidle makes this work.")
             form.addRow(away)
             self.idle.setChecked(False)
@@ -207,7 +208,7 @@ class DumpsPage(QWizardPage):
     def check_clone(self):
         path = Path(self.repo_dir.text()).expanduser()
         self.clone_ok = (path / ".git").exists() and (path / "CMakeLists.txt").exists()
-        self.clone_state.setText("Found. Each test works on its own copies, so this folder isn't changed." if self.clone_ok else
+        self.clone_state.setText("Found. Tests work on copies, so this folder isn't changed." if self.clone_ok else
                                  "That folder isn't AnyPS5's source code. (Developers: git clone --recursive the AnyPS5 repository.)")
         self.completeChanged.emit()
 

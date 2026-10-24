@@ -164,8 +164,8 @@ class Tracks(unittest.TestCase):
                     [[0, *pad.NEUTRAL], [20, *pad.NEUTRAL], [10, *pad.NEUTRAL]], [[0, 0, 128, 128, 128, 128.5], [10, *pad.NEUTRAL]]):
             with self.subTest(bad=bad), self.assertRaises(pad.PadError):
                 pad.check_track(bad)
-        self.assertEqual(pad.words(good), "5 s: the sticks and R2")
-        self.assertEqual(pad.words([[0, *pad.NEUTRAL], [3000, *pad.NEUTRAL]]), "3 s: nothing pressed")
+        self.assertEqual(pad.words(good), "5 s using the sticks and R2")
+        self.assertEqual(pad.words([[0, *pad.NEUTRAL], [3000, *pad.NEUTRAL]]), "3 s with nothing pressed")
 
 
 if __name__ == "__main__":

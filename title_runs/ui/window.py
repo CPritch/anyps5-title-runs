@@ -32,8 +32,8 @@ class PullRequestsTab(QWidget):
         self.note = bold("")
         top.addWidget(self.note)
         refresh = QPushButton("Refresh")
-        refresh.setToolTip("Read the project's open pull requests from GitHub now. Each 100 is one of the 60 requests an hour "
-                           "GitHub allows without a sign-in, so this page doesn't refresh by itself.")
+        refresh.setToolTip("Get the project's open pull requests from GitHub. Each 100 uses one of the 60 requests an hour GitHub "
+                           "allows without a sign-in, so this page only updates when you press Refresh.")
         refresh.clicked.connect(lambda: engine.work.put(("listing", None)))
         top.addWidget(refresh)
         self.added = theme.mark(QLabel(""), role="muted")
@@ -71,13 +71,13 @@ class PullRequestsTab(QWidget):
             for row in rows[:400]:
                 item = QTreeWidgetItem([f"#{row['number']}", row["title"], row["titles"], row["badge"], ""])
                 item.setData(0, Qt.UserRole, row)
-                item.setToolTip(1, f"{row['title']}\nby {row['author']}, head {row['head'][:9]}")
+                item.setToolTip(1, f"{row['title']}\nby {row['author']}, latest commit {row['head'][:9]}")
                 if row["badge"]:
                     item.setForeground(3, Qt.darkGreen)
                 top.addChild(item)
                 if row["add"]:
                     button = QPushButton("Add")
-                    button.setToolTip("Add it to your local tests: each head its author pushes is tested on this computer")
+                    button.setToolTip("Add it to your local tests. Each new commit its author pushes is tested on this computer.")
                     button.clicked.connect(lambda _=False, r=row: self.add(r))
                     self.tree.setItemWidget(item, 4, button)
             top.setExpanded(self.expanded.get(name, False))
@@ -103,7 +103,7 @@ class ScheduleTab(QWidget):
         self.idle_minutes.setValue(rules["idle_minutes"])
         self.idle_minutes.setSuffix(" minutes")
         form.addRow(self.idle, self.idle_minutes)
-        note = QLabel("" if detectable else "This computer can't tell when you're away from it, so the hours below decide.")
+        note = QLabel("" if detectable else "This computer can't tell when you're away from it, so tests run in the hours below.")
         note.setToolTip(how)
         note.setWordWrap(True)
         form.addRow(note)
@@ -158,7 +158,7 @@ class ScheduleTab(QWidget):
 
     def refresh(self):
         allowed, why = self.engine.allowed_now()
-        self.now.setText("A test may start now." if allowed else f"Not now: a test may start {model.waiting_for(why)}.")
+        self.now.setText("A test can start now." if allowed else f"Not now. The next test starts {model.waiting_for(why)}.")
 
     def save(self):
         self.engine.config.schedule.update(idle_only=self.idle.isChecked(), idle_minutes=self.idle_minutes.value(), mains_only=self.mains.isChecked(),
@@ -174,7 +174,7 @@ class TitlesTab(QWidget):
         super().__init__()
         self.engine = engine
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Your games. A game with a full test is played and timed in its scenario; the others get a start-up check."))
+        layout.addWidget(QLabel("Your games. A game with a full test is played and timed in its scenario. The others get a start-up check."))
         self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(["On", "Game ID", "Name", "Version", "Test", "Scenario", "Saves copied in", "Folder"])
         self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Stretch)
@@ -182,7 +182,7 @@ class TitlesTab(QWidget):
         layout.addWidget(self.table)
         row = QHBoxLayout()
         record = QPushButton("Record a scenario…")
-        record.setToolTip("Play part of a game with your controller; tests in the new scenario play it back")
+        record.setToolTip("Play part of a game with your controller. Tests in the new scenario replay what you did.")
         record.clicked.connect(self.record)
         row.addWidget(record)
         row.addStretch(1)
@@ -237,7 +237,7 @@ class SettingsTab(QWidget):
         info = engine.client.info
         hardware = QLabel(f"{info['gpu']}, {info.get('driver', '')}, {info['os']}")
         hardware.setWordWrap(True)
-        hardware.setToolTip(f"Results are compared with machines of the same kind: {verdict.class_of(engine.client.machine_class)}")
+        hardware.setToolTip(f"Results are compared with other machines like this one ({verdict.class_of(engine.client.machine_class)})")
         form.addRow("Graphics card, driver, system", hardware)
         again = QPushButton("Run the walkthrough again")
         again.clicked.connect(lambda: engine.window.walkthrough())
@@ -245,8 +245,8 @@ class SettingsTab(QWidget):
         layout.addWidget(machine)
         sandbox = QGroupBox("Sandbox")
         form = QFormLayout(sandbox)
-        self.sandbox_label = QLabel("On: tests build and play in a sandbox, with no internet once the change is downloaded" if config.sandbox == "bwrap"
-                                    else "Off: tests run without the sandbox, and every result says so")
+        self.sandbox_label = QLabel("On. Tests build and play in a sandbox, cut off from the internet once the change is downloaded." if config.sandbox == "bwrap"
+                                    else "Off. Tests run without the sandbox, and every result says so.")
         self.sandbox_label.setWordWrap(True)
         test = QHBoxLayout()
         test.addWidget(self.sandbox_label, 1)
@@ -257,7 +257,7 @@ class SettingsTab(QWidget):
         layout.addWidget(sandbox)
         posted = QGroupBox("What's shared")
         form = QFormLayout(posted)
-        form.addRow(QLabel("Nothing is sent by itself. Each result stays on this computer, with a report you can post yourself."))
+        form.addRow(QLabel("Nothing is uploaded automatically. Results stay on this computer until you post a report."))
         layout.addWidget(posted)
         logs = QGroupBox("Logs")
         box = QVBoxLayout(logs)
@@ -301,7 +301,7 @@ class AppTab(QWidget):
             self.size.addItem(name, key)
         self.size.setCurrentIndex(max(0, self.size.findData(config.text_size)))
         form.addRow("Text size", self.size)
-        self.advanced = QCheckBox("Advanced view: every pull request, more detail on Home, and the logs")
+        self.advanced = QCheckBox("Advanced view (every pull request, more detail on Home, and the logs)")
         self.advanced.setChecked(config.view == "advanced")
         form.addRow(self.advanced)
         self.inside = QCheckBox("Show the game inside this window")
@@ -321,7 +321,7 @@ class AppTab(QWidget):
             self.tray.setChecked(False)
             self.tray.setToolTip("This desktop has no system tray, so closing the window always quits")
         form.addRow(self.tray)
-        form.addRow(theme.mark(QLabel("Otherwise closing the window quits the app, and a running test stops with it."), role="muted"))
+        form.addRow(theme.mark(QLabel("If this is off, closing the window quits the app and stops any running test."), role="muted"))
         save = QPushButton("Save")
         save.clicked.connect(self.save)
         form.addRow(save)

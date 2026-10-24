@@ -27,7 +27,7 @@ CONFIG_ENV = "TITLE_RUNS_CONFIG"
 
 GROUPS = {
     "computer": "This computer",
-    "local": "Local tests: pull requests you pick, tested on this computer. Nothing is posted.",
+    "local": "Local tests (pull requests you choose, tested on this computer)",
     "games": "Your games and the window",
 }
 
@@ -90,9 +90,9 @@ def pr_number(text):
     return int(found.group(1) or found.group(2))
 
 
-SWITCH = {"off": "Testing is off: no test starts.",
-          "schedule": "Testing is on schedule: tests start by themselves at the times you chose.",
-          "now": "Testing now: one test after another, whatever the time, until you switch back."}
+SWITCH = {"off": "Testing is off.",
+          "schedule": "Testing is on schedule. Tests run automatically at the times you chose.",
+          "now": "Testing is on now. Tests run one after another, even outside your chosen times, until you switch back."}
 
 
 def megabytes(size):
@@ -161,8 +161,8 @@ def run_status(ctx, args):
             "next": {"pr": nxt["number"], "title": nxt["title"], "head": nxt["head"]} if nxt else None,
             "notes": notes, "machine": ctx.config.machine, "project": ctx.config.local_repository,
             "config": str(ctx.config.path), "state": str(ctx.config.state_dir)}
-    # as the window has it: the header, what to know, then the switch
-    lines = [SWITCH["off"] + " To start: title-runs testing schedule (or now)." if header["kind"] == "off" else f"{header['headline']}. {plain(header['detail'])}"]
+    # in the window's order: the header, the notices, then the switch
+    lines = [SWITCH["off"] + " To start testing: title-runs testing schedule (or now)." if header["kind"] == "off" else f"{header['headline']}. {plain(header['detail'])}"]
     if running:
         lines.append(f"Step: {running['step']}" + (f" ({running['progress']})" if running["progress"] else ""))
     lines += notes
@@ -193,7 +193,7 @@ def run_stop(ctx, args):
 def run_run(ctx, args):
     engine = ctx.engine
     if not engine.client.onboarded():
-        raise Failed("Go through the first-run walkthrough first (title-runs window): nothing runs before it.")
+        raise Failed("Go through the first-run steps first (title-runs window). Nothing runs before then.")
     if args.once:
         engine.refresh_local(force=True)
         done = engine.next_test(now=True)
@@ -288,8 +288,8 @@ def run_local_again(ctx, args):
     number = pr_number(args.pr)
     head = ctx.engine.local_again(number)
     if head is None:
-        raise Failed(f"#{number} has no tested head to test again, or it's already waiting.")
-    return Out(f"#{number} at {short(head)} is waiting to be tested again; its earlier result stays.", {"pr": number, "head": head})
+        raise Failed(f"#{number} hasn't been tested yet, or it's already waiting to be tested again.")
+    return Out(f"#{number} at {short(head)} will be tested again. Its earlier result is kept.", {"pr": number, "head": head})
 
 
 def traces_of(engine, result):
@@ -310,7 +310,7 @@ def run_local_report(ctx, args):
         return Out(result["text"].rstrip("\n"), data)
     lines = [f"Post it on {result['link']}"]
     if result["stale"]:
-        lines.append(f"Stale: {result['stale']}. Test it again before posting (title-runs local again {number}).")
+        lines.append(f"Out of date: {result['stale']}. Test it again before posting (title-runs local again {number}).")
     if entry.get("posted"):
         lines.append(f"You marked it posted on {when(entry['posted']['at'])}.")
     if traces:
@@ -326,7 +326,7 @@ def run_local_files(ctx, args):
     number = pr_number(args.pr)
     folder, traces = traces_of(engine, newest_result(engine, number, args.test))
     lines = [f"Drag these into the comment under Traces, from {folder}:"]
-    lines += [f"  {t['name']}  {megabytes(t['size'])}" + ("" if t["fits"] or t["size"] is None else ", over GitHub's 25 MB: can't be attached")
+    lines += [f"  {t['name']}  {megabytes(t['size'])}" + ("" if t["fits"] or t["size"] is None else ", over GitHub's 25 MB limit, so it can't be attached")
               for t in traces] or ["  (this result has no traces)"]
     return Out(lines, {"pr": number, "folder": folder, "traces": traces})
 
@@ -356,8 +356,8 @@ def run_local_fixes(ctx, args):
     if args.prs or args.none:
         engine.local_save(ctx.config.local_repository, list(ctx.config.local_people), [] if args.none else [pr_number(t) for t in args.prs])
     fixes = list(ctx.config.local_fixes)
-    text = (f"Carried on both sides: {', '.join('#' + str(n) for n in fixes)} (a fix main already has is left out)." if fixes
-            else "No fixes carried: both sides are main as it is.")
+    text = (f"Fixes merged into both builds: {', '.join('#' + str(n) for n in fixes)} (any that main already includes are skipped)." if fixes
+            else "No fixes: both builds are main as it is.")
     return Out(text, {"fixes": fixes})
 
 
@@ -366,7 +366,7 @@ def run_local_main(ctx, args):
     if args.latest:
         engine.local_unpin()
     base = engine.local_base()
-    return Out(f"Local tests are measured against {base}.", {"main": base, "pinned": engine.local.pinned()})
+    return Out(f"Local tests are tested against {base}.", {"main": base, "pinned": engine.local.pinned()})
 
 
 def run_local_repository(ctx, args):
@@ -376,7 +376,7 @@ def run_local_repository(ctx, args):
             raise Failed(f"{args.repository!r} is not OWNER/NAME")
         engine.local_save(args.repository, list(ctx.config.local_people), list(ctx.config.local_fixes))
     repository = ctx.config.local_repository
-    return Out(f"Local tests come from {repository}." if repository else "No project for local tests yet.", {"repository": repository})
+    return Out(f"Local tests are pull requests of {repository}." if repository else "No project for local tests yet.", {"repository": repository})
 
 
 # -- your account, your games and the window -------------------------------------------------------------------------------
@@ -401,7 +401,7 @@ def run_games_scenario(ctx, args):
             raise Failed(f"{args.title_id} has no scenario {args.scenario!r}; it has {', '.join(found) or 'none'}.")
         engine.set_scenario(args.title_id, args.scenario)
     current = title.scenario or next((key for key, s in found.items() if s.get("default")), "")
-    lines = [f"{args.title_id} runs in {current or 'its route'}."] + [f"  {key}: {s['name']}. {s['scene']}" for key, s in found.items()]
+    lines = [f"{args.title_id} is tested in {current or 'its route'}."] + [f"  {key}: {s['name']}. {s['scene']}" for key, s in found.items()]
     return Out(lines, {"title_id": args.title_id, "scenario": current,
                        "scenarios": [{"id": key, "name": s["name"], "scene": s["scene"]} for key, s in found.items()]})
 
@@ -416,7 +416,7 @@ def run_games_record(ctx, args):
                                       say=lambda text: ctx.echo(text, {"progress": text}))
     except (recording.RecordError, pad.PadError) as error:
         raise Failed(f"Not recorded: {error}") from error
-    return Out(f"Recorded {args.name} as {scenario_id} ({path}). To time {args.title_id} in it: title-runs games scenario {args.title_id} {scenario_id}",
+    return Out(f"Recorded {args.name} as {scenario_id} ({path}). To test {args.title_id} in it: title-runs games scenario {args.title_id} {scenario_id}",
                {"recorded": scenario_id, "path": str(path)})
 
 
@@ -444,37 +444,37 @@ def _test(p):
 
 COMMANDS = [
     Command(("status",), "computer", "What this computer is doing: the test running, the testing switch, what's next, anything to fix.",
-            "Shows the test running on this computer (in the window, `title-runs run`, or here), the testing switch and what it means "
-            "now, the next test, and anything that keeps tests from starting.",
+            "Shows the test running on this computer (from the window, `title-runs run`, or here), the testing switch, the next "
+            "test, and anything that's stopping tests from starting.",
             NOTHING,
             '{"headline", "detail", "kind": "running|setup|off|idle|waiting|ready|error", "testing", "running": {"pr", "head", "title", '
             '"step", "progress"} or null, "busy_elsewhere", "next": {"pr", "title", "head"} or null, "notes": [...], '
             '"machine", "project", "config", "state"}',
             ("title-runs status", "title-runs --json status"), None, run_status),
     Command(("testing",), "computer", "Show or set the testing switch: off, schedule or now.",
-            "off: no test starts. schedule: tests start by themselves at the times set in the window's When to test. now: one test "
-            "after another, whatever the time, until you switch back. A running test goes on either way; `title-runs stop` ends it. "
-            "An open window follows within a few seconds.",
+            "off: no tests start. schedule: tests run automatically at the times set in the window's When to test. now: tests run "
+            "one after another, even outside those times, until you switch back. Switching doesn't end a running test; "
+            "`title-runs stop` does. An open window picks up the change within a few seconds.",
             SETTINGS + " Only when a mode is given.", '{"testing": "off|schedule|now", "meaning"}',
             ("title-runs testing", "title-runs testing now", "title-runs testing off"),
             lambda p: p.add_argument("mode", nargs="?", choices=configs.TESTING, help="off, schedule or now"), run_testing),
     Command(("stop",), "computer", "End the running test now, and set testing to off.",
-            "Ends the test running on this computer, wherever it was started (the window, `title-runs run`): its build or game ends "
-            "within a few seconds, and its head waits to be tested again. Testing goes to off, so another test doesn't start a minute later.",
+            "Ends the test running on this computer, whether it was started from the window or `title-runs run`. Its build or game "
+            "stops within a few seconds, and the pull request waits to be tested again. Testing is switched off, so another test "
+            "doesn't start a minute later.",
             SETTINGS + " Testing goes to off.", '{"stopped": PR or null, "testing": "off"}', ("title-runs stop",), None, run_stop),
-    Command(("run",), "computer", "Run tests here without the window, as the switch and the schedule allow, until stopped.",
-            "Does what the open window does in the background: your local tests, whenever the testing switch and the schedule let "
-            "one start. It runs until Ctrl+C, which also ends the test running. "
-            "--once: start one test now, whatever the switch and the schedule say, and exit when it's done. One test runs on a "
-            "computer at a time: while the window is testing, this waits, and the other way round. Nothing runs before the first-run "
-            "walkthrough (`title-runs window`) is done.",
+    Command(("run",), "computer", "Run tests here without the window, when the switch and the schedule allow, until stopped.",
+            "Does what the open window does in the background: runs your local tests whenever the testing switch and the schedule "
+            "allow. It runs until Ctrl+C, which also ends the running test. --once starts one test now, ignoring the switch and the "
+            "schedule, and exits when it's done. Only one test runs on a computer at a time, so while the window is testing this "
+            "waits, and the other way round. Nothing runs until the first-run steps (`title-runs window`) are done.",
             "Builds and runs tests on this computer. Their results stay here.",
             'one object per line: {"log": text} as it goes, then {"result": text}',
             ("title-runs run", "title-runs run --once", "title-runs --json run --once"),
-            lambda p: p.add_argument("--once", action="store_true", help="one test now, whatever the switch says, then exit"), run_run),
+            lambda p: p.add_argument("--once", action="store_true", help="one test now, ignoring the switch, then exit"), run_run),
     Command(("check",), "computer", "Check this computer can test: the sandbox, your games and a controller to record with.",
-            "Runs the sandbox's self-test (no internet and none of your files inside; the graphics card available to the game) and "
-            "says whether anything else keeps tests from starting.",
+            "Runs the sandbox's self-test (no internet or files of yours inside, risky system calls blocked, the graphics card "
+            "available to the game), and says whether anything else is stopping tests from starting.",
             NOTHING, '{"sandbox", "sandbox_ok", "ready", "why", "games": [{"title_id", "name", "test", "scenario", "folder"}], '
             '"controller": {"name", "path"} or null}',
             ("title-runs check",), None, run_check),
@@ -483,76 +483,76 @@ COMMANDS = [
             lambda p: p.add_argument("--lines", type=int, default=20, help="how many of each (default 20)"), run_log),
 
     Command(("local", "list"), "local", "Your local tests: what's waiting, and each pull request's newest result.",
-            "`title-runs local` alone does the same. Each pull request shows its newest result, whether its report is posted or "
-            "stale, and how many earlier results it has.",
+            "`title-runs local` on its own does the same. Each pull request shows its newest result, whether its report has been "
+            "posted or is out of date, and how many earlier results it has.",
             NOTHING, '{"repository", "main", "people", "fixes", "prs": [{"pr", "title", "author", "state": "waiting|tested|failed|not tested", '
-            '"head", "verdict", "at", "main", "report": "Posted|Stale: why|Not posted", "stale", "earlier", "removed"}]}',
+            '"head", "verdict", "at", "main", "report": "Posted|Out of date: why|Not posted", "stale", "earlier", "removed"}]}',
             ("title-runs local", "title-runs --json local list"), None, run_local_list),
     Command(("local", "add"), "local", "Add pull requests to your local tests, by number or link.",
-            "Each head its author pushes is tested once, against the project's main, when testing allows. A head someone else pushed "
-            "isn't tested. An open window shows them within a minute.",
+            "Each commit the pull request's author pushes is tested once against the project's main, when testing allows. Commits "
+            "pushed by anyone else aren't tested. An open window shows them within a minute.",
             "Your local tests list and settings.", '{"added": [PR, ...]}',
             ("title-runs local add 4287", "title-runs local add 9287 9289"),
             lambda p: p.add_argument("prs", nargs="+", metavar="PR", help="numbers or links"), run_local_add),
     Command(("local", "remove"), "local", "Take pull requests off your local tests; their results stay.", "",
             "Your local tests list and settings.", '{"removed": [PR, ...]}', ("title-runs local remove 8566",),
             lambda p: p.add_argument("prs", nargs="+", metavar="PR", help="numbers or links"), run_local_remove),
-    Command(("local", "again"), "local", "Test a pull request's latest tested head again; the earlier result stays.",
-            "It waits for testing like any other; `title-runs run --once` starts it now. Main is pinned afresh for it.",
+    Command(("local", "again"), "local", "Test a pull request's last tested commit again, keeping the earlier result.",
+            "It waits its turn like any other test; `title-runs run --once` starts it now. It's tested against the newest main.",
             "Your local tests list.", '{"pr", "head"}', ("title-runs local again 4287",), _pr, run_local_again),
     Command(("local", "report"), "local", "A pull request's report: the link to post it on, then its text in the project's form.",
-            "The newest result's report (--test N for an earlier one), with the traces to attach. Nothing is posted: you post it "
-            "yourself, then mark it with `title-runs local posted`. --text prints only the report, to paste.",
+            "The newest result's report (--test N for an earlier one), with the traces to attach. Nothing is posted for you. Post it "
+            "yourself, then mark it with `title-runs local posted`. --text prints only the report, ready to paste.",
             "Nothing (makes the folder of traces to attach).",
             '{"pr", "link", "head", "at", "verdict", "stale", "posted", "text", "traces": [{"name", "path", "size", "fits", "run"}], "folder"}',
             ("title-runs local report 4287", "title-runs local report 4287 --text | wl-copy", "title-runs --json local report 4287"),
             lambda p: (_pr(p), _test(p), p.add_argument("--text", action="store_true", help="only the report's text")), run_local_report),
     Command(("local", "files"), "local", "The traces to attach to a pull request's report, and the folder they're in.",
-            "Each counted run's trace, named for its run, linked into one folder to drag into the comment under Traces. A trace over "
-            "GitHub's 25 MB is listed but can't be attached.",
+            "Each counted run's trace, named after its run, in one folder you can drag them from into the comment under Traces. A "
+            "trace over GitHub's 25 MB limit is listed but can't be attached.",
             "Makes the folder on this computer.", '{"pr", "folder", "traces": [{"name", "path", "size", "fits", "run"}]}',
             ("title-runs local files 4287",), lambda p: (_pr(p), _test(p)), run_local_files),
     Command(("local", "posted"), "local", "Mark a pull request's report as posted by you (--undo: not posted).",
-            "A posted result never goes stale. This only records it here; it doesn't post anything.",
+            "A posted result is never marked out of date. This only records it on this computer; it doesn't post anything.",
             "Your local tests list.", '{"pr", "head", "posted"}', ("title-runs local posted 4287", "title-runs local posted 4287 --undo"),
             lambda p: (_pr(p), _test(p), p.add_argument("--undo", action="store_true", help="mark it not posted")), run_local_posted),
     Command(("local", "follow"), "local", "Also test every open pull request of these people.",
-            "Each new head they push to one of their pull requests is tested, without you looking at it first: follow people "
-            "whose code you'd run.", "Your settings.", '{"people": [...]}',
+            "Every new commit they push to one of their pull requests is tested without you checking it first, so only follow "
+            "people whose code you'd run.", "Your settings.", '{"people": [...]}',
             ("title-runs local follow LOGIN",), lambda p: p.add_argument("people", nargs="+", metavar="LOGIN"), run_local_follow),
     Command(("local", "unfollow"), "local", "Stop following these people; pull requests you added by number stay.", "", "Your settings.",
             '{"people": [...]}', ("title-runs local unfollow LOGIN",), lambda p: p.add_argument("people", nargs="+", metavar="LOGIN"),
             lambda ctx, args: run_local_follow(ctx, args, follow=False)),
-    Command(("local", "fixes"), "local", "Show or set the fixes merged onto main for both sides (--none: no fixes).",
-            "For a main that can't run your games without them. A fix main already has is left out; one that doesn't merge, or whose "
-            "head its author didn't push, holds local tests and says why.",
+    Command(("local", "fixes"), "local", "Show or set the pull requests merged into both builds as fixes (--none: no fixes).",
+            "For when main can't run your games without them. Any that main already includes are skipped. If one doesn't merge, or "
+            "its latest commit wasn't pushed by its author, local tests pause and say why.",
             "Your settings, when given.", '{"fixes": [PR, ...]}', ("title-runs local fixes", "title-runs local fixes 9730", "title-runs local fixes --none"),
-            lambda p: (p.add_argument("prs", nargs="*", metavar="PR"), p.add_argument("--none", action="store_true", help="carry no fixes")),
+            lambda p: (p.add_argument("prs", nargs="*", metavar="PR"), p.add_argument("--none", action="store_true", help="no fixes")),
             run_local_fixes),
-    Command(("local", "main"), "local", "What local tests are measured against now (--latest: main afresh at the next test).",
-            "Main is pinned for 12 hours, so the pull requests tested together are measured against the same main, and it's built "
-            "and warmed up once.",
+    Command(("local", "main"), "local", "The version of main local tests are tested against (--latest: the newest, from the next test).",
+            "Main stays at one version for 12 hours, so the pull requests tested together are compared with the same main, which "
+            "is built and warmed up once.",
             "With --latest: your local tests list.", '{"main", "pinned": {"main", "base", "fixes", "at"} or null}',
             ("title-runs local main", "title-runs local main --latest"),
-            lambda p: p.add_argument("--latest", action="store_true", help="take main as it is at the next test"), run_local_main),
-    Command(("local", "repository"), "local", "Show or set the project whose pull requests your local tests come from.", "",
+            lambda p: p.add_argument("--latest", action="store_true", help="use the newest main from the next test on"), run_local_main),
+    Command(("local", "repository"), "local", "Show or set the project whose pull requests you test.", "",
             "Your settings, when given.", '{"repository"}', ("title-runs local repository", "title-runs local repository boykopovar/AnyPS5"),
             lambda p: p.add_argument("repository", nargs="?", metavar="OWNER/NAME"), run_local_repository),
 
-    Command(("games", "list"), "games", "Your games: each one's test, scenario and folder.", "`title-runs games` alone does the same.",
+    Command(("games", "list"), "games", "Your games, with each one's test, scenario and folder.", "`title-runs games` on its own does the same.",
             NOTHING, '{"games": [{"title_id", "name", "version", "test", "scenario", "scenarios", "folder"}]}', ("title-runs games",), None, run_games),
-    Command(("games", "scenario"), "games", "Show or choose the scenario a game is timed in.",
+    Command(("games", "scenario"), "games", "Show or choose the scenario a game is tested in.",
             "A scenario is one specific run of a game, which may or may not load a save first (GTA V's prologue, or Franklin's house). "
-            "The next tests of the game run in it.",
+            "The game's next tests run in it.",
             SETTINGS + " Only when a scenario is given.", '{"title_id", "scenario", "scenarios": [{"id", "name", "scene"}]}',
             ("title-runs games scenario PPSA04263", "title-runs games scenario PPSA04263 franklins-house"),
             lambda p: (p.add_argument("title_id", metavar="TITLE_ID"), p.add_argument("scenario", nargs="?", metavar="SCENARIO")), run_games_scenario),
-    Command(("games", "record"), "games", "Record a scenario: play from a scenario's scene with a controller, and runs play it back.",
-            "Starts the game on main's build (a local test builds it) in the scenario named by --from, gets to its scene by itself, "
-            "then passes your controller through to the game: the first second is ignored, then everything the controller does "
-            "is recorded for --seconds (100 to 600; the timed window opens about 30 s in and lasts up to 60). The new scenario is "
-            "the one it started from with your play, and every run in it plays that back from when the scene shows. Stop "
-            "(title-runs stop, or the window's) ends it with nothing saved.",
+    Command(("games", "record"), "games", "Record a scenario: play from a scenario's starting scene with a controller, for tests to replay.",
+            "Starts the game on the main build (a local test builds it) in the scenario named by --from and goes to its starting "
+            "scene on its own. Then you take over: the first second is ignored, and after that everything you do on the controller "
+            "is recorded for --seconds (100 to 600; timing starts about 30 s in and lasts up to 60). The new scenario is the one "
+            "you started from plus your recording, and every test in it replays the recording from the same scene. Stopping "
+            "(title-runs stop, or Stop in the window) ends it without saving.",
             "Starts the game on this computer, and writes the new scenario to the state folder.",
             'one object per line: {"progress": text} as it goes, then {"recorded": ID, "path"}',
             ("title-runs games record PPSA04263 --from franklins-house --name \"Out of the house\" --scene \"Franklin walks out of his "
@@ -564,7 +564,7 @@ COMMANDS = [
                        p.add_argument("--seconds", type=int, default=150, help="how long to record (100 to 600, default 150)"),
                        p.add_argument("--id", help="the new scenario's id (default: from its name)")), run_games_record),
     Command(("window",), "games", "Open the window (the first-run walkthrough if the config is new).",
-            changes="Nothing by itself; the window changes what you change in it.", examples=("title-runs window", "title-runs window --config ~/games/anyps5.toml"),
+            changes="Nothing, until you change something in the window.", examples=("title-runs window", "title-runs window --config ~/games/anyps5.toml"),
             passthrough=window_main),
 
     Command(("ui",), "games", "The window, by its first name.", passthrough=window_main, hidden=True),
@@ -593,7 +593,7 @@ def overview():
     lines += ["Options", f"  --config FILE   the config (default: ${CONFIG_ENV}, else anyps5-title-runs/config.toml in your config folder)",
               "  --json          print JSON: one object, or one per line for run and games record", "",
               "Exit codes: 0 done, 1 couldn't (the message says why), 2 the command was written wrong.",
-              "Nothing here posts anything or writes to GitHub: you post reports yourself.",
+              "No command posts anything or writes to GitHub. You post reports yourself.",
               "`title-runs help COMMAND` says more about each."]
     return "\n".join(lines)
 

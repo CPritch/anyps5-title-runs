@@ -220,7 +220,7 @@ def input_words(scenario):
     played = (scenario or {}).get("input")
     if played:
         when = str((played.get("recorded") or {}).get("at", ""))[:10]
-        words = f"with play recorded from a controller{' on ' + when if when else ''} ({pad.words(played['track'])}), played back from when the scene showed"
+        words = f"with input recorded from a controller{' on ' + when if when else ''} ({pad.words(played['track'])}), replayed from when the scene appeared"
         return words + (f", then {BUTTONS[still['press']]} every {still['every']} s" if still else "")
     if not still:
         return "with no input"

@@ -68,7 +68,7 @@ def tray_view(status, up_next, waiting, testing):
     if nxt:
         lines.append(f"Next: #{nxt['number']} {first_line(nxt['title'], 60)}")
     if waiting:
-        lines.append(f"{len(waiting)} PR{'s' if len(waiting) > 1 else ''} waiting for you")
+        lines.append(f"{len(waiting)} pull request{'s mention' if len(waiting) > 1 else ' mentions'} your games")
     if testing != "schedule":
         lines.append(TESTING[testing][1])
     if state not in STATES:
@@ -83,7 +83,7 @@ def first_line(text, limit=90):
     return line if len(line) <= limit else line[:limit - 1] + "…"
 
 
-# -- the main screen (ui/home.py), in the words a tester reads ----------------------------------------------------------
+# -- the main screen (ui/home.py) ----------------------------------------------------------------------------------------
 
 def setup_text(why):
     """What a tester still has to do (or wait for), for a reason client.ready gave."""
@@ -91,26 +91,27 @@ def setup_text(why):
             "no titles are set up": "Add a game you own."}.get(why, why)
 
 
-STEPS = ("Getting the change", "Building AnyPS5 as it is", "Building AnyPS5 with the change", "Warming up the game",
-         "Run 1 of 4: as it is", "Run 2 of 4: with the change", "Run 3 of 4: as it is", "Run 4 of 4: with the change", "Writing the report")
+STEPS = ("Downloading the change", "Building AnyPS5 without the change", "Building AnyPS5 with the change", "Warming up the game",
+         "Run 1 of 4: without the change", "Run 2 of 4: with the change", "Run 3 of 4: without the change", "Run 4 of 4: with the change",
+         "Writing the report")
 
 
 def waiting_for(why):
-    """When the next test may start, for a reason client.allowed_now gave."""
+    """When the next test can start, to follow "The next test starts", for a reason client.allowed_now gave."""
     found = re.match(r"outside the hours (\d+)-(\d+)", why)
     if found:
-        return f"between {found.group(1)}:00 and {found.group(2)}:00, the hours you chose"
+        return f"between {found.group(1)}:00 and {found.group(2)}:00 (your chosen hours)"
     if why == "on battery":
-        return "the computer is plugged in"
+        return "when the computer is plugged in"
     if why.endswith(" is running"):
-        return f"{why[:-len(' is running')]} has closed"
+        return f"when {why[:-len(' is running')]} closes"
     if why.startswith("in use"):
-        return "the computer has been left alone for a while"
+        return "once you've left the computer alone for a while"
     if why == "paused":
         return "when you switch testing back on"
     if why.startswith("paused until"):
         return why.replace("paused until", "after")
-    return why
+    return f"when this is sorted: {why}"
 
 
 def step(progress):
@@ -130,9 +131,9 @@ def step(progress):
     return 0
 
 
-TESTING = {"off": ("Off", "Testing is off: no test starts."),
-           "schedule": ("On schedule", "Tests start by themselves at the times you chose."),
-           "now": ("Now", "Testing now: one test after another, whatever the time, until you switch back.")}
+TESTING = {"off": ("Off", "Testing is off."),
+           "schedule": ("On schedule", "Tests run automatically at the times you chose."),
+           "now": ("Now", "Tests run one after another, even outside your chosen times, until you switch back.")}
 
 
 def schedule_words(rules, idle_detectable=True):
@@ -162,13 +163,13 @@ def header(status, ready, why, testing, allowed, allowed_why, best):
     if not ready:
         return {"kind": "setup", "headline": "Almost ready", "detail": setup_text(why)}
     if status.get("state") == "error":
-        return {"kind": "error", "headline": "The last test went wrong", "detail": first_line(status.get("line", ""), 160)}
+        return {"kind": "error", "headline": "The last test failed", "detail": first_line(status.get("line", ""), 160)}
     if best is None:
-        return {"kind": "idle", "headline": "No tests waiting", "detail": "New heads of your local tests show up here by themselves."}
+        return {"kind": "idle", "headline": "Nothing to test", "detail": "When a pull request on your list gets new commits, they're tested next."}
     if testing == "off":
         return {"kind": "off", "headline": "Testing is off", "detail": "Choose On schedule or Now to start testing."}
     if testing == "now":
-        return {"kind": "ready", "headline": "Starting the next test", "detail": "Testing now, whatever the time. It starts within a minute."}
+        return {"kind": "ready", "headline": "Starting the next test", "detail": "It starts within a minute."}
     if not allowed:
-        return {"kind": "waiting", "headline": "Waiting", "detail": f"The next test starts by itself {waiting_for(allowed_why)}."}
+        return {"kind": "waiting", "headline": "Waiting", "detail": f"The next test starts {waiting_for(allowed_why)}."}
     return {"kind": "ready", "headline": "Starting the next test", "detail": "It starts within a minute."}

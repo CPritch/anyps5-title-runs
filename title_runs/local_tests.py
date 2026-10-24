@@ -165,8 +165,8 @@ class LocalTests:
                     continue
                 pusher = pushers.get(pull["head"])
                 problem = ("" if pusher and pusher.lower() == pull["author"].lower() else
-                           f"its head {pull['head'][:9]} was pushed by {pusher}, not its author" if pusher else
-                           f"no workflow run tells who pushed its head {pull['head'][:9]}")
+                           f"its latest commit {pull['head'][:9]} was pushed by {pusher}, not its author" if pusher else
+                           f"GitHub doesn't show who pushed its latest commit {pull['head'][:9]}")
                 fixes[str(number)] = {"head": pull["head"], "title": pull["title"][:200], "author": pull["author"], "state": pull["state"],
                                       "pusher": pusher, "problem": problem}
             data["fixes"] = fixes
@@ -180,9 +180,9 @@ class LocalTests:
                 entry = {"pr": number, "head": pull["head"], "title": pull["title"][:200], "author": pull["author"], "added": stamp,
                          "status": "queued", "pusher": pusher}
                 if pusher is None:
-                    entry.update(status="skipped", reason="no workflow run tells who pushed this head")
+                    entry.update(status="skipped", reason="GitHub doesn't show who pushed this commit")
                 elif pusher.lower() != pull["author"].lower():
-                    entry.update(status="skipped", reason=f"pushed by {pusher}, not the author")
+                    entry.update(status="skipped", reason=f"{pusher} pushed this commit, not the author")
                 # An older head of the same PR still queued is replaced: only the newest is worth testing.
                 for old in data["entries"]:
                     if old["pr"] == number and old["status"] == "queued":
@@ -327,9 +327,9 @@ class LocalTests:
         for number in wanted:
             fix = (data.get("fixes") or {}).get(str(number))
             if not fix:
-                raise Hold(f"#{number}, a fix to carry, hasn't been read from GitHub yet")
+                raise Hold(f"fix #{number} hasn't been read from GitHub yet")
             if fix.get("problem"):
-                raise Hold(f"#{number}, a fix to carry: {fix['problem']}")
+                raise Hold(f"fix #{number} can't be used: {fix['problem']}")
             heads.append((number, fix["head"]))
         main = sources.main_tip(self.remote())  # the network and git outside the lock: the window waits on it
         try:
@@ -494,7 +494,7 @@ def stale(entry, data, now=None):
     if pull.get("state") in ("merged", "closed"):
         return f"the pull request was {pull['state']}"
     if pull.get("head") and pull["head"] != entry["head"]:
-        return f"the pull request has a newer head, {pull['head'][:9]}"
+        return f"the pull request has newer commits ({pull['head'][:9]})"
     if entry.get("at") and (now or formats.now()) - formats.parse_time(entry["at"]) > datetime.timedelta(hours=STALE_HOURS):
         return f"tested over {STALE_HOURS // 24} days ago, and main has moved on since"
     return ""
@@ -583,7 +583,7 @@ def report_text(results, entry, graphics=None):
     text = report_lines(results, entry, graphics, digests=True)
     if len(text) > COMMENT_LIMIT:
         text = report_lines(results, entry, graphics, digests=False)
-        text += f"\nThe digests are left out: with them this would be over GitHub's {COMMENT_LIMIT} characters for a comment.\n"
+        text += f"\nThe digests are left out because with them this comment would be over GitHub's limit of {COMMENT_LIMIT:,} characters.\n"
     return text
 
 

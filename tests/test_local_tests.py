@@ -53,7 +53,7 @@ class List(unittest.TestCase):
             self.night.refresh()
         entries = {e["pr"]: e for e in self.night.read()["entries"]}
         self.assertEqual(entries[8104]["status"], "queued")
-        self.assertEqual((entries[9289]["status"], entries[9289]["reason"]), ("skipped", "pushed by somebody-else, not the author"))
+        self.assertEqual((entries[9289]["status"], entries[9289]["reason"]), ("skipped", "somebody-else pushed this commit, not the author"))
 
     def test_a_new_head_replaces_the_queued_one_and_a_tested_head_is_not_added_again(self):
         with self.github():
@@ -96,7 +96,7 @@ class List(unittest.TestCase):
             self.repo.pull.side_effect = gh.RateLimited("used up", reset)
             tester.refresh_local(force=True)
             self.assertEqual(tester.github_wait, reset)
-            self.assertIn("GitHub's limit for reading without a sign-in is used up", tester.local_notice())
+            self.assertIn("GitHub's hourly limit is used up", tester.local_notice())
             calls = self.repo.pull.call_count
             tester.refresh_local(force=True)  # not before the reset
             self.assertEqual(self.repo.pull.call_count, calls)
@@ -335,7 +335,7 @@ class Report(unittest.TestCase):
         text = local_tests.report_text(self.results(runs_dir), {"pr": 4287, "head": "7" * 40, "main": "4" * 40})
         self.assertLess(len(text), local_tests.COMMENT_LIMIT)
         self.assertNotIn("<details><summary>Digest", text)
-        self.assertIn("The digests are left out: with them this would be over GitHub's 65536 characters for a comment.", text)
+        self.assertIn("The digests are left out because with them this comment would be over GitHub's limit of 65,536 characters.", text)
 
     def test_the_files_to_drag_are_linked_into_one_folder(self):
         import tempfile
@@ -456,7 +456,7 @@ class Page(unittest.TestCase):
         entry = {"pr": 8104, "head": A, "status": "done", "at": formats.iso(now - datetime.timedelta(hours=1))}
         data = {"prs": {"8104": {"head": A, "state": "open"}}}
         self.assertEqual(local_tests.stale(entry, data, now), "")
-        self.assertEqual(local_tests.stale(entry, {"prs": {"8104": {"head": B, "state": "open"}}}, now), "the pull request has a newer head, bbbbbbbbb")
+        self.assertEqual(local_tests.stale(entry, {"prs": {"8104": {"head": B, "state": "open"}}}, now), "the pull request has newer commits (bbbbbbbbb)")
         self.assertEqual(local_tests.stale(entry, {"prs": {"8104": {"head": A, "state": "merged"}}}, now), "the pull request was merged")
         self.assertIn("over 2 days ago", local_tests.stale(entry, data, now + datetime.timedelta(days=3)))
         self.assertEqual(local_tests.stale(entry | {"posted": {"at": "x"}}, {"prs": {"8104": {"head": B}}}, now), "")  # posted: never stale
@@ -471,7 +471,7 @@ class Page(unittest.TestCase):
         with mock.patch("title_runs.sources.main_tip", return_value="4" * 40), mock.patch("title_runs.job.run") as run:
             self.assertIsNone(self.local.run(self.local.queued()[0], runner))
         run.assert_not_called()
-        self.assertIn("#9730, a fix to carry", self.local.held()["reason"])
+        self.assertIn("fix #9730 can't be used", self.local.held()["reason"])
         self.config.local_fixes = []  # changing the fixes lets local tests try again
         self.assertIsNone(self.local.held())
 
