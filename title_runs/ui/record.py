@@ -41,7 +41,7 @@ class RecordDialog(QDialog):
         self.seconds.setRange(recording.MIN_SECONDS, recording.MAX_SECONDS)
         self.seconds.setValue(recording.DEFAULT_SECONDS)
         self.seconds.setSuffix(" s")
-        self.seconds.setToolTip("Timing starts about 30 s after the scene appears and lasts up to 60 s, so record at least 100 s")
+        self.seconds.setToolTip("Timing starts about 90 s after the scene appears and lasts up to 60 s, so record at least 160 s")
         form.addRow("Length", self.seconds)
         controller = engine.controller()
         self.controller = QLabel(controller["name"] if controller else "No controller found. Connect one, then open this again.")

@@ -612,7 +612,7 @@ Record a scenario: play from a scenario's starting scene with a controller, for 
 Starts the game on the main build (a local test builds it) in the scenario named by --from and goes
 to its starting scene on its own, where it may set the camera for a few seconds. Then you take over:
 the first second is ignored, and after that everything you do on the controller is recorded for
---seconds (100 to 600; timing starts about 30 s in and lasts up to 60). The new scenario is the one
+--seconds (160 to 600; timing starts about 90 s in and lasts up to 60). The new scenario is the one
 you started from plus your recording, and every test in it replays the recording from the same
 scene. Stopping (title-runs stop, or Stop in the window) ends it without saving.
 
@@ -624,7 +624,7 @@ options:
   --from SCENARIO    the scenario to start from
   --name NAME        the new scenario's name
   --scene SCENE      what happens in it, for reports (up to 120 characters)
-  --seconds SECONDS  how long to record (100 to 600, default 150)
+  --seconds SECONDS  how long to record (160 to 600, default 180)
   --id ID            the new scenario's id (default: from its name)
 
 Changes: Starts the game on this computer, and writes the new scenario to the state folder.

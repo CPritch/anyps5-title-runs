@@ -4,7 +4,8 @@ Per side (A = main at the merge base, B = GitHub's merge of the PR):
   - a warm-up only when no earlier run of the same built commit and RUN_ENV reached the scene on this machine
     (capture.py warmed). It runs the whole route, then stays in the scene until its last 60 s built no pipelines
     (capture.py quiet), at most 20 minutes, so a cold cache is filled before anything is timed;
-  - one window for both sides from the latest warm runs' settle points (capture.py window), 60 s or as many presents
+  - one window for both sides from the latest warm runs' settle points (capture.py window), MARGIN_S after them (a
+    scenario with a start or recorded play: PLAYED_MARGIN_S, below), 60 s or as many presents
     as fit a trace of about TRACE_TARGET bytes, whichever is fewer (trace_presents): the project's performance form asks
     for each trace attached, and GitHub takes files up to 25 MB;
   - timed runs in the order A B A B, two per side: APS5_TRACE_FRAMES and APS5_TRACE_EVENTS only, the log on a
@@ -38,6 +39,11 @@ from .game import Game
 sys.path.insert(0, str(VENDOR / "gtav_harness"))
 import capture  # noqa: E402
 
+MARGIN_S = 30  # the window starts this long after the warm-up's settle point
+# A start or recorded play waits for its scene in a frame dump, and frame dumps stop before the window. The window is
+# counted in presents from boot, so menus that need a press again (10 s each) bring the scene closer to it: with 30 s,
+# half the timed runs in the house ended before their scene was dumped; with 90 s, all of them reached it (2026-10-24).
+PLAYED_MARGIN_S = 90
 TRACE_EVENTS = 4194304
 ATTACH_LIMIT = 25_000_000  # GitHub's largest attached file other than an image or a video (25 MB)
 TRACE_TARGET = 20_000_000  # the size a window is chosen for, with room for a heavier stretch than any earlier trace had
@@ -312,8 +318,9 @@ class Protocol:
             shutil.copy2(frames[-1], run / "last-frame.bmp")
 
     def window(self):
-        code, out = call(capture.window, runs_dir=str(self.runs_dir), machine=self.machine_id,
-                         builds=[side.commit for side in self.sides], margin_s=30, seconds=60, dump_every=self.dump_every)
+        played = (self.scenario or {}).get("start") or (self.scenario or {}).get("input")
+        code, out = call(capture.window, runs_dir=str(self.runs_dir), machine=self.machine_id, builds=[side.commit for side in self.sides],
+                         margin_s=PLAYED_MARGIN_S if played else MARGIN_S, seconds=60, dump_every=self.dump_every)
         if code != 0 or not out.strip():
             raise RuntimeError(f"no window: {out.strip()}")
         spec, limit, sources = out.split()[:3]
@@ -322,6 +329,7 @@ class Protocol:
         return f"{start}:{min(count, fits)}", int(limit), sources
 
     sized = ""  # why the window has as many presents as it has (window())
+    scenario = None  # the scenario of the runs (scenarios.py), set by __init__
 
     def window_record(self, window):
         return {"spec": window[0], "dump_limit": window[1], "from": window[2], "sized": self.sized}

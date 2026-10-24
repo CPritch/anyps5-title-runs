@@ -144,7 +144,7 @@ title-runs games scenario PPSA04263 out-of-the-house       # tests of GTA V then
 The game starts on the main build (a local test builds it) in the scenario you start from, and goes to its starting
 scene on its own. If that scenario sets the camera first (Franklin's front door does), keep your hands off for those
 few seconds. Then you take over. The first second is ignored, and after that everything you do on the controller goes
-to the game and is recorded, for 100 to 600 s (timing starts about 30 s in and lasts up to 60). Stop ends the
+to the game and is recorded, for 160 to 600 s (timing starts about 90 s in and lasts up to 60). Stop ends the
 recording without saving it. Every test in the new scenario sets the camera the same way and replays the recording
 from there, each input on the same pad read of the game's as when you recorded it. A run where the scene never appears
 doesn't count. Recorded scenarios are kept in the state folder,

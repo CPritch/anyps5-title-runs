@@ -73,5 +73,22 @@ class Window(unittest.TestCase):
             self.assertEqual(self.protocol(runs_dir).window()[0], "1200:1800")
 
 
+class Margin(unittest.TestCase):
+    def test_played_scenarios_have_the_window_later(self):
+        p = object.__new__(protocol.Protocol)
+        p.runs_dir, p.machine_id, p.sides, p.dump_every = Path("/runs"), "m", [], 30
+        margins = []
+
+        def call(function, **kwargs):
+            margins.append(kwargs.get("margin_s"))
+            return 1, ""
+        with mock.patch.object(protocol, "call", call):
+            for scenario in (None, {"still": {}}, {"start": {"track": []}}, {"input": {"track": []}}):
+                p.scenario = scenario
+                with self.assertRaises(RuntimeError):
+                    p.window()
+        self.assertEqual(margins, [protocol.MARGIN_S, protocol.MARGIN_S, protocol.PLAYED_MARGIN_S, protocol.PLAYED_MARGIN_S])
+
+
 if __name__ == "__main__":
     unittest.main()

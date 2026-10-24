@@ -17,8 +17,8 @@ from pathlib import Path
 
 from . import ROOT, game, job, pad, protocol, route as routes, scenarios, sources
 
-MIN_SECONDS = 100  # the window opens about 30 s after the scene loads and lasts up to 60 s
-DEFAULT_SECONDS = 150
+MIN_SECONDS = 160  # the window opens about 90 s after the scene loads (protocol.PLAYED_MARGIN_S) and lasts up to 60 s
+DEFAULT_SECONDS = 180
 MAX_SECONDS = 600
 
 
@@ -55,7 +55,7 @@ def check(config, title_id, base_id, scenario_id, name, scene, seconds):
     if not name.strip() or not scene.strip() or len(scene) > 120:
         raise RecordError("a recording needs a name, and words for what happens in it (up to 120 characters)")
     if not MIN_SECONDS <= seconds <= MAX_SECONDS:
-        raise RecordError(f"a recording is {MIN_SECONDS} to {MAX_SECONDS} seconds: the timed window opens about 30 s in and lasts up to 60")
+        raise RecordError(f"a recording is {MIN_SECONDS} to {MAX_SECONDS} seconds: the timed window opens about 90 s in and lasts up to 60")
     return base
 
 

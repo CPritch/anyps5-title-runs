@@ -585,7 +585,7 @@ COMMANDS = [
             "Starts the game on the main build (a local test builds it) in the scenario named by --from and goes to its starting "
             "scene on its own, where it may set the camera for a few seconds. Then you take over: the first second is ignored, and "
             "after that everything you do on the controller "
-            "is recorded for --seconds (100 to 600; timing starts about 30 s in and lasts up to 60). The new scenario is the one "
+            "is recorded for --seconds (160 to 600; timing starts about 90 s in and lasts up to 60). The new scenario is the one "
             "you started from plus your recording, and every test in it replays the recording from the same scene. Stopping "
             "(title-runs stop, or Stop in the window) ends it without saving.",
             "Starts the game on this computer, and writes the new scenario to the state folder.",
@@ -596,7 +596,7 @@ COMMANDS = [
                        p.add_argument("--from", dest="start", required=True, metavar="SCENARIO", help="the scenario to start from"),
                        p.add_argument("--name", required=True, help="the new scenario's name"),
                        p.add_argument("--scene", required=True, help="what happens in it, for reports (up to 120 characters)"),
-                       p.add_argument("--seconds", type=int, default=150, help="how long to record (100 to 600, default 150)"),
+                       p.add_argument("--seconds", type=int, default=180, help="how long to record (160 to 600, default 180)"),
                        p.add_argument("--id", help="the new scenario's id (default: from its name)")), run_games_record),
     Command(("games", "delete-recording"), "games", "Delete a recorded scenario (never one of this tool's own).",
             "A game that was set to it goes back to its default scenario.", "Deletes the scenario file from the state folder.",

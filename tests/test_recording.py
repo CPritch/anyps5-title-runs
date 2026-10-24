@@ -36,12 +36,12 @@ class Check(unittest.TestCase):
         self.config = make_config()
 
     def test_what_stops_a_recording_before_the_game_starts(self):
-        ok = ("PPSA04263", "franklins-house", "out-of-the-house", "Out of the house", "Franklin walks to the road", 150)
+        ok = ("PPSA04263", "franklins-house", "out-of-the-house", "Out of the house", "Franklin walks to the road", 180)
         self.assertEqual(recording.check(self.config, *ok)["id"], "franklins-house")
         for changed, words in (((0, "PPSA01325"), "not one of your games"), ((1, "the-moon"), "no scenario 'the-moon'"),
                                ((2, "Out of the house"), "not a scenario id"), ((2, "prologue"), "has a scenario 'prologue' already"),
                                ((3, " "), "needs a name"), ((4, "x" * 121), "up to 120 characters"),
-                               ((5, 60), "100 to 600 seconds")):
+                               ((5, 150), "160 to 600 seconds")):
             asked = list(ok)
             asked[changed[0]] = changed[1]
             with self.subTest(changed=changed), self.assertRaisesRegex(recording.RecordError, words):
@@ -90,7 +90,7 @@ class InTheEngine(unittest.TestCase):
             return TRACK, "1" * 40
         controller = Controller()
         with mock.patch("title_runs.recording.session", side_effect=session):
-            path = self.engine.record_scenario("PPSA04263", "franklins-house", "walk", "A walk", "Franklin walks", 150, controller=controller)
+            path = self.engine.record_scenario("PPSA04263", "franklins-house", "walk", "A walk", "Franklin walks", 180, controller=controller)
         self.assertEqual((seen[0]["state"], seen[0]["job"], seen[0]["line"]),
                          ("running", {"recording": "walk", "title": "A walk"}, "Recording A walk: play now: 12 of 150 s"))
         self.assertTrue(path.exists() and controller.closed)
@@ -102,13 +102,13 @@ class InTheEngine(unittest.TestCase):
             self.engine.client.status.update(stop_requested=True)  # Stop on Home, or title-runs stop
             raise recording.RecordError(f"{should_stop()}: nothing was saved")
         with mock.patch("title_runs.recording.session", side_effect=session), self.assertRaises(recording.RecordError):
-            self.engine.record_scenario("PPSA04263", "franklins-house", "walk", "A walk", "Franklin walks", 150, controller=Controller())
+            self.engine.record_scenario("PPSA04263", "franklins-house", "walk", "A walk", "Franklin walks", 180, controller=Controller())
         self.assertEqual(self.engine.status()["line"], "Not recorded: stopped: nothing was saved")
         self.assertFalse((self.config.state_dir / "scenarios" / "PPSA04263" / "walk.json").exists())
 
     def test_without_a_controller(self):
         with mock.patch("title_runs.pad.controllers", return_value=[]), self.assertRaisesRegex(pad.PadError, "no game controller"):
-            self.engine.record_scenario("PPSA04263", "franklins-house", "walk", "A walk", "Franklin walks", 150)
+            self.engine.record_scenario("PPSA04263", "franklins-house", "walk", "A walk", "Franklin walks", 180)
         self.assertEqual(self.engine.status()["line"], "Not recorded: no game controller is connected")
 
 
@@ -133,7 +133,7 @@ class OnTheCommandLine(unittest.TestCase):
         lines = [json.loads(line) for line in out.splitlines()]
         self.assertEqual(lines[0], {"progress": "getting to the scene"})
         self.assertEqual(lines[-1]["recorded"], "out-of-the-house")
-        self.assertEqual(record.call_args.args, ("PPSA04263", "franklins-house", "out-of-the-house", "Out of the house", "Franklin walks to the road", 150))
+        self.assertEqual(record.call_args.args, ("PPSA04263", "franklins-house", "out-of-the-house", "Out of the house", "Franklin walks to the road", 180))
         with mock.patch("title_runs.engine.Engine.record_scenario", side_effect=recording.RecordError("the scene never showed after Resume Story")):
             code, _, err = self.run_cli("--config", str(config.path), "games", "record", "PPSA04263", "--from", "franklins-house",
                                         "--name", "Out", "--scene", "Out")
@@ -168,7 +168,7 @@ class TheDialog(unittest.TestCase):
         dialog.record.click()
         self.assertEqual(engine.work.get_nowait(), ("record", {"title_id": "PPSA04263", "from_id": "franklins-house", "scenario_id": "out-of-the-house",
                                                                 "name": "Out of the house", "scene": "Franklin walks out of his house to the road",
-                                                                "seconds": 150}))
+                                                                "seconds": 180}))
 
     def test_no_controller_no_record(self):
         _, dialog = self.dialog(None)
