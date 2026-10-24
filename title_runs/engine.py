@@ -157,10 +157,10 @@ class Engine:
             choices = [{"id": key, "name": s["name"], "scene": s["scene"], "save": scenarios.save_words(s), "recorded": bool(s.get("input")),
                         "recorded_at": str(((s.get("input") or {}).get("recorded") or {}).get("at", ""))[:10],
                         "startable": bool(s.get("frame")) and not s.get("input")} for key, s in found.items()]
-            current = title.scenario or next((key for key, s in found.items() if s.get("default")), "")
+            current = [name for name in title.scenarios if name in found] or [key for key, s in found.items() if s.get("default")][:1]
             rows.append({"title_id": title_id, "name": dump.get("name", "?"), "version": dump.get("version", "?"),
                          "check": "Full test" if title.route or choices else "Start-up check", "seeds": f"{len(title.seed)} file(s)" if title.seed else "none",
-                         "seed_paths": [str(p) for p in title.seed], "path": str(title.dump), "scenario": current, "scenarios": choices})
+                         "seed_paths": [str(p) for p in title.seed], "path": str(title.dump), "chosen": current, "scenarios": choices})
         return rows
 
     def controller(self):
@@ -200,9 +200,10 @@ class Engine:
         finally:
             controller.close()
 
-    def set_scenario(self, title_id, scenario_id):
-        """The Games page's Scenario: the next tests of this title run in it (a scenario's runs and warm-ups are its own)."""
-        self.config.titles[title_id].scenario = scenario_id
+    def set_scenarios(self, title_id, scenario_ids):
+        """The Games page's Scenarios: the next tests of this title run in each, one after another (each scenario's runs
+        and warm-ups are its own). None chosen: the title's default."""
+        self.config.titles[title_id].scenarios = list(scenario_ids)
         self.save_config()
 
     def add_games(self, folder):
@@ -233,14 +234,14 @@ class Engine:
         self.save_config()
 
     def delete_recording(self, title_id, scenario_id):
-        """Delete a recorded scenario (never one of this tool's own). A game set to it goes back to its default."""
+        """Delete a recorded scenario (never one of this tool's own), and take it off the game's scenarios."""
         path = scenarios.recorded(self.config.state_dir, title_id) / f"{scenario_id}.json"
         if not path.exists():
             raise ValueError(f"{title_id} has no recorded scenario {scenario_id!r}")
         path.unlink()
         title = self.config.titles.get(title_id)
-        if title is not None and title.scenario == scenario_id:
-            title.scenario = ""
+        if title is not None and scenario_id in title.scenarios:
+            title.scenarios = [name for name in title.scenarios if name != scenario_id]
             self.save_config()
         self.log(f"deleted the recorded scenario {title_id}/{scenario_id}")
 

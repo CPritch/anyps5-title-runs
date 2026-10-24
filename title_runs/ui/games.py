@@ -4,8 +4,7 @@ app.Engine (titles, add_games, remove_game, set_scenario, delete_recording)."""
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
+from PySide6.QtWidgets import (QHBoxLayout, QHeaderView, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
                                QWidget)
 
 from . import dialogs, theme
@@ -50,7 +49,7 @@ class GamesPage(QWidget):
         self.note = rich("", role="muted")
         self.note.hide()
         box.addWidget(self.note)
-        self.games = table(["Game", "Version", "Test", "Scenario", "Folder", ""], 4)
+        self.games = table(["Game", "Version", "Test", "Scenarios", "Folder", ""], 4)
         box.addWidget(self.games)
         layout.addWidget(top, 3)
 
@@ -71,7 +70,7 @@ class GamesPage(QWidget):
             self.games.setItem(i, 0, name)
             self.games.setItem(i, 1, QTableWidgetItem(row["version"]))
             self.games.setItem(i, 2, QTableWidgetItem(row["check"]))
-            self.games.setCellWidget(i, 3, self.scenario_box(row))
+            self.games.setCellWidget(i, 3, self.scenarios_cell(row))
             folder = QTableWidgetItem(row["path"].replace(str(Path.home()), "~", 1))
             folder.setToolTip(row["path"])
             self.games.setItem(i, 4, folder)
@@ -90,17 +89,31 @@ class GamesPage(QWidget):
         self.recorded.setVisible(bool(mine))
         self.none_recorded.setVisible(not mine)
 
-    def scenario_box(self, row):
-        """The scenarios the game can be tested in, each with what's on screen and its save, if any."""
+    def scenarios_cell(self, row):
+        """The scenarios each test of the game runs in, and Choose… to tick others."""
         if not row["scenarios"]:
             return QLabel("—")
-        box = QComboBox()
-        for choice in row["scenarios"]:
-            box.addItem(choice["name"], choice["id"])
-            box.setItemData(box.count() - 1, "\n\n".join(t for t in (choice["scene"], choice.get("save", "")) if t), Qt.ToolTipRole)
-        box.setCurrentIndex(max(0, box.findData(row["scenario"])))
-        box.currentIndexChanged.connect(lambda _, b=box, t=row["title_id"]: self.engine.set_scenario(t, b.currentData()))
-        return box
+        names = {choice["id"]: choice["name"] for choice in row["scenarios"]}
+        cell = QWidget()
+        line = QHBoxLayout(cell)
+        line.setContentsMargins(4, 0, 4, 0)
+        chosen = QLabel(", ".join(names[key] for key in row["chosen"]) or "—")
+        chosen.setToolTip("Each test of this game runs in each of these, one after another; its report has a part for each")
+        line.addWidget(chosen, 1)
+        pick = QPushButton("Choose…")
+        pick.clicked.connect(lambda _=False, r=row: self.choose(r))
+        line.addWidget(pick)
+        return cell
+
+    def choose(self, row):
+        options = [(c["id"], c["name"], "\n\n".join(t for t in (c["scene"], c.get("save", "")) if t)) for c in row["scenarios"]]
+        picked = dialogs.choose(self, f"The scenarios each test of {row['name']} runs in, one after another. Each one adds about "
+                                "20 minutes to a test.", options, row["chosen"])
+        if picked is None:
+            return
+        self.engine.set_scenarios(row["title_id"], picked)
+        self.say(f"{row['name']} is tested in " + (", ".join(n for k, n, _ in options if k in picked) if picked else "its default scenario") + ".")
+        self.refresh()
 
     def say(self, text):
         self.note.setText(text)

@@ -33,7 +33,7 @@ Your games and the window
   games list              Your games, with each one's test, scenario and folder.
   games add               Add the games in a folder: a game's own folder, or one that holds your games.
   games remove            Take a game off your list; its folder and recordings stay.
-  games scenario          Show or choose the scenario a game is tested in.
+  games scenario          Show or choose the scenarios a game is tested in.
   games record            Record a scenario: play from a scenario's starting scene with a controller, for tests to replay.
   games delete-recording  Delete a recorded scenario (never one of this tool's own).
   window                  Open the window (the first-run walkthrough if the config is new).
@@ -169,7 +169,7 @@ options:
   -h, --help  show this help message and exit
 
 Changes: Nothing.
-JSON (--json): {"sandbox", "sandbox_ok", "ready", "why", "games": [{"title_id", "name", "test", "scenario", "folder"}], "controller": {"name", "path"} or null}
+JSON (--json): {"sandbox", "sandbox_ok", "ready", "why", "games": [{"title_id", "name", "test", "chosen", "folder"}], "controller": {"name", "path"} or null}
 
 Examples:
   title-runs check
@@ -517,7 +517,7 @@ options:
   -h, --help  show this help message and exit
 
 Changes: Nothing.
-JSON (--json): {"games": [{"title_id", "name", "version", "test", "scenario", "scenarios", "folder"}]}
+JSON (--json): {"games": [{"title_id", "name", "version", "test", "chosen", "scenarios", "folder"}]}
 
 Examples:
   title-runs games
@@ -573,15 +573,16 @@ Examples:
 
 ### `title-runs games scenario`
 
-Show or choose the scenario a game is tested in.
+Show or choose the scenarios a game is tested in.
 
 ```
-usage: title-runs games scenario [-h] TITLE_ID [SCENARIO]
+usage: title-runs games scenario [-h] TITLE_ID [SCENARIO ...]
 
-Show or choose the scenario a game is tested in.
+Show or choose the scenarios a game is tested in.
 
 A scenario is one specific run of a game, which may or may not load a save first (GTA V's prologue,
-or Franklin's house). The game's next tests run in it.
+or Franklin's house). Each test of the game runs in every scenario given, one after another on the
+same builds, and its report has a section for each.
 
 positional arguments:
   TITLE_ID
@@ -590,12 +591,12 @@ positional arguments:
 options:
   -h, --help  show this help message and exit
 
-Changes: This computer's settings (the config file). Only when a scenario is given.
-JSON (--json): {"title_id", "scenario", "scenarios": [{"id", "name", "scene"}]}
+Changes: This computer's settings (the config file). Only when scenarios are given.
+JSON (--json): {"title_id", "chosen": [SCENARIO, ...], "scenarios": [{"id", "name", "scene"}]}
 
 Examples:
   title-runs games scenario PPSA04263
-  title-runs games scenario PPSA04263 franklins-house
+  title-runs games scenario PPSA04263 bank-scene walk-to-window-and-look-around
 ```
 
 ### `title-runs games record`

@@ -213,14 +213,14 @@ def run_check(ctx, args):
     engine = ctx.engine
     sandbox = engine.sandbox_self_test()
     ready, why, _ = engine.readiness()
-    games = [{"title_id": t["title_id"], "name": t["name"], "test": t["check"], "scenario": t["scenario"], "folder": t["path"]} for t in engine.titles()]
+    games = [{"title_id": t["title_id"], "name": t["name"], "test": t["check"], "chosen": t["chosen"], "folder": t["path"]} for t in engine.titles()]
     controller = engine.controller()
     data = {"sandbox": sandbox, "sandbox_ok": sandbox.startswith("The sandbox works"), "ready": ready, "why": why, "games": games,
             "controller": controller}
     lines = [sandbox, "Ready to test." if ready else f"Not ready: {plain(why)}.",
              f"Controller for recording: {controller['name']} ({controller['path']})." if controller else
              "No game controller connected (only recording a scenario needs one)."]
-    lines += [f"{g['title_id']} {g['name']}: {g['test'].lower()}" + (f", scenario {g['scenario']}" if g["scenario"] else "") for g in games] or ["No games set up."]
+    lines += [f"{g['title_id']} {g['name']}: {g['test'].lower()}" + (f", in {', '.join(g['chosen'])}" if g["chosen"] else "") for g in games] or ["No games set up."]
     return Out(lines, data)
 
 
@@ -382,10 +382,11 @@ def run_local_repository(ctx, args):
 # -- your account, your games and the window -------------------------------------------------------------------------------
 
 def run_games(ctx, args):
-    games = [{"title_id": t["title_id"], "name": t["name"], "version": t["version"], "test": t["check"], "scenario": t["scenario"],
+    games = [{"title_id": t["title_id"], "name": t["name"], "version": t["version"], "test": t["check"], "chosen": t["chosen"],
               "scenarios": [s["id"] for s in t["scenarios"]], "folder": t["path"]} for t in ctx.engine.titles()]
-    lines = [f"{g['title_id']} {g['name']} {g['version']}: {g['test'].lower()}" + (f" in {g['scenario']} (of {', '.join(g['scenarios'])})" if g["scenario"] else "")
-             + f"\n    {g['folder']}" for g in games] or ["No games set up: add them in the window's Settings."]
+    lines = [f"{g['title_id']} {g['name']} {g['version']}: {g['test'].lower()}"
+             + (f" in {', '.join(g['chosen'])} (of {', '.join(g['scenarios'])})" if g["chosen"] else "")
+             + f"\n    {g['folder']}" for g in games] or ["No games set up: add them on the window's Games page."]
     return Out(lines, {"games": games})
 
 
@@ -396,13 +397,14 @@ def run_games_scenario(ctx, args):
     if title is None:
         raise Failed(f"{args.title_id} is not one of your games (title-runs games).")
     found = scenarios.available(args.title_id, engine.config.state_dir)
-    if args.scenario:
-        if args.scenario not in found:
-            raise Failed(f"{args.title_id} has no scenario {args.scenario!r}; it has {', '.join(found) or 'none'}.")
-        engine.set_scenario(args.title_id, args.scenario)
-    current = title.scenario or next((key for key, s in found.items() if s.get("default")), "")
-    lines = [f"{args.title_id} is tested in {current or 'its route'}."] + [f"  {key}: {s['name']}. {s['scene']}" for key, s in found.items()]
-    return Out(lines, {"title_id": args.title_id, "scenario": current,
+    if args.scenarios:
+        unknown = [name for name in args.scenarios if name not in found]
+        if unknown:
+            raise Failed(f"{args.title_id} has no scenario {', '.join(map(repr, unknown))}; it has {', '.join(found) or 'none'}.")
+        engine.set_scenarios(args.title_id, list(dict.fromkeys(args.scenarios)))
+    current = next(t["chosen"] for t in engine.titles() if t["title_id"] == args.title_id)
+    lines = [f"{args.title_id} is tested in {', '.join(current) or 'its route'}."] + [f"  {key}: {s['name']}. {s['scene']}" for key, s in found.items()]
+    return Out(lines, {"title_id": args.title_id, "chosen": current,
                        "scenarios": [{"id": key, "name": s["name"], "scene": s["scene"]} for key, s in found.items()]})
 
 
@@ -501,7 +503,7 @@ COMMANDS = [
     Command(("check",), "computer", "Check this computer can test: the sandbox, your games and a controller to record with.",
             "Runs the sandbox's self-test (no internet or files of yours inside, risky system calls blocked, the graphics card "
             "available to the game), and says whether anything else is stopping tests from starting.",
-            NOTHING, '{"sandbox", "sandbox_ok", "ready", "why", "games": [{"title_id", "name", "test", "scenario", "folder"}], '
+            NOTHING, '{"sandbox", "sandbox_ok", "ready", "why", "games": [{"title_id", "name", "test", "chosen", "folder"}], '
             '"controller": {"name", "path"} or null}',
             ("title-runs check",), None, run_check),
     Command(("log",), "computer", "The last lines of this computer's log, and of the latest test's.", "", NOTHING, '{"lines": [...]}',
@@ -566,7 +568,7 @@ COMMANDS = [
             lambda p: p.add_argument("repository", nargs="?", metavar="OWNER/NAME"), run_local_repository),
 
     Command(("games", "list"), "games", "Your games, with each one's test, scenario and folder.", "`title-runs games` on its own does the same.",
-            NOTHING, '{"games": [{"title_id", "name", "version", "test", "scenario", "scenarios", "folder"}]}', ("title-runs games",), None, run_games),
+            NOTHING, '{"games": [{"title_id", "name", "version", "test", "chosen", "scenarios", "folder"}]}', ("title-runs games",), None, run_games),
     Command(("games", "add"), "games", "Add the games in a folder: a game's own folder, or one that holds your games.",
             "Looks for games (a folder with eboot.bin and sce_sys/param.json) up to three folders down. A game with a route in "
             "this tool gets a full test; others get a check that they start. Games already set up are left as they are.",
@@ -575,12 +577,13 @@ COMMANDS = [
     Command(("games", "remove"), "games", "Take a game off your list; its folder and recordings stay.", "",
             SETTINGS, '{"removed": TITLE_ID}', ("title-runs games remove PPSA04263",),
             lambda p: p.add_argument("title_id", metavar="TITLE_ID"), run_games_remove),
-    Command(("games", "scenario"), "games", "Show or choose the scenario a game is tested in.",
+    Command(("games", "scenario"), "games", "Show or choose the scenarios a game is tested in.",
             "A scenario is one specific run of a game, which may or may not load a save first (GTA V's prologue, or Franklin's house). "
-            "The game's next tests run in it.",
-            SETTINGS + " Only when a scenario is given.", '{"title_id", "scenario", "scenarios": [{"id", "name", "scene"}]}',
-            ("title-runs games scenario PPSA04263", "title-runs games scenario PPSA04263 franklins-house"),
-            lambda p: (p.add_argument("title_id", metavar="TITLE_ID"), p.add_argument("scenario", nargs="?", metavar="SCENARIO")), run_games_scenario),
+            "Each test of the game runs in every scenario given, one after another on the same builds, and its report has a "
+            "section for each.",
+            SETTINGS + " Only when scenarios are given.", '{"title_id", "chosen": [SCENARIO, ...], "scenarios": [{"id", "name", "scene"}]}',
+            ("title-runs games scenario PPSA04263", "title-runs games scenario PPSA04263 bank-scene walk-to-window-and-look-around"),
+            lambda p: (p.add_argument("title_id", metavar="TITLE_ID"), p.add_argument("scenarios", nargs="*", metavar="SCENARIO")), run_games_scenario),
     Command(("games", "record"), "games", "Record a scenario: play from a scenario's starting scene with a controller, for tests to replay.",
             "Starts the game on the main build (a local test builds it) in the scenario named by --from and goes to its starting "
             "scene on its own, where it may set the camera for a few seconds. Then you take over: the first second is ignored, and "

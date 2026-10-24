@@ -4,7 +4,7 @@ for, and Qt's own ask small: a folder picker 640 x 440 with its side panel cut o
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSplitter, QVBoxLayout
+from PySide6.QtWidgets import QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSplitter, QVBoxLayout
 
 from . import theme
 
@@ -41,6 +41,41 @@ def ask(parent, text, action, danger=False):
     layout.addLayout(buttons)
     fit(dialog, parent, 0.45)
     return dialog.exec() == QDialog.Accepted
+
+
+def choose(parent, text, options, chosen):
+    """Ticks among options ([(id, name, tooltip)]), chosen ticked to begin with: the ids ticked, in the options' order,
+    or None when cancelled."""
+    dialog = QDialog(parent)
+    dialog.setWindowTitle("AnyPS5 title runs")
+    layout = QVBoxLayout(dialog)
+    layout.setContentsMargins(24, 20, 24, 20)
+    layout.setSpacing(12)
+    label = QLabel(text)
+    label.setWordWrap(True)
+    layout.addWidget(label)
+    boxes = []
+    for key, name, tip in options:
+        box = QCheckBox(name)
+        box.setToolTip(tip)
+        box.setChecked(key in chosen)
+        layout.addWidget(box)
+        boxes.append((key, box))
+    buttons = QHBoxLayout()
+    buttons.addStretch(1)
+    cancel = QPushButton("Cancel")
+    cancel.clicked.connect(dialog.reject)
+    buttons.addWidget(cancel)
+    save = theme.mark(QPushButton("Save"), primary="true")
+    save.clicked.connect(dialog.accept)
+    save.setDefault(True)
+    buttons.addWidget(save)
+    layout.addSpacing(8)
+    layout.addLayout(buttons)
+    fit(dialog, parent, 0.45)
+    if dialog.exec() != QDialog.Accepted:
+        return None
+    return [key for key, box in boxes if box.isChecked()]
 
 
 def folder(parent, title, start=None):

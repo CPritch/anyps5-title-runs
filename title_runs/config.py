@@ -51,7 +51,8 @@ class Title:
     env: dict = field(default_factory=dict)
     graphics_mode: str = ""
     boot_seconds: int | None = None
-    scenario: str = ""  # a scenario of scenarios/<TITLE ID>/ by id, or a scenario file's path; empty: the title's default (scenarios.py)
+    scenarios: list = field(default_factory=list)  # each a scenario of scenarios/<TITLE ID>/ or recorded, by id, or a scenario
+    # file's path; a test runs in each (scenarios.py). Empty: the title's default
 
 
 @dataclass
@@ -110,7 +111,8 @@ def load(path):
         route_path = (ROOT / route).resolve() if route and not os.path.isabs(os.path.expanduser(route)) else _path(route)
         titles[title_id] = Title(title_id, _path(entry["dump"]), route_path, [_path(p) for p in entry.get("seed", [])],
                                  list(entry.get("app0_skip", [])), dict(entry.get("env", {})), entry.get("graphics_mode", ""),
-                                 int(entry["boot_seconds"]) if "boot_seconds" in entry else None, str(entry.get("scenario", "")))
+                                 int(entry["boot_seconds"]) if "boot_seconds" in entry else None,
+                                 [str(s) for s in entry.get("scenarios", [entry["scenario"]] if entry.get("scenario") else [])])
     return Config(
         path=path,
         state_dir=_path(data.get("state_dir", user_dirs()[1])),

@@ -193,7 +193,9 @@ How it works (scenarios.py):
    saves are GPL-3.0, this tool GPL-2.0). Save-data memory slots only, for now; save folders (`_sd/<name>/`) when a
    scenario needs one.
 3. **A title runs in one scenario** (config `scenario = "<id>"`, or the Titles page's Scenario), its default when none
-   is named. A job downloads and checks the save before it builds anything.
+   is named. A job downloads and checks the save before it builds anything. Since 2026-10-24 (Charlie: "I'd like to
+   test multiple scenarios per test run"), in each of several: `scenarios = [...]`, one A/B after another on the same
+   builds, one report with a part per scenario.
 4. **A scenario's runs are its own**: `runs/<TITLE ID>-<scenario id>`, so a warm-up in the prologue never counts as warm
    for the house, and the window comes from the house's own settle point. The job folder carries the scenario's id too,
    so a head tested in two scenarios keeps both results.

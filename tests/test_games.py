@@ -73,12 +73,12 @@ class Engine(unittest.TestCase):
         configfile.save(config)
         engine = engines.Engine(config)
         recorded(config)
-        engine.set_scenario("PPSA04263", "house-walk")
+        engine.set_scenarios("PPSA04263", ["prologue", "house-walk"])
         row = engine.titles()[0]
         walk = next(c for c in row["scenarios"] if c["id"] == "house-walk")
         self.assertEqual((walk["recorded"], walk["recorded_at"]), (True, "2026-10-24"))
         engine.delete_recording("PPSA04263", "house-walk")
-        self.assertEqual(engine.config.titles["PPSA04263"].scenario, "")  # back to its default
+        self.assertEqual(engine.config.titles["PPSA04263"].scenarios, ["prologue"])  # taken off the game's list
         self.assertNotIn("house-walk", [c["id"] for c in engine.titles()[0]["scenarios"]])
         with self.assertRaises(ValueError):
             engine.delete_recording("PPSA04263", "prologue")  # the tool's own
@@ -134,6 +134,11 @@ class Page(unittest.TestCase):
         self.assertEqual(asked.call_args.kwargs, {"danger": True})
         self.assertTrue(page.recorded.isHidden())
         self.assertFalse(page.none_recorded.isHidden())
+        with mock.patch("title_runs.ui.dialogs.choose", return_value=["franklins-house", "prologue"]) as asked:
+            page.choose(next(r for r in engine.titles() if r["title_id"] == "PPSA04263"))
+        self.assertEqual(asked.call_args.args[3], ["prologue"])  # ticked to begin with: what the game is tested in now
+        self.assertEqual(engine.config.titles["PPSA04263"].scenarios, ["franklins-house", "prologue"])
+        self.assertIn("is tested in The prologue (a new game, no save), Franklin's front door (100% save).", page.note.text())
 
 
 @unittest.skipIf(QApplication is None, "PySide6 is not installed")

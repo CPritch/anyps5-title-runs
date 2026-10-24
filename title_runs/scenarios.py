@@ -154,21 +154,26 @@ def available(title_id, state_dir=None):
     return dict(sorted(found.items(), key=lambda item: not item[1].get("default")))
 
 
-def of(title, state_dir=None):
-    """The scenario a title runs in: the one its config names (scenario = "<id>" of this tool's or recorded in
-    state_dir, or the path of a scenario file of the tester's own), else the title's default, else None (a title with
-    a route and no scenarios times where it goes)."""
-    if not title.scenario:
-        return next((s for s in available(title.title_id).values() if s.get("default")), None)
-    value = Path(title.scenario).expanduser()
-    path = value if value.suffix == ".json" else SCENARIOS / title.title_id / f"{title.scenario}.json"
+def chosen(title, state_dir=None):
+    """The scenarios a test of the title runs in, one after another: those its config names (scenarios = ["<id>", ...],
+    this tool's or recorded in state_dir, or paths of scenario files of the tester's own), else its default, else [None]
+    (a title with a route and no scenarios times where it goes)."""
+    if not title.scenarios:
+        return [next((s for s in available(title.title_id).values() if s.get("default")), None)]
+    return [named(title.title_id, name, state_dir) for name in title.scenarios]
+
+
+def named(title_id, name, state_dir=None):
+    """One scenario of a title by id (this tool's first, then one recorded in state_dir) or by a file's path."""
+    value = Path(name).expanduser()
+    path = value if value.suffix == ".json" else SCENARIOS / title_id / f"{name}.json"
     if not path.exists() and value.suffix != ".json" and state_dir:
-        path = recorded(state_dir, title.title_id) / f"{title.scenario}.json"
+        path = recorded(state_dir, title_id) / f"{name}.json"
     if not path.exists():
-        raise ScenarioError(f"{title.title_id}: no scenario {title.scenario!r} ({path})")
+        raise ScenarioError(f"{title_id}: no scenario {name!r} ({path})")
     scenario = load(path)
-    if scenario["title_id"] != title.title_id:
-        raise ScenarioError(f"{path}: a scenario of {scenario['title_id']}, not {title.title_id}")
+    if scenario["title_id"] != title_id:
+        raise ScenarioError(f"{path}: a scenario of {scenario['title_id']}, not {title_id}")
     return scenario
 
 

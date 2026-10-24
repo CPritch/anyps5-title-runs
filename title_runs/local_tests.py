@@ -471,7 +471,7 @@ class LocalTests:
         return folder, files
 
     def graphics(self, results):
-        return {title_id: getattr(self.config.titles.get(title_id), "graphics_mode", "") for title_id in results.get("titles", {})}
+        return {key: getattr(self.config.titles.get(entry.get("title_id", key)), "graphics_mode", "") for key, entry in results.get("titles", {}).items()}
 
     def write_report(self, entry, results):
         drafts = self.out / "drafts"
@@ -548,7 +548,9 @@ def attachments(results):
     name is AnyPS5's with the title and the run added, aps5-trace-<commit>-<pid>-<TITLE ID>-main-1.json.gz: the game is
     the same process ID in every sandboxed run, so a side's two traces would have the same name."""
     out = []
-    for title_id, title in sorted(results.get("titles", {}).items()):
+    for key, title in sorted(results.get("titles", {}).items()):
+        title_id = title.get("title_id", key)
+        several = key != title_id  # one of the title's scenarios: its traces are named after it
         runs = [r for r in (title.get("ab") or {}).get("runs", []) if r.get("counts") and r.get("summary")]
         for side, label, words in (("A", "main", "main"), ("B", "pr", f"with #{results.get('pr')}")):
             for number, run in enumerate((r for r in runs if r["side"] == side), 1):
@@ -562,8 +564,9 @@ def attachments(results):
                 if "Traceback (most recent call last)" in digest:
                     digest = ""  # trace_digest.py failed on it: nothing for the report
                 size = trace.stat().st_size if trace else None
-                out.append({"title_id": title_id, "side": side, "number": number, "words": f"{words}, run {number}",
-                            "name": f"{stem}-{title_id}-{label}-{number}.json.gz", "path": trace, "size": size,
+                out.append({"title_id": title_id, "side": side, "number": number,
+                            "words": (f"{title.get('scenario_name') or title.get('scenario')}, " if several else "") + f"{words}, run {number}",
+                            "name": f"{stem}-{title_id}-{title.get('scenario') + '-' if several else ''}{label}-{number}.json.gz", "path": trace, "size": size,
                             "fits": size is not None and size <= protocol.ATTACH_LIMIT, "digest": digest})
     return out
 
@@ -594,6 +597,9 @@ def traces_text(files, digests=True):
     return out
 
 
+TOOL_LINE = "AI-assisted: yes"
+
+
 def report_text(results, entry, graphics=None):
     """The report of one local test, in the form of the project's performance reports (its issue form and the comments
     reviewers asked for): what ran where, main against main + the PR in A B A B order, p50, GPU busy and p99 per run,
@@ -607,59 +613,88 @@ def report_text(results, entry, graphics=None):
 
 
 def report_lines(results, entry, graphics, digests):
+    """A title in one scenario: as the project's reports read. A title in several: one report, the machine and the order
+    of the runs once, then for each scenario its scene, its numbers, its summary lines and its traces, and the closing
+    lines once."""
     pr, head = entry["pr"], entry["head"]
     main, fixes = entry.get("main") or results.get("base", ""), entry.get("fixes") or []
     carried = "".join(f" + #{f['pr']} at {f['head'][:9]}" for f in fixes)
     on_both = (f" ({' and '.join('#' + str(f['pr']) for f in fixes)} on both sides)" if fixes else "")
-    base_words = f"main {main[:9]}{carried}"
+    words = {"pr": pr, "head": head, "main": main, "fixes": fixes, "carried": carried, "on_both": on_both,
+             "base": f"main {main[:9]}{carried}",
+             "against": f"main {main[:9]}{carried}, against that + #{pr} at {head[:9]}{on_both}" if fixes else f"main {main[:9]} against main + #{pr} at {head[:9]}"}
+    groups = {}
+    for key, title in sorted(results.get("titles", {}).items()):
+        groups.setdefault(title.get("title_id", key), []).append((key, title))
     out = []
-    for title_id, title in sorted(results.get("titles", {}).items()):
-        ab = title.get("ab") or {}
-        runs = [r for r in ab.get("runs", []) if r.get("counts") and r.get("summary")]
-        a = [r for r in runs if r["side"] == "A"]
-        b = [r for r in runs if r["side"] == "B"]
-        first = (a or b or [{}])[0].get("summary") or {}
-        mode = (graphics or {}).get(title_id) or ""
-        where = (f"{first.get('title') or title.get('name', title_id)} ({title_id} {first.get('content_version') or title.get('version', '')}), "
-                 f"{first.get('os', '?')}, {first.get('gpu', '?')}, {first.get('driver', '?')}" + (f", Graphics Mode {mode}" if mode else "")
-                 + (f", {title['scene']}" if title.get("scene") else "") + f", {title.get('input') or 'with no input'}.")
-        if not a or not b:
-            side, reason = failure({"titles": {title_id: title}})
-            if side == "B":
-                out += [f"Ran this on {where}", f"{base_words} starts the game; with #{pr} at {head[:9]} merged onto it{on_both}, the game "
-                        f"doesn't reach the scene:", "```", reason, "```"]
-            else:
-                out += [f"Ran this on {where}", f"Not enough timed runs counted to compare ({', '.join(r.get('capture', '') for r in ab.get('runs', []))})."]
+    for title_id, entries in groups.items():
+        if len(entries) == 1:
+            key, title = entries[0]
+            out += section(key, title, words, (graphics or {}).get(key) or "", digests, None)
             continue
-        order = " ".join(r["side"] for r in runs)
-        env = first.get("env") or {}
-        window = (first.get("window") or {}).get("spec", "")
-        warm = ab.get("warm") or {}
-        # warm: this run's warm-up went quiet, or the build was warmed until quiet before ("already", per built commit)
-        quiet = (all((warm.get(k) or {}).get("warm") == "already" or (warm.get(k) or {}).get("quiet", "").startswith("quiet: yes") for k in ("A", "B"))
-                 and all("no pipeline builds" in r.get("capture", "") for r in runs))
-        pa, pb = [r["summary"]["frame_ms"]["p50"] for r in a], [r["summary"]["frame_ms"]["p50"] for r in b]
-        ga, gb = [r["summary"].get("gpu_busy_ms_per_present") for r in a], [r["summary"].get("gpu_busy_ms_per_present") for r in b]
-        qa, qb = [r["summary"]["frame_ms"].get("p99") for r in a], [r["summary"]["frame_ms"].get("p99") for r in b]
-        diff = sum(pb) / len(pb) - sum(pa) / len(pa)
-        pct = diff / (sum(pa) / len(pa)) * 100
-        against = (f"{base_words}, against that + #{pr} at {head[:9]}{on_both}" if fixes else f"main {main[:9]} against main + #{pr} at {head[:9]}")
-        out += [f"Ran this on {where}",
-                f"{against}, same machine and session, {count(a, b)} in the order {order}"
-                + (f", window {window}" if window else "") + (f", APS5_TRACE_EVENTS={env['APS5_TRACE_EVENTS']}" if env.get("APS5_TRACE_EVENTS") else "") + "."
-                + (" Each side was warmed until it stopped building pipelines, and no timed run built one." if quiet else "")
-                + (f" {title['save']}" if title.get("save") else ""),
-                "",
-                f"Frame p50: main {ms(pa)} ms, with #{pr} {ms(pb)} ms ({diff:+.1f} ms, {pct:+.1f} %)."
-                + (f" GPU busy per present: {ms(ga)} -> {ms(gb)} ms." if all(v is not None for v in ga + gb) else ""),
-                *([f"p99: main {ms(qa)} ms, with #{pr} {ms(qb)} ms."] if all(v is not None for v in qa + qb) else []),
-                "Not tested: other scenes, other GPUs.",
-                "AI-assisted: yes",
-                "",
-                f"Summary lines ({'main' + carried if fixes else 'main'}, then with #{pr}):",
-                "```"] + [summary_line(r, title.get("runs_dir")) for r in a + b] + ["```", ""]
-        out += traces_text(attachments({"pr": pr, "titles": {title_id: title}}), digests)
+        first = next((r.get("summary") for _, t in entries for r in (t.get("ab") or {}).get("runs", []) if r.get("counts") and r.get("summary")), None) or {}
+        title = entries[0][1]
+        mode = (graphics or {}).get(entries[0][0]) or ""
+        out += [f"Ran this on {first.get('title') or title.get('name', title_id)} ({title_id} {first.get('content_version') or title.get('version', '')}), "
+                f"{first.get('os', '?')}, {first.get('gpu', '?')}, {first.get('driver', '?')}" + (f", Graphics Mode {mode}" if mode else "")
+                + f", in {len(entries)} scenarios: {words['against']}, same machine and session, in each scenario two runs a side in the order A B A B.", ""]
+        for key, title in entries:
+            out += section(key, title, words, mode, digests, title.get("scenario_name") or title.get("scenario") or key)
+        out += ["Not tested: other scenes, other GPUs.", TOOL_LINE, ""]
     return "\n".join(out).rstrip("\n") + "\n"
+
+
+def section(key, title, words, mode, digests, scenario):
+    """One scenario's part of a report. scenario: its name when the title ran in several (a shorter part under the
+    report's first line), else None (the whole report of a title, as the project's reports read)."""
+    pr, head = words["pr"], words["head"]
+    ab = title.get("ab") or {}
+    runs = [r for r in ab.get("runs", []) if r.get("counts") and r.get("summary")]
+    a = [r for r in runs if r["side"] == "A"]
+    b = [r for r in runs if r["side"] == "B"]
+    first = (a or b or [{}])[0].get("summary") or {}
+    title_id = title.get("title_id", key)
+    scene = (f"{title['scene']}, " if title.get("scene") else "") + f"{title.get('input') or 'with no input'}"
+    where = (f"{first.get('title') or title.get('name', title_id)} ({title_id} {first.get('content_version') or title.get('version', '')}), "
+             f"{first.get('os', '?')}, {first.get('gpu', '?')}, {first.get('driver', '?')}" + (f", Graphics Mode {mode}" if mode else "")
+             + f", {scene}.")
+    lead = f"**{scenario}**: {scene}." if scenario else f"Ran this on {where}"
+    if not a or not b:
+        side, reason = failure({"titles": {key: title}})
+        if side == "B":
+            return [lead, f"{words['base']} starts the game; with #{pr} at {head[:9]} merged onto it{words['on_both']}, the game "
+                    f"doesn't reach the scene:", "```", reason, "```", ""]
+        return [lead, f"Not enough timed runs counted to compare ({', '.join(r.get('capture', '') for r in ab.get('runs', []))}).", ""]
+    order = " ".join(r["side"] for r in runs)
+    env = first.get("env") or {}
+    window = (first.get("window") or {}).get("spec", "")
+    warm = ab.get("warm") or {}
+    # warm: this run's warm-up went quiet, or the build was warmed until quiet before ("already", per built commit)
+    quiet = (all((warm.get(k) or {}).get("warm") == "already" or (warm.get(k) or {}).get("quiet", "").startswith("quiet: yes") for k in ("A", "B"))
+             and all("no pipeline builds" in r.get("capture", "") for r in runs))
+    pa, pb = [r["summary"]["frame_ms"]["p50"] for r in a], [r["summary"]["frame_ms"]["p50"] for r in b]
+    ga, gb = [r["summary"].get("gpu_busy_ms_per_present") for r in a], [r["summary"].get("gpu_busy_ms_per_present") for r in b]
+    qa, qb = [r["summary"]["frame_ms"].get("p99") for r in a], [r["summary"]["frame_ms"].get("p99") for r in b]
+    diff = sum(pb) / len(pb) - sum(pa) / len(pa)
+    pct = diff / (sum(pa) / len(pa)) * 100
+    how = ((f"Window {window}" if window else "") + (f", APS5_TRACE_EVENTS={env['APS5_TRACE_EVENTS']}" if env.get("APS5_TRACE_EVENTS") else "")
+           + ("." if window or env.get("APS5_TRACE_EVENTS") else ""))
+    if scenario:
+        about = [f"{lead} {how}".rstrip() + (" Each side was warmed until it stopped building pipelines, and no timed run built one." if quiet else "")
+                 + (f" {title['save']}" if title.get("save") else "")]
+    else:
+        about = [lead, f"{words['against']}, same machine and session, {count(a, b)} in the order {order}"
+                 + (f", window {window}" if window else "") + (f", APS5_TRACE_EVENTS={env['APS5_TRACE_EVENTS']}" if env.get("APS5_TRACE_EVENTS") else "") + "."
+                 + (" Each side was warmed until it stopped building pipelines, and no timed run built one." if quiet else "")
+                 + (f" {title['save']}" if title.get("save") else ""), ""]
+    out = about + [f"Frame p50: main {ms(pa)} ms, with #{pr} {ms(pb)} ms ({diff:+.1f} ms, {pct:+.1f} %)."
+                   + (f" GPU busy per present: {ms(ga)} -> {ms(gb)} ms." if all(v is not None for v in ga + gb) else ""),
+                   *([f"p99: main {ms(qa)} ms, with #{pr} {ms(qb)} ms."] if all(v is not None for v in qa + qb) else [])]
+    if not scenario:
+        out += ["Not tested: other scenes, other GPUs.", TOOL_LINE, ""]
+    out += [f"Summary lines ({'main' + words['carried'] if words['fixes'] else 'main'}, then with #{pr}):",
+            "```"] + [summary_line(r, title.get("runs_dir")) for r in a + b] + ["```", ""]
+    return out + traces_text(attachments({"pr": pr, "titles": {key: title}}), digests)
 
 
 def failure(results):
@@ -690,13 +725,14 @@ SIDE_KEYS = ("p50", "p90", "p99", "gpu")
 
 
 def result_of(results):
-    """A job's results (job.run) as the verdict reads them: {"status", "titles": {title ID: {"sides", "outcome"}}, and
-    "error" when there is one}, every text cleaned of markup characters."""
+    """A job's results (job.run) as the verdict reads them: {"status", "titles": {results key: {"title_id", "scenario_name",
+    "sides", "outcome"}}, and "error" when there is one}, every text cleaned of markup characters."""
     titles = {}
-    for title_id, entry in results.get("titles", {}).items():
+    for name, entry in results.get("titles", {}).items():
         sides = (entry.get("verdict") or {}).get("sides", {})
-        titles[title_id] = {"sides": {key: {m: sides[key].get(m, []) for m in SIDE_KEYS} for key in sides},
-                            "outcome": {key: clean(entry.get("outcome", {}).get(key, "not run")) for key in ("A", "B")}}
+        titles[name] = {"title_id": entry.get("title_id", name), "scenario_name": clean(entry.get("scenario_name") or entry.get("scenario") or ""),
+                        "sides": {key: {m: sides[key].get(m, []) for m in SIDE_KEYS} for key in sides},
+                        "outcome": {key: clean(entry.get("outcome", {}).get(key, "not run")) for key in ("A", "B")}}
     out = {"status": results.get("status", "failed"), "titles": titles}
     if results.get("error") or results.get("detail"):
         out["error"] = clean(results.get("error") or results.get("detail"), 300)
@@ -708,12 +744,14 @@ def summary_words(result, rules):
     if result["status"] != "done":
         return result.get("error") or result["status"]
     parts = []
-    for title_id, entry in sorted(result["titles"].items()):
+    for key, entry in sorted(result["titles"].items()):
+        title_id = entry.get("title_id", key)
+        name = f"{entry.get('scenario_name') or key}: " if key != title_id else ""
         v = verdict.machine(entry.get("sides") or {}, rules)
         if v.get("diff") is None:
-            parts.append(f"{title_id}: not enough runs counted ({entry.get('outcome', {}).get('B', '?')})")
+            parts.append(f"{name or title_id + ': '}not enough runs counted ({entry.get('outcome', {}).get('B', '?')})")
         else:
             word = {"faster": "faster", "slower": "slower"}.get(v["verdict"], "no difference")
-            parts.append(f"main {v['main_fps']:.1f} fps, PR {v['pr_fps']:.1f} fps: {word} ({v['diff']:+.2f} ms a frame, "
+            parts.append(f"{name}main {v['main_fps']:.1f} fps, PR {v['pr_fps']:.1f} fps: {word} ({v['diff']:+.2f} ms a frame, "
                          f"{v['diff_pct']:+.1f} %)" + (", borderline" if v.get("borderline") else ""))
     return "; ".join(parts) or "no titles ran"

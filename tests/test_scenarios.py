@@ -83,16 +83,17 @@ class ScenarioFile(unittest.TestCase):
             with self.subTest(name), self.assertRaises(scenarios.ScenarioError):
                 scenarios.load(path)
 
-    def test_a_title_names_its_scenario_by_id_or_path_and_else_has_its_default(self):
+    def test_a_title_names_its_scenarios_by_id_or_path_and_else_has_its_default(self):
         path, _ = scenario_file(self.dir)
-        self.assertEqual(scenarios.of(configs.Title("PPSA04263", Path("/dump"), scenario=str(path)))["id"], "house")
-        self.assertEqual(scenarios.of(configs.Title("PPSA04263", Path("/dump")))["id"], "prologue")
-        self.assertIsNone(scenarios.of(configs.Title("PPSA01325", Path("/dump"))))  # no scenarios: the route alone, as before
+        chosen = scenarios.chosen(configs.Title("PPSA04263", Path("/dump"), scenarios=[str(path), "franklins-house"]))
+        self.assertEqual([s["id"] for s in chosen], ["house", "franklins-house"])
+        self.assertEqual([s["id"] for s in scenarios.chosen(configs.Title("PPSA04263", Path("/dump")))], ["prologue"])
+        self.assertEqual(scenarios.chosen(configs.Title("PPSA01325", Path("/dump"))), [None])  # no scenarios: the route alone, as before
         with self.assertRaises(scenarios.ScenarioError):
-            scenarios.of(configs.Title("PPSA04263", Path("/dump"), scenario="no-such-scenario"))
+            scenarios.chosen(configs.Title("PPSA04263", Path("/dump"), scenarios=["prologue", "no-such-scenario"]))
         other, _ = scenario_file(self.dir, "other", title_id="PPSA01325")
         with self.assertRaises(scenarios.ScenarioError):
-            scenarios.of(configs.Title("PPSA04263", Path("/dump"), scenario=str(other)))
+            scenarios.named("PPSA04263", str(other))
 
     def test_the_tools_own_scenarios_load_with_the_default_first(self):
         found = scenarios.available("PPSA04263")
@@ -200,7 +201,7 @@ class RecordedPlay(unittest.TestCase):
         self.assertEqual(walk["input"]["track"], self.track)
         self.assertIn("walk", scenarios.available("PPSA04263", state))
         self.assertNotIn("walk", scenarios.available("PPSA04263"))
-        self.assertEqual(scenarios.of(configs.Title("PPSA04263", Path("/dump"), scenario="walk"), state)["id"], "walk")
+        self.assertEqual(scenarios.named("PPSA04263", "walk", state)["id"], "walk")
         self.recorded(state, "prologue")  # the tool's own of the same id comes first
         self.assertTrue(scenarios.available("PPSA04263", state)["prologue"].get("default"))
         self.assertEqual(scenarios.input_words(walk), "with input recorded from a controller on 2026-10-24 (1 s using the sticks), replayed on "
@@ -305,11 +306,14 @@ class Elsewhere(unittest.TestCase):
         self.assertEqual([key.rsplit(" in ", 1)[1] for key in keys], ["house", "prologue"])
         self.assertEqual({c["n"] for c in verdict.by_class(results, "PPSA04263").values()}, {1})
 
-    def test_the_config_file_keeps_the_scenario(self):
+    def test_the_config_file_keeps_the_scenarios(self):
         config = helpers.make_config()
-        config.titles["PPSA04263"].scenario = "franklins-house"
+        config.titles["PPSA04263"].scenarios = ["franklins-house", "prologue"]
         configfile.save(config)
-        self.assertEqual(configs.load(config.path).titles["PPSA04263"].scenario, "franklins-house")
+        self.assertEqual(configs.load(config.path).titles["PPSA04263"].scenarios, ["franklins-house", "prologue"])
+        text = config.path.read_text().replace('scenarios = ["franklins-house", "prologue"]', 'scenario = "franklins-house"')
+        config.path.write_text(text)  # a config from before a game took several
+        self.assertEqual(configs.load(config.path).titles["PPSA04263"].scenarios, ["franklins-house"])
 
     def test_the_report_names_the_save_and_the_input(self):
         results = {"pr": 4287, "head": "7" * 40, "base": "c" * 40,

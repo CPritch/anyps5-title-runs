@@ -5,6 +5,7 @@ puts the head back on the list. Nothing is posted: GitHub is only read."""
 import contextlib
 import datetime
 import json
+import re
 import types
 import unittest
 from pathlib import Path
@@ -13,7 +14,7 @@ from unittest import mock
 import helpers  # noqa: F401
 from helpers import INFO, fake_results, make_config
 
-from title_runs import client, config as configs, configfile, formats, job, local_tests
+from title_runs import client, config as configs, configfile, formats, job, local_tests, verdict
 
 A, B = "a" * 40, "b" * 40
 
@@ -274,6 +275,45 @@ class Report(unittest.TestCase):
                                          "ab": {"warm": self.warm,
                                                 "runs": [{"run": run, "side": side, "counts": True, "summary": data,
                                                           "capture": "capture: frames 3300:700; counts; no pipeline builds"} for run, side, data in runs]}}}}
+
+    def two_scenarios(self):
+        """The game in two scenarios, each with its own runs folder and traces."""
+        one, other = self.results(self.traces([19_000_000] * 4))["titles"]["PPSA04263"], self.results(self.traces([18_000_000] * 4))["titles"]["PPSA04263"]
+        one.update(title_id="PPSA04263", scenario="bank-scene", scenario_name="Bank Scene", input="with input recorded from a controller")
+        other.update(title_id="PPSA04263", scenario="window", scenario_name="Walk to window", scene="Franklin's house", input="with a set 7 s of input")
+        results = self.results(self.traces([1] * 4))
+        results["titles"] = {"PPSA04263 bank-scene": one, "PPSA04263 window": other}
+        return results
+
+    def test_one_report_for_a_game_in_two_scenarios(self):
+        text = local_tests.report_text(self.two_scenarios(), {"pr": 4287, "head": "7" * 40, "main": "4" * 40})
+        lines = text.splitlines()
+        self.assertEqual(sum(line.startswith("Ran this on ") for line in lines), 1)  # the machine once
+        self.assertIn(", in 2 scenarios: main 444444444 against main + #4287 at 777777777, same machine and session, in each scenario "
+                      "two runs a side in the order A B A B.", lines[0])
+        sections = [line.split("**")[1] for line in lines if re.match(r"^\*\*[^*]+\*\*: ", line)]
+        self.assertEqual(sections, ["Bank Scene", "Walk to window"])
+        self.assertEqual(sum(line.startswith("Frame p50: ") for line in lines), 2)
+        self.assertEqual(sum(line == "Summary lines (main, then with #4287):" for line in lines), 2)
+        self.assertEqual((lines.count("Not tested: other scenes, other GPUs."), lines.count(local_tests.TOOL_LINE)), (1, 1))
+        self.assertEqual(lines[-1], local_tests.TOOL_LINE)
+        names = [f["name"] for f in local_tests.attachments(self.two_scenarios())]
+        self.assertEqual(names[0], "aps5-trace-c49fa17ee046-3-PPSA04263-bank-scene-main-1.json.gz")
+        self.assertEqual(len(set(names)), 8)  # a trace per run of each scenario, none named twice
+        self.assertIn("<details><summary>Digest, Walk to window, with #4287, run 2 (python3 tools/trace_digest.py)</summary>", lines)
+
+    def test_the_results_key_of_a_game_in_several_scenarios(self):
+        house, bank = {"id": "franklins-house"}, {"id": "bank-scene"}
+        self.assertEqual(job.results_key("PPSA04263", house, [house]), "PPSA04263")
+        self.assertEqual(job.results_key("PPSA04263", bank, [house, bank]), "PPSA04263 bank-scene")
+        self.assertEqual(job.results_key("PPSA01325", None, [None]), "PPSA01325")
+
+    def test_the_result_line_names_each_scenario(self):
+        results = self.two_scenarios()
+        for entry in results["titles"].values():
+            entry["verdict"] = {"sides": {"A": {"p50": [79.1, 79.0]}, "B": {"p50": [73.8, 74.0]}}}
+        words = local_tests.summary_words(local_tests.result_of(dict(results, status="done")), verdict.DEFAULT)
+        self.assertRegex(words, r"^Bank Scene: main 12\.7 fps, PR 13\.5 fps: faster .*; Walk to window: main 12\.7 fps, PR 13\.5 fps: faster ")
 
     def test_main_with_a_fix_on_both_sides(self):
         import tempfile

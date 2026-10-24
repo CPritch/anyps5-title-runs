@@ -77,14 +77,17 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
     after the run it is in. remote: where the head and main come from (default the config's); main: a main SHA pinned in
     advance (local tests'), instead of main's tip now.
 
-    Each title runs in its scenario (scenarios.py): a save is downloaded and checked before anything is built, and the
-    job's folder is named after the scenario too, so a head tested in two scenarios keeps both results."""
+    Each title runs in each of its scenarios (scenarios.py), one after another on the same builds: their saves are
+    downloaded and checked before anything is built, and the job's folder is named after the scenarios too, so a head
+    tested in other scenarios keeps both results. results["titles"] is keyed by title ID, or for a title in several
+    scenarios by "<TITLE ID> <scenario id>" (results_key()); each entry names its title_id and scenario."""
     state_dir = Path(state_dir)
     try:
-        chosen, unknown = {title_id: scenarios.of(title, state_dir) for title_id, title in config.titles.items()}, None
+        chosen, unknown = {title_id: scenarios.chosen(title, state_dir) for title_id, title in config.titles.items()}, None
     except scenarios.ScenarioError as error:  # failed below, in the job's own folder
-        chosen, unknown = {title_id: None for title_id in config.titles}, error
-    job_dir = job_folder(state_dir / "jobs", f"{number}-{head[:12]}" + "".join(f"-{scenario['id']}" for scenario in chosen.values() if scenario))
+        chosen, unknown = {title_id: [None] for title_id in config.titles}, error
+    job_dir = job_folder(state_dir / "jobs", f"{number}-{head[:12]}" + "".join(f"-{scenario['id']}" for found in chosen.values()
+                                                                                for scenario in found if scenario))
     results = {"pr": number, "head": head, "started": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
                "machine": config.machine, "sandbox": config.sandbox, "titles": {}, "job": job_dir.name}
 
@@ -97,10 +100,11 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
         if unknown:
             raise unknown
         saves = {}
-        for title_id, scenario in chosen.items():
-            saves[title_id] = scenarios.files(scenario, state_dir / "saves")
-            if scenario:
-                note(f"{title_id}: the scenario {scenario['name']}" + (", the save checked against its sha256" if saves[title_id] else ""))
+        for title_id, found in chosen.items():
+            for scenario in found:
+                saves[results_key(title_id, scenario, found)] = scenarios.files(scenario, state_dir / "saves")
+                if scenario:
+                    note(f"{title_id}: the scenario {scenario['name']}" + (", the save checked against its sha256" if saves[results_key(title_id, scenario, found)] else ""))
         remote = remote or config.remote
         base = sources.fetch_pinned(config.repo_dir, remote, head, main) if main else sources.fetch_head(config.repo_dir, remote, head)
         trees = {"A": state_dir / "trees" / "main", "B": state_dir / "trees" / "pr"}
@@ -127,20 +131,23 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
             builds[key] = {"dir": build_dir, **build.build(trees[key], build_dir, config.cmake_args, job_dir / f"build-{key}.log", commits[key], config.sandbox)}
             note(f"{key}: built in {builds[key]['seconds']} s, {builds[key]['prx']} prx, shader cache version {builds[key]['shader_cache_version']}")
         results["builds"] = {key: {k: str(v) for k, v in value.items()} for key, value in builds.items()}
-        for title_id, title in config.titles.items():
+        for title_id, title, scenario in ((t, title, s) for t, title in config.titles.items() for s in chosen[t]):
+            if results.get("status") == "superseded":  # Stop: no more scenarios after the one it ended
+                break
             entry = {"title_id": title_id}
-            results["titles"][title_id] = entry
-            scenario = chosen[title_id]
+            name = results_key(title_id, scenario, chosen[title_id])
+            results["titles"][name] = entry
             if title.route or scenario:
                 route = routes.load(scenario["route"] if scenario else title.route)
                 entry.update(scene=scenario["scene"] if scenario else route["scene"], route=str(scenario["route"] if scenario else title.route))
                 if scenario:
-                    entry.update(scenario=scenario["id"], save=scenarios.save_words(scenario), input=scenarios.input_words(scenario))
+                    entry.update(scenario=scenario["id"], scenario_name=scenario["name"], save=scenarios.save_words(scenario),
+                                 input=scenarios.input_words(scenario))
                 runs_dir = state_dir / "runs" / scenarios.runs_name(title_id, scenario)
                 sides = []
                 for key, label in (("A", "main"), ("B", "pr")):
                     work = state_dir / "games" / title_id / label
-                    executable, found = game.prepare(title, builds[key]["dir"], work, saves[title_id])
+                    executable, found = game.prepare(title, builds[key]["dir"], work, saves[name])
                     entry.setdefault("name", found["name"])
                     entry.setdefault("version", found["version"])
                     sides.append(protocol.Side(key, label, commits[key], executable, work, builds[key]["dir"], trees["A"] / "tools",
@@ -169,6 +176,11 @@ def run(config, state_dir, number, head, log, recheck=None, progress=None, shoul
         (job_dir / "error.txt").write_text(traceback.format_exc())
         note(f"failed: {results['error']}")
     return finish(job_dir, results)
+
+
+def results_key(title_id, scenario, chosen):
+    """A title's results key in a job: its ID, or with the scenario's id when the title runs in more than one."""
+    return f"{title_id} {scenario['id']}" if scenario and len(chosen) > 1 else title_id
 
 
 def outcome_of(ab):

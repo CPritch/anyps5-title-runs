@@ -173,10 +173,12 @@ class Commands(unittest.TestCase):
 
     def test_a_scenario_is_one_of_the_games_own(self):
         code, data = self.json("games", "scenario", "PPSA04263")
-        self.assertEqual((code, data["scenario"]), (0, "prologue"))
-        self.assertEqual(self.json("games", "scenario", "PPSA04263", "franklins-house")[1]["scenario"], "franklins-house")
-        self.assertEqual(self.config().titles["PPSA04263"].scenario, "franklins-house")
-        self.assertEqual(self.json("games", "scenario", "PPSA04263", "the-moon")[0], 1)
+        self.assertEqual((code, data["chosen"]), (0, ["prologue"]))
+        both = self.json("games", "scenario", "PPSA04263", "franklins-house", "prologue")[1]["chosen"]
+        self.assertEqual(both, ["franklins-house", "prologue"])
+        self.assertEqual(self.config().titles["PPSA04263"].scenarios, ["franklins-house", "prologue"])
+        self.assertEqual(self.json("games", "scenario", "PPSA04263", "prologue", "the-moon")[0], 1)
+        self.assertEqual(self.config().titles["PPSA04263"].scenarios, ["franklins-house", "prologue"])  # unchanged
 
 
 if __name__ == "__main__":
