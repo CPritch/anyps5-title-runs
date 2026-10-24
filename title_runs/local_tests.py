@@ -597,7 +597,7 @@ def traces_text(files, digests=True):
     return out
 
 
-TOOL_LINE = "AI-assisted: yes"
+TOOL_LINE = "Measured and written up with anyps5-title-runs (https://github.com/CPritch/anyps5-title-runs)."
 
 
 def report_text(results, entry, graphics=None):
