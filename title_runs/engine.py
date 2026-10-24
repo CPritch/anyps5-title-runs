@@ -155,9 +155,10 @@ class Engine:
             dump = self.dumps.get(title_id, {})
             found = scenarios.available(title_id, self.config.state_dir)
             choices = [{"id": key, "name": s["name"], "scene": s["scene"], "save": scenarios.save_words(s), "recorded": bool(s.get("input")),
+                        "recorded_at": str(((s.get("input") or {}).get("recorded") or {}).get("at", ""))[:10],
                         "startable": bool(s.get("frame")) and not s.get("input")} for key, s in found.items()]
             current = title.scenario or next((key for key, s in found.items() if s.get("default")), "")
-            rows.append({"on": True, "title_id": title_id, "name": dump.get("name", "?"), "version": dump.get("version", "?"),
+            rows.append({"title_id": title_id, "name": dump.get("name", "?"), "version": dump.get("version", "?"),
                          "check": "Full test" if title.route or choices else "Start-up check", "seeds": f"{len(title.seed)} file(s)" if title.seed else "none",
                          "seed_paths": [str(p) for p in title.seed], "path": str(title.dump), "scenario": current, "scenarios": choices})
         return rows
@@ -193,16 +194,55 @@ class Engine:
                     self.log(f"recording {scenario_id}: {error}")
                     raise
                 self.client.status.update(state="idle", job={}, progress="",
-                                          line=f"Recorded {name}. To use it, pick it as the scenario in Settings, Your games.")
+                                          line=f"Recorded {name}. To test in it, pick it as the scenario on the Games page.")
                 self.log(f"recorded {scenario_id}: {path}")
                 return path
         finally:
             controller.close()
 
     def set_scenario(self, title_id, scenario_id):
-        """The Titles page's Scenario: the next tests of this title run in it (a scenario's runs and warm-ups are its own)."""
+        """The Games page's Scenario: the next tests of this title run in it (a scenario's runs and warm-ups are its own)."""
         self.config.titles[title_id].scenario = scenario_id
         self.save_config()
+
+    def add_games(self, folder):
+        """The games in folder (or its subfolders) that aren't set up yet, added with their route where this tool has one.
+        Returns what was added, in words."""
+        found = platform_info.find_dumps(platform_info.search_folder(str(folder)), depth=3, skip=[self.config.state_dir])
+        added = []
+        for dump in found:
+            if dump["title_id"] in self.config.titles:
+                continue
+            route = configs.ROOT / "routes" / f"{dump['title_id']}.json"
+            self.config.titles[dump["title_id"]] = configs.Title(dump["title_id"], Path(dump["path"]), route if route.exists() else None)
+            self.dumps[dump["title_id"]] = dump
+            added.append(f"{dump['name']} ({dump['title_id']})")
+        if added:
+            self.names = model.title_names(self.config, list(self.dumps.values()))
+            self.save_config()
+            return f"Added {', '.join(added)}."
+        if found:
+            return "Every game in that folder is already set up."
+        return ("No games found there. A game's folder has eboot.bin and a sce_sys folder in it: choose the folder that holds "
+                "your game folders, or a game's own folder.")
+
+    def remove_game(self, title_id):
+        """Take a game off this computer's list; its folder and recordings are left alone."""
+        self.config.titles.pop(title_id, None)
+        self.dumps.pop(title_id, None)
+        self.save_config()
+
+    def delete_recording(self, title_id, scenario_id):
+        """Delete a recorded scenario (never one of this tool's own). A game set to it goes back to its default."""
+        path = scenarios.recorded(self.config.state_dir, title_id) / f"{scenario_id}.json"
+        if not path.exists():
+            raise ValueError(f"{title_id} has no recorded scenario {scenario_id!r}")
+        path.unlink()
+        title = self.config.titles.get(title_id)
+        if title is not None and title.scenario == scenario_id:
+            title.scenario = ""
+            self.save_config()
+        self.log(f"deleted the recorded scenario {title_id}/{scenario_id}")
 
     def allowed_now(self):
         return self.client.allowed_now()

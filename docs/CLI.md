@@ -8,32 +8,35 @@ title-runs: test AnyPS5 pull requests on your own games and hardware, against ma
 Usage: title-runs [--config FILE] [--json] COMMAND [ARGS]
 
 This computer
-  status            What this computer is doing: the test running, the testing switch, what's next, anything to fix.
-  testing           Show or set the testing switch: off, schedule or now.
-  stop              End the running test now, and set testing to off.
-  run               Run tests here without the window, when the switch and the schedule allow, until stopped.
-  check             Check this computer can test: the sandbox, your games and a controller to record with.
-  log               The last lines of this computer's log, and of the latest test's.
+  status                  What this computer is doing: the test running, the testing switch, what's next, anything to fix.
+  testing                 Show or set the testing switch: off, schedule or now.
+  stop                    End the running test now, and set testing to off.
+  run                     Run tests here without the window, when the switch and the schedule allow, until stopped.
+  check                   Check this computer can test: the sandbox, your games and a controller to record with.
+  log                     The last lines of this computer's log, and of the latest test's.
 
 Local tests (pull requests you choose, tested on this computer)
-  local list        Your local tests: what's waiting, and each pull request's newest result.
-  local add         Add pull requests to your local tests, by number or link.
-  local remove      Take pull requests off your local tests; their results stay.
-  local again       Test a pull request's last tested commit again, keeping the earlier result.
-  local report      A pull request's report: the link to post it on, then its text in the project's form.
-  local files       The traces to attach to a pull request's report, and the folder they're in.
-  local posted      Mark a pull request's report as posted by you (--undo: not posted).
-  local follow      Also test every open pull request of these people.
-  local unfollow    Stop following these people; pull requests you added by number stay.
-  local fixes       Show or set the pull requests merged into both builds as fixes (--none: no fixes).
-  local main        The version of main local tests are tested against (--latest: the newest, from the next test).
-  local repository  Show or set the project whose pull requests you test.
+  local list              Your local tests: what's waiting, and each pull request's newest result.
+  local add               Add pull requests to your local tests, by number or link.
+  local remove            Take pull requests off your local tests; their results stay.
+  local again             Test a pull request's last tested commit again, keeping the earlier result.
+  local report            A pull request's report: the link to post it on, then its text in the project's form.
+  local files             The traces to attach to a pull request's report, and the folder they're in.
+  local posted            Mark a pull request's report as posted by you (--undo: not posted).
+  local follow            Also test every open pull request of these people.
+  local unfollow          Stop following these people; pull requests you added by number stay.
+  local fixes             Show or set the pull requests merged into both builds as fixes (--none: no fixes).
+  local main              The version of main local tests are tested against (--latest: the newest, from the next test).
+  local repository        Show or set the project whose pull requests you test.
 
 Your games and the window
-  games list        Your games, with each one's test, scenario and folder.
-  games scenario    Show or choose the scenario a game is tested in.
-  games record      Record a scenario: play from a scenario's starting scene with a controller, for tests to replay.
-  window            Open the window (the first-run walkthrough if the config is new).
+  games list              Your games, with each one's test, scenario and folder.
+  games add               Add the games in a folder: a game's own folder, or one that holds your games.
+  games remove            Take a game off your list; its folder and recordings stay.
+  games scenario          Show or choose the scenario a game is tested in.
+  games record            Record a scenario: play from a scenario's starting scene with a controller, for tests to replay.
+  games delete-recording  Delete a recorded scenario (never one of this tool's own).
+  window                  Open the window (the first-run walkthrough if the config is new).
 
 Options
   --config FILE   the config (default: $TITLE_RUNS_CONFIG, else anyps5-title-runs/config.toml in your config folder)
@@ -520,6 +523,54 @@ Examples:
   title-runs games
 ```
 
+### `title-runs games add`
+
+Add the games in a folder: a game's own folder, or one that holds your games.
+
+```
+usage: title-runs games add [-h] FOLDER
+
+Add the games in a folder: a game's own folder, or one that holds your games.
+
+Looks for games (a folder with eboot.bin and sce_sys/param.json) up to three folders down. A game
+with a route in this tool gets a full test; others get a check that they start. Games already set up
+are left as they are.
+
+positional arguments:
+  FOLDER
+
+options:
+  -h, --help  show this help message and exit
+
+Changes: This computer's settings (the config file).
+JSON (--json): {"added": [TITLE_ID, ...]}
+
+Examples:
+  title-runs games add ~/games
+```
+
+### `title-runs games remove`
+
+Take a game off your list; its folder and recordings stay.
+
+```
+usage: title-runs games remove [-h] TITLE_ID
+
+Take a game off your list; its folder and recordings stay.
+
+positional arguments:
+  TITLE_ID
+
+options:
+  -h, --help  show this help message and exit
+
+Changes: This computer's settings (the config file).
+JSON (--json): {"removed": TITLE_ID}
+
+Examples:
+  title-runs games remove PPSA04263
+```
+
 ### `title-runs games scenario`
 
 Show or choose the scenario a game is tested in.
@@ -581,6 +632,31 @@ JSON (--json): one object per line: {"progress": text} as it goes, then {"record
 
 Examples:
   title-runs games record PPSA04263 --from franklins-house --name "Out of the house" --scene "Franklin walks out of his house to the road"
+```
+
+### `title-runs games delete-recording`
+
+Delete a recorded scenario (never one of this tool's own).
+
+```
+usage: title-runs games delete-recording [-h] TITLE_ID SCENARIO
+
+Delete a recorded scenario (never one of this tool's own).
+
+A game that was set to it goes back to its default scenario.
+
+positional arguments:
+  TITLE_ID
+  SCENARIO
+
+options:
+  -h, --help  show this help message and exit
+
+Changes: Deletes the scenario file from the state folder.
+JSON (--json): {"deleted": SCENARIO}
+
+Examples:
+  title-runs games delete-recording PPSA04263 house-walk
 ```
 
 ### `title-runs window`

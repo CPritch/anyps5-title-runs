@@ -57,10 +57,11 @@ themselves.
 - **Local tests**: add a pull request by number or link, follow people, test again, choose fixes to include, and see
   which version of main they're tested against. Each result has a report window with the link to post it on, the text
   to copy, the traces to drag into the comment, and Mark as posted.
+- **Games**: your games, each with its test and the scenario it's tested in; Add a game…, Remove, Record a scenario…,
+  and your recorded scenarios, which you can delete.
 - **All pull requests** (the advanced view): the project's open pull requests (those on your list, those that mention
   your games, those labelled perf, agc or shader, then the rest), each with Add to put it on your local tests.
-- **Settings**: this machine, the sandbox check, what's shared, when to test, your games and their scenarios, the
-  app's look, and the logs.
+- **Settings**: this machine, the sandbox check, what's shared, when to test, the app's look, and the logs.
 
 Closing the window quits and ends a running test, unless it is set to keep running in the tray.
 
@@ -133,7 +134,7 @@ page), its default when none is named. GTA V's are `prologue` (the default: a ne
 ### Recording a scenario
 
 A scenario can include input recorded from a controller, so each run plays through the same part of the game instead
-of standing in one place. Use Settings, Your games, **Record a scenario…**, or:
+of standing in one place. Use **Record a scenario…** on the Games page, or:
 
 ```
 title-runs games record PPSA04263 --from franklins-house --name "Out of the house" --scene "Franklin walks to the road"

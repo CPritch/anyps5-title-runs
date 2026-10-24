@@ -1,4 +1,4 @@
-"""Record a scenario (Settings, Your games): the game, the scenario to start from, a name, what happens, how long, and the
+"""Record a scenario (the Games page): the game, the scenario to start from, a name, what happens, how long, and the
 controller found. Record hands it to the engine's worker (Engine.record_scenario, recording.py) and Home shows it
 running; Stop there ends it with nothing saved."""
 

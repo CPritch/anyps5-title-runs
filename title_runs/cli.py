@@ -406,6 +406,32 @@ def run_games_scenario(ctx, args):
                        "scenarios": [{"id": key, "name": s["name"], "scene": s["scene"]} for key, s in found.items()]})
 
 
+def run_games_add(ctx, args):
+    engine = ctx.engine
+    before = set(engine.config.titles)
+    said = engine.add_games(args.folder)
+    added = sorted(set(engine.config.titles) - before)
+    if not added and not said.startswith("Every game"):
+        raise Failed(said)
+    return Out(said, {"added": added})
+
+
+def run_games_remove(ctx, args):
+    engine = ctx.engine
+    if args.title_id not in engine.config.titles:
+        raise Failed(f"{args.title_id} is not one of your games (title-runs games).")
+    engine.remove_game(args.title_id)
+    return Out(f"Removed {args.title_id}. Its folder and any recordings stay where they are.", {"removed": args.title_id})
+
+
+def run_games_delete_recording(ctx, args):
+    try:
+        ctx.engine.delete_recording(args.title_id, args.scenario)
+    except ValueError as error:
+        raise Failed(str(error)) from error
+    return Out(f"Deleted the recording {args.scenario}.", {"deleted": args.scenario})
+
+
 def run_games_record(ctx, args):
     from . import pad, recording
     engine = ctx.engine
@@ -541,6 +567,14 @@ COMMANDS = [
 
     Command(("games", "list"), "games", "Your games, with each one's test, scenario and folder.", "`title-runs games` on its own does the same.",
             NOTHING, '{"games": [{"title_id", "name", "version", "test", "scenario", "scenarios", "folder"}]}', ("title-runs games",), None, run_games),
+    Command(("games", "add"), "games", "Add the games in a folder: a game's own folder, or one that holds your games.",
+            "Looks for games (a folder with eboot.bin and sce_sys/param.json) up to three folders down. A game with a route in "
+            "this tool gets a full test; others get a check that they start. Games already set up are left as they are.",
+            SETTINGS, '{"added": [TITLE_ID, ...]}', ("title-runs games add ~/games",),
+            lambda p: p.add_argument("folder", metavar="FOLDER"), run_games_add),
+    Command(("games", "remove"), "games", "Take a game off your list; its folder and recordings stay.", "",
+            SETTINGS, '{"removed": TITLE_ID}', ("title-runs games remove PPSA04263",),
+            lambda p: p.add_argument("title_id", metavar="TITLE_ID"), run_games_remove),
     Command(("games", "scenario"), "games", "Show or choose the scenario a game is tested in.",
             "A scenario is one specific run of a game, which may or may not load a save first (GTA V's prologue, or Franklin's house). "
             "The game's next tests run in it.",
@@ -563,6 +597,10 @@ COMMANDS = [
                        p.add_argument("--scene", required=True, help="what happens in it, for reports (up to 120 characters)"),
                        p.add_argument("--seconds", type=int, default=150, help="how long to record (100 to 600, default 150)"),
                        p.add_argument("--id", help="the new scenario's id (default: from its name)")), run_games_record),
+    Command(("games", "delete-recording"), "games", "Delete a recorded scenario (never one of this tool's own).",
+            "A game that was set to it goes back to its default scenario.", "Deletes the scenario file from the state folder.",
+            '{"deleted": SCENARIO}', ("title-runs games delete-recording PPSA04263 house-walk",),
+            lambda p: (p.add_argument("title_id", metavar="TITLE_ID"), p.add_argument("scenario", metavar="SCENARIO")), run_games_delete_recording),
     Command(("window",), "games", "Open the window (the first-run walkthrough if the config is new).",
             changes="Nothing, until you change something in the window.", examples=("title-runs window", "title-runs window --config ~/games/anyps5.toml"),
             passthrough=window_main),

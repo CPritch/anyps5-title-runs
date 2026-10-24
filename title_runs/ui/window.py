@@ -1,16 +1,17 @@
-"""The tester's window: a sidebar with Home (ui/home.py), Local tests (ui/local.py), All pull requests (the advanced view
-only) and Settings, and the simple or advanced view. Data comes from the engine (app.Engine) through ui/model.py;
+"""The tester's window: a sidebar with Home (ui/home.py), Local tests (ui/local.py), Games (ui/games.py), All pull requests
+(the advanced view only) and Settings, and the simple or advanced view. Data comes from the engine (app.Engine) through ui/model.py;
 nothing here is platform-specific."""
 
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import QApplication
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                                QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QStackedWidget,
-                               QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+                               QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from .. import platform_info, sandbox, verdict
 from . import model, theme
+from .games import GamesPage
 from .home import HomePage
 from .local import LocalTestsPage, ReportDialog
 
@@ -169,61 +170,6 @@ class ScheduleTab(QWidget):
         self.refresh()
 
 
-class TitlesTab(QWidget):
-    def __init__(self, engine):
-        super().__init__()
-        self.engine = engine
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Your games. A game with a full test is played and timed in its scenario. The others get a start-up check."))
-        self.table = QTableWidget(0, 8)
-        self.table.setHorizontalHeaderLabels(["On", "Game ID", "Name", "Version", "Test", "Scenario", "Saves copied in", "Folder"])
-        self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Stretch)
-        self.table.verticalHeader().setVisible(False)
-        layout.addWidget(self.table)
-        row = QHBoxLayout()
-        record = QPushButton("Record a scenario…")
-        record.setToolTip("Play part of a game with your controller. Tests in the new scenario replay what you did.")
-        record.clicked.connect(self.record)
-        row.addWidget(record)
-        row.addStretch(1)
-        layout.addLayout(row)
-
-    def refresh(self):
-        rows = self.engine.titles()
-        self.table.setRowCount(len(rows))
-        for i, row in enumerate(rows):
-            on = QTableWidgetItem()
-            on.setFlags(on.flags() | Qt.ItemIsUserCheckable)
-            on.setCheckState(Qt.Checked if row["on"] else Qt.Unchecked)
-            self.table.setItem(i, 0, on)
-            for column, key in zip((1, 2, 3, 4, 6, 7), ("title_id", "name", "version", "check", "seeds", "path")):
-                item = QTableWidgetItem(row[key])
-                if key == "seeds":
-                    item.setToolTip("\n".join(row["seed_paths"]))
-                self.table.setItem(i, column, item)
-            self.table.setCellWidget(i, 5, self.scenario_box(row))
-        self.table.resizeColumnsToContents()
-
-    def record(self):
-        from .record import RecordDialog
-        if RecordDialog(self.engine, self).exec() == RecordDialog.Accepted:
-            window = self.engine.window
-            window.buttons["home"].setChecked(True)
-            window.show_page(window.home)
-
-    def scenario_box(self, row):
-        """The title's scenarios: which run its tests are timed in, each with what is on screen and its save, if any."""
-        if not row["scenarios"]:
-            return QLabel("—")
-        box = QComboBox()
-        for choice in row["scenarios"]:
-            box.addItem(choice["name"], choice["id"])
-            box.setItemData(box.count() - 1, "\n\n".join(t for t in (choice["scene"], choice.get("save", "")) if t), Qt.ToolTipRole)
-        box.setCurrentIndex(max(0, box.findData(row["scenario"])))
-        box.currentIndexChanged.connect(lambda _, b=box, t=row["title_id"]: self.engine.set_scenario(t, b.currentData()))
-        return box
-
-
 class SettingsTab(QWidget):
     def __init__(self, engine):
         super().__init__()
@@ -344,7 +290,7 @@ class AppTab(QWidget):
 
 
 class SettingsPage(QScrollArea):
-    """One page of sections: this machine, when to test, your games, the app, the sandbox and logs."""
+    """One page of sections: this machine, the sandbox, what's shared, when to test, the app and the logs."""
 
     def __init__(self, engine):
         super().__init__()
@@ -356,8 +302,8 @@ class SettingsPage(QScrollArea):
         layout.setSpacing(18)
         self.engine = engine
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.account, self.schedule, self.titles, self.app = SettingsTab(engine), ScheduleTab(engine), TitlesTab(engine), AppTab(engine)
-        for title, widget in (("", self.account), ("When to test", self.schedule), ("Your games", self.titles), ("This app", self.app)):
+        self.account, self.schedule, self.app = SettingsTab(engine), ScheduleTab(engine), AppTab(engine)
+        for title, widget in (("", self.account), ("When to test", self.schedule), ("This app", self.app)):
             if title:
                 layout.addWidget(theme.mark(QLabel(title), role="heading"))
             layout.addWidget(widget)
@@ -367,7 +313,7 @@ class SettingsPage(QScrollArea):
     def refresh(self):
         advanced = self.engine.config.view == "advanced"
         self.account.logs_group.setVisible(advanced)  # the simple view keeps to what a tester sets
-        for part in (self.account, self.schedule, self.titles, self.app):
+        for part in (self.account, self.schedule, self.app):
             part.refresh()
 
 
@@ -377,7 +323,8 @@ class MainWindow(QMainWindow):
         self.engine = engine
         engine.window = self
         self.setWindowTitle("AnyPS5 title runs")
-        self.home, self.local, self.prs, self.settings = HomePage(engine), LocalTestsPage(engine), PullRequestsTab(engine), SettingsPage(engine)
+        self.home, self.local, self.games = HomePage(engine), LocalTestsPage(engine), GamesPage(engine)
+        self.prs, self.settings = PullRequestsTab(engine), SettingsPage(engine)
         self.stack = QStackedWidget()
         side = theme.mark(QWidget(), objectName="sidebar")
         side.setObjectName("sidebar")
@@ -388,8 +335,8 @@ class MainWindow(QMainWindow):
         nav.addSpacing(8)
         self.group = QButtonGroup(self)
         self.buttons = {}
-        for key, name, page in (("home", "Home", self.home), ("local", "Local tests", self.local), ("prs", "All pull requests", self.prs),
-                                ("settings", "Settings", self.settings)):
+        for key, name, page in (("home", "Home", self.home), ("local", "Local tests", self.local), ("games", "Games", self.games),
+                                ("prs", "All pull requests", self.prs), ("settings", "Settings", self.settings)):
             button = theme.mark(QPushButton(name), nav="true")
             button.setCheckable(True)
             button.clicked.connect(lambda _=False, p=page: self.show_page(p))
@@ -414,7 +361,7 @@ class MainWindow(QMainWindow):
 
     @property
     def pages(self):
-        return ((self.home, "Home"), (self.local, "Local tests"), (self.prs, "All pull requests"), (self.settings, "Settings"))
+        return ((self.home, "Home"), (self.local, "Local tests"), (self.games, "Games"), (self.prs, "All pull requests"), (self.settings, "Settings"))
 
     def show_page(self, page):
         self.stack.setCurrentWidget(page)
