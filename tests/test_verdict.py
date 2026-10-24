@@ -32,6 +32,7 @@ class PerMachine(unittest.TestCase):
         v = verdict.machine(sides((79.7, 79.1), (72.1, 72.7)))
         self.assertEqual((v["verdict"], v["borderline"]), ("faster", False))
         self.assertAlmostEqual(v["diff_pct"], -8.816, places=3)
+        self.assertAlmostEqual(1000 / v["pr_fps"] - 1000 / v["main_fps"], v["diff"], places=6)  # each side's median frame time
 
     def test_slower(self):
         self.assertEqual(verdict.machine(sides((70.0, 70.2), (72.0, 72.1)))["verdict"], "slower")

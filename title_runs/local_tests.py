@@ -52,6 +52,7 @@ class LocalTests:
         self.path = self.dir / "client" / "local-tests.json"
         self.out = self.dir / "local-tests"
         self.lock = threading.RLock()  # the worker and the window both change the list
+        self._words = {}  # (results.json, head): (its mtime, the result line), for words()
         for old, new in ((self.dir / "client" / "overnight.json", self.path), (self.dir / "overnight", self.out)):
             if old.exists() and not new.exists():  # first named "tonight's list"
                 old.rename(new)
@@ -413,6 +414,24 @@ class LocalTests:
 
     # -- what the tester reads -----------------------------------------------------------------------------------------
 
+    def words(self, entry):
+        """An entry's result line: rebuilt from its job's results while they are here, so an older result reads as a new
+        one does; else as it was stored."""
+        stored = entry.get("verdict") or entry.get("reason", "")
+        if entry.get("status") != "done":
+            return stored
+        path = self.dir / "jobs" / entry.get("job", "-") / "results.json"
+        try:
+            stamp = path.stat().st_mtime
+        except OSError:
+            return stored
+        cached = self._words.get((path, entry.get("head")))
+        if cached is None or cached[0] != stamp:
+            results = self.results_of(entry)
+            cached = (stamp, summary_words(result_of(results), verdict.DEFAULT) if results else stored)
+            self._words[(path, entry.get("head"))] = cached
+        return cached[1]
+
     def results_of(self, entry):
         """A result's job results, while they are here and of its head; else None."""
         try:
@@ -685,7 +704,7 @@ def result_of(results):
 
 
 def summary_words(result, rules):
-    """"No difference (+0.13 ms)", "Faster (-2.41 ms)", "didn't merge", for the summary and Home."""
+    """"main 12.4 fps, PR 12.9 fps: faster (-2.41 ms a frame, -3.2 %)", "didn't merge", for the summary and Home."""
     if result["status"] != "done":
         return result.get("error") or result["status"]
     parts = []
@@ -694,6 +713,7 @@ def summary_words(result, rules):
         if v.get("diff") is None:
             parts.append(f"{title_id}: not enough runs counted ({entry.get('outcome', {}).get('B', '?')})")
         else:
-            word = {"faster": "Faster", "slower": "Slower"}.get(v["verdict"], "No difference")
-            parts.append(f"{word} ({v['diff']:+.2f} ms, {v['diff_pct']:+.1f} %)" + (", borderline" if v.get("borderline") else ""))
+            word = {"faster": "faster", "slower": "slower"}.get(v["verdict"], "no difference")
+            parts.append(f"main {v['main_fps']:.1f} fps, PR {v['pr_fps']:.1f} fps: {word} ({v['diff']:+.2f} ms a frame, "
+                         f"{v['diff_pct']:+.1f} %)" + (", borderline" if v.get("borderline") else ""))
     return "; ".join(parts) or "no titles ran"

@@ -266,7 +266,7 @@ class Engine:
             return []
         data = self.local.read()
         done = [e for e in data["entries"] if e["status"] in ("done", "failed")]
-        return [{"number": e["pr"], "head": e["head"], "at": e.get("at", ""), "status": e["status"], "verdict": e.get("verdict", e["status"]),
+        return [{"number": e["pr"], "head": e["head"], "at": e.get("at", ""), "status": e["status"], "verdict": self.local.words(e) or e["status"],
                  "report": report_state(e, data)} for e in reversed(done)]
 
     # -- local tests (ui/local.py) ---------------------------------------------------------------------------------------
@@ -276,6 +276,7 @@ class Engine:
         rows = self.local.rows()
         for row in rows:
             row["report"] = report_state(row["entry"], data) if row["entry"]["status"] in ("done", "failed") else ""
+            row["entry"] = {**row["entry"], "verdict": self.local.words(row["entry"])}
         return rows
 
     def local_results(self, number):

@@ -160,13 +160,18 @@ class Run(unittest.TestCase):
         self.assertEqual((kwargs["remote"], kwargs["main"]), ("https://github.com/boykopovar/AnyPS5.git", "d" * 40))
         entry = self.night.read()["entries"][0]
         self.assertEqual(entry["status"], "done")
-        self.assertTrue(entry["verdict"].startswith("No difference ("))
+        self.assertRegex(entry["verdict"], r"^main \d+\.\d fps, PR \d+\.\d fps: no difference \([+-]\d+\.\d\d ms a frame, ")
+        job = self.config.state_dir / "jobs" / entry["job"]
+        job.mkdir(parents=True)
+        (job / "results.json").write_text(json.dumps(fake_results(8104, A)))
+        self.assertEqual(self.night.words({**entry, "verdict": "No difference (+0.13 ms, +0.2 %)"}), entry["verdict"])  # rebuilt
+        self.assertEqual(self.night.words({**entry, "head": "b" * 40, "verdict": "kept"}), "kept")  # another head's results
         draft = (self.config.state_dir / "local-tests" / "drafts" / f"8104-{A[:12]}.md").read_text()
         self.assertTrue(draft.startswith("Ran this on Grand Theft Auto V (PPSA04263 01.010.002), Linux 7.2.8, NVIDIA GeForce RTX 5060 Laptop GPU"))
         self.assertIn("main ddddddddd against main + #8104 at aaaaaaaaa, same machine and session, two runs each in the order A B A B.", draft)
         self.assertNotIn("@", draft)  # a report mentions nobody
         summary = (self.config.state_dir / "local-tests" / "2026-10-21.md").read_text()
-        self.assertIn("#8104 `aaaaaaaaa` perf(agc): stage (Celegans12): No difference", summary)
+        self.assertIn("#8104 `aaaaaaaaa` perf(agc): stage (Celegans12): main ", summary)
         self.assertTrue(self.client.status.read()["recent"][0]["local"])
 
     def test_the_result_names_the_jobs_own_folder(self):

@@ -304,7 +304,7 @@ def run_local_report(ctx, args):
     result = newest_result(engine, number, args.test)
     entry = result["entry"]
     folder, traces = traces_of(engine, result)
-    data = {"pr": number, "link": result["link"], "head": entry["head"], "at": entry.get("at", ""), "verdict": entry.get("verdict", ""),
+    data = {"pr": number, "link": result["link"], "head": entry["head"], "at": entry.get("at", ""), "verdict": engine.local.words(entry),
             "stale": result["stale"], "posted": bool(entry.get("posted")), "text": result["text"], "traces": traces, "folder": folder}
     if args.text:
         return Out(result["text"].rstrip("\n"), data)

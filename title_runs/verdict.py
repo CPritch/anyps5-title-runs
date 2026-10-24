@@ -28,8 +28,8 @@ def spread(values):
 
 def machine(sides, rules=DEFAULT):
     """The verdict of one machine's A/B from its sides ({"A": {"p50": [...], "gpu": [...]}, "B": ...}): verdict
-    (faster, slower, no difference, not enough counted runs), diff and diff_pct (PR - main), spread, size
-    (threshold_pct of main), gpu_diff, borderline."""
+    (faster, slower, no difference, not enough counted runs), diff and diff_pct (PR - main), main_fps and pr_fps (from
+    each side's median frame time), spread, size (threshold_pct of main), gpu_diff, borderline."""
     a, b = (sides.get(k) or {} for k in ("A", "B"))
     pa, pb = a.get("p50") or [], b.get("p50") or []
     if len(pa) < 2 or len(pb) < 2:
@@ -46,8 +46,8 @@ def machine(sides, rules=DEFAULT):
     gpu = None
     if a.get("gpu") and b.get("gpu"):
         gpu = statistics.mean(b["gpu"]) - statistics.mean(a["gpu"])
-    return {"verdict": word, "diff": diff, "diff_pct": diff / main_p50 * 100, "spread": noise, "size": size, "gpu_diff": gpu,
-            "borderline": beyond_spread != beyond_size}
+    return {"verdict": word, "diff": diff, "diff_pct": diff / main_p50 * 100, "main_fps": 1000 / main_p50,
+            "pr_fps": 1000 / statistics.mean(pb), "spread": noise, "size": size, "gpu_diff": gpu, "borderline": beyond_spread != beyond_size}
 
 
 def driver_branch(driver):
