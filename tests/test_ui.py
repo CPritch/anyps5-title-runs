@@ -267,6 +267,15 @@ class LocalTestsInTheWindow(unittest.TestCase):
         self.assertIn("#4287", home.upcoming.rows[0])
         self.assertIn("No results yet", home.recent.rows[0])
 
+    def test_a_test_from_the_command_line(self):
+        from title_runs.ui.home import HomePage
+        home = HomePage(self.engine)
+        with mock.patch.object(self.engine, "busy_elsewhere", return_value="another title-runs process (pid 7) is testing on this computer"):
+            home.refresh()
+        self.assertEqual(home.game.placeholder.text(), "A test started outside this window is running. Its game is in a window of its own.")
+        home.refresh()
+        self.assertNotIn("outside this window", home.game.placeholder.text())
+
     def test_add_on_all_pull_requests(self):
         from title_runs.ui.window import PullRequestsTab
         tab = PullRequestsTab(self.engine)

@@ -194,6 +194,9 @@ class HomePage(QWidget):
             self.game.watch()
         elif self.state == "running" and not running:
             self.game.unwatch()
+        elif not running:  # a test from the command line shows its game in a window of its own
+            self.game.idle("A test started outside this window is running. Its game is in a window of its own."
+                           if self.engine.busy_elsewhere() else None)
         self.state = state["kind"]
         self.fill_upcoming()
         self.fill_recent()
