@@ -10,6 +10,7 @@ tools/titles.json), hard-links app0 and the build's libraries. What title_run do
 """
 
 import os
+import resource
 import shutil
 import signal
 import subprocess
@@ -74,6 +75,14 @@ def descendants(pid):
     return found
 
 
+def _child():
+    """In the game's process before exec: no core dumps, and SIGINT (how stop() asks the title to quit) not ignored.
+    A shell starts its background jobs with SIGINT ignored, and an ignored signal stays ignored through exec, so a
+    title-runs started that way would wait out shutdown_wait and SIGKILL every game."""
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+
 class Game:
     """One run of the title: launched in the sandbox in its own session; stopped with SIGINT (SDL turns it into the
     title's normal quit, which runs the driver's teardown and the pipeline cache save), SIGKILL after shutdown_wait."""
@@ -91,8 +100,7 @@ class Game:
     def start(self):
         self.out = open(self.log, "wb")
         self.process = subprocess.Popen(self.argv, cwd=self.work, env=self.env, stdout=self.out, stderr=subprocess.STDOUT,
-                                        stdin=subprocess.DEVNULL, start_new_session=True,
-                                        preexec_fn=lambda: __import__("resource").setrlimit(__import__("resource").RLIMIT_CORE, (0, 0)))
+                                        stdin=subprocess.DEVNULL, start_new_session=True, preexec_fn=_child)
         self.started = time.monotonic()
         return self
 
