@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QWindow
 from PySide6.QtWidgets import QLabel, QSizePolicy, QStackedLayout, QWidget
 
+from .. import sandbox
 from . import theme
 
 
@@ -121,12 +122,18 @@ class GameView(QWidget):
     def hasHeightForWidth(self):  # noqa: N802
         return True
 
+    def inside(self):
+        """Whether the game shows here: an X11 app, and the setting on (sandbox.game_display)."""
+        return self.x11 is not None and sandbox.game_display() == "x11"
+
     def idle(self, text=None):
-        self.placeholder.setText(text or ("The game shows here while a test runs." if self.x11 else
-                                          "While a test runs, the game opens in its own window on this desktop."))
+        self.placeholder.setText(text or ("The game shows here while a test runs." if self.inside() else
+                                          "While a test runs, the game opens in its own window."))
 
     def watch(self):
-        if self.x11 is None or self.timer.isActive():
+        if not self.inside() or self.timer.isActive():
+            if not self.inside():
+                self.idle()
             return
         self.before = set(self.x11.children())
         self.placeholder.setText("Starting the game…")

@@ -90,6 +90,11 @@ def seccomp_file():
     return _filter[0]
 
 
+def show_game_in_window(on):
+    """The window's setting: the game in it (an X11 window, game_display "x11") or in its own window ("native")."""
+    os.environ["TITLE_RUNS_GAME_DISPLAY"] = "x11" if on else "native"
+
+
 def game_display():
     """"x11" when the app shows the game inside its own window (ui/gameview.py needs an X11 window: the app sets
     TITLE_RUNS_GAME_DISPLAY), else "native" (Wayland where there is one)."""

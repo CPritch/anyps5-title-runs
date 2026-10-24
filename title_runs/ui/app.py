@@ -16,7 +16,7 @@ from pathlib import Path
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from .. import config as configs, engine as engines
+from .. import config as configs, engine as engines, sandbox
 from ..engine import new_config, report_state  # noqa: F401 (the window's and the tests' names for them)
 
 
@@ -96,13 +96,14 @@ def main(argv=None):
     parser.add_argument("--state", type=Path, help="a new config: the state directory")
     parser.add_argument("--screenshots", type=Path, help="render the window's pages to this folder, offscreen, and exit")
     args = parser.parse_args(argv)
-    if sys.platform.startswith("linux") and os.environ.get("DISPLAY") and not os.environ.get("QT_QPA_PLATFORM") and not args.screenshots:
-        # An X11 program on Wayland desktops too (XWayland), and the game an X11 window: then the game shows inside the app.
-        os.environ["QT_QPA_PLATFORM"] = "xcb"
-        os.environ["TITLE_RUNS_GAME_DISPLAY"] = "x11"
     if not args.config.exists():
         new_config(args.config, args.state)
     config = configs.load(args.config)
+    if sys.platform.startswith("linux") and os.environ.get("DISPLAY") and not os.environ.get("QT_QPA_PLATFORM") and not args.screenshots:
+        # An X11 program on Wayland desktops too (XWayland), so the game can show inside it as an X11 window (Settings,
+        # This app: the game then shares X11 with other X11 apps; off, it opens on Wayland in its own window).
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
+        sandbox.show_game_in_window(config.game_in_window)
     app = QApplication(sys.argv[:1])
     app.setApplicationName("AnyPS5 title runs")
     app.setQuitOnLastWindowClosed(False)

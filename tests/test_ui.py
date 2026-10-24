@@ -185,6 +185,47 @@ class Window(unittest.TestCase):
 
 
 @unittest.skipIf(QApplication is None, "PySide6 is not installed")
+class GameInTheWindow(unittest.TestCase):
+    """Settings, This app: the game inside the window (X11) or in its own (Wayland), from the next test on."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_the_setting(self):
+        from title_runs import config as configs, configfile, sandbox
+        from title_runs.engine import Engine
+        from title_runs.ui.window import AppTab
+        config = make_config()
+        self.assertTrue(config.game_in_window)  # the default
+        configfile.save(config)
+        engine = Engine(configs.load(config.path))
+        engine.window = mock.Mock()
+        with mock.patch("title_runs.ui.gameview.embeddable", return_value=True), mock.patch.dict(os.environ, {}, clear=False):
+            tab = AppTab(engine)
+            tab.inside.setChecked(False)
+            tab.save()
+            self.assertEqual((sandbox.game_display(), configs.load(config.path).game_in_window), ("native", False))
+            tab.inside.setChecked(True)
+            tab.save()
+            self.assertEqual(sandbox.game_display(), "x11")
+
+    def test_the_view_waits_only_for_a_game_it_can_show(self):
+        from title_runs import sandbox
+        from title_runs.ui.gameview import GameView
+        view = GameView(lambda: ["GTA V"])
+        view.x11 = mock.Mock(children=lambda window=None: [])
+        with mock.patch.dict(os.environ, {"TITLE_RUNS_GAME_DISPLAY": "native"}):
+            view.watch()
+            self.assertFalse(view.timer.isActive())
+            self.assertEqual(view.placeholder.text(), "While a test runs, the game opens in its own window.")
+        with mock.patch.dict(os.environ, {"TITLE_RUNS_GAME_DISPLAY": "x11"}):
+            view.watch()
+            self.assertTrue(view.timer.isActive())
+        view.timer.stop()
+
+
+@unittest.skipIf(QApplication is None, "PySide6 is not installed")
 class LocalTestsInTheWindow(unittest.TestCase):
     """Ready once the walkthrough is done; Home shows the heads waiting and the results; Add on All pull requests puts a
     pull request on the local tests list."""
@@ -367,6 +408,7 @@ class GameViewFinding(unittest.TestCase):
     def view(self):
         from title_runs.ui.gameview import GameView
         self.app = QApplication.instance() or QApplication([])
+        self.enterContext(mock.patch.dict(os.environ, {"TITLE_RUNS_GAME_DISPLAY": "x11"}))  # the game shown inside the window
         view = GameView(lambda: ["GTA V"], title_ids=lambda: ["PPSA04263"])
         view.x11 = self.FakeX11()
         view.embed = lambda window, name: setattr(view, "embedded", window)

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFormLayout, 
                                QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QStackedWidget,
                                QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from .. import platform_info, verdict
+from .. import platform_info, sandbox, verdict
 from . import model, theme
 from .home import HomePage
 from .local import LocalTestsPage, ReportDialog
@@ -304,6 +304,15 @@ class AppTab(QWidget):
         self.advanced = QCheckBox("Advanced view: every pull request, more detail on Home, and the logs")
         self.advanced.setChecked(config.view == "advanced")
         form.addRow(self.advanced)
+        self.inside = QCheckBox("Show the game inside this window")
+        self.inside.setChecked(config.game_in_window)
+        self.inside.setToolTip("The game then uses X11, which it shares with your other X11 apps. Off, it opens in its own "
+                               "window on Wayland, where it can't reach other apps.")
+        from .gameview import embeddable
+        if not embeddable():
+            self.inside.setEnabled(False)
+            self.inside.setToolTip("This desktop can't show the game inside the window")
+        form.addRow(self.inside)
         self.tray = QCheckBox("Keep testing in the background when the window is closed (in the system tray)")
         self.tray.setChecked(config.tray)
         from PySide6.QtWidgets import QSystemTrayIcon
@@ -325,6 +334,9 @@ class AppTab(QWidget):
         size = self.size.currentData()
         changed_size = size != config.text_size
         config.text_size, config.view, config.tray = size, "advanced" if self.advanced.isChecked() else "simple", self.tray.isChecked()
+        if self.inside.isEnabled():
+            config.game_in_window = self.inside.isChecked()
+            sandbox.show_game_in_window(config.game_in_window)  # from the next test on
         self.engine.save_config()
         if changed_size:
             theme.apply(QApplication.instance(), size)

@@ -69,6 +69,7 @@ class Config:
     schedule: dict = field(default_factory=lambda: dict(SCHEDULE))
     testing: str = "schedule"  # the main screen's switch: off, schedule (within [schedule], while the app is open) or now (whatever it says)
     tray: bool = False  # keep running in the system tray when the window is closed (otherwise closing quits)
+    game_in_window: bool = True  # show the game inside the window (X11, shared with other X11 apps), else in its own window
     text_size: str = "normal"
     view: str = "simple"
     local_repository: str = ""  # [local]: pull requests tested on this computer with nothing posted (local_tests.py)
@@ -124,6 +125,7 @@ def load(path):
         schedule={**SCHEDULE, **data.get("schedule", {})},
         testing=testing_mode(data.get("client", {})),
         tray=bool(data.get("client", {}).get("tray", False)),
+        game_in_window=bool(data.get("client", {}).get("game_in_window", True)),
         text_size=str(data.get("client", {}).get("text_size", "normal")),
         view=str(data.get("client", {}).get("view", "simple")),
         local_repository=str(local.get("repository", "")),
