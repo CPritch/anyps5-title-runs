@@ -105,6 +105,12 @@ class Config(unittest.TestCase):
         self.assertEqual(self.engine.work.get_nowait(), ("wake", None))
         self.assertEqual(self.engine.sync_config(), [])  # nothing new
 
+    def test_a_list_change_with_the_switch_reads_the_list_first(self):
+        time.sleep(0.01)
+        configfile.change(self.config.path, lambda c: (setattr(c, "testing", "now"), c.local_trusted.append("oneandonlydean")))
+        self.assertEqual(sorted(self.engine.sync_config()), ["local_trusted", "testing"])
+        self.assertEqual(self.engine.work.get_nowait(), ("local", None))  # read again before the next test, not only woken
+
     def test_a_save_by_the_window_keeps_the_command_lines_change(self):
         configfile.change(self.config.path, lambda c: c.local_prs.append(9289))  # title-runs local add 9289
         self.engine.config.text_size = "large"  # the window's own change, not yet merged

@@ -412,8 +412,10 @@ class Engine:
             self._config_base, self._config_mtime = configfile.snapshot(disk), mtime
         if taken:
             self.log(f"settings changed in {self.config.path}: {', '.join(taken)}")
-            if {"testing", "local_prs", "local_people", "local_trusted", "local_fixes", "local_repository"} & set(taken):
-                self.work.put(("local" if "testing" not in taken else "wake", None))
+            if {"local_prs", "local_people", "local_trusted", "local_fixes", "local_repository"} & set(taken):
+                self.work.put(("local", None))  # the list is read again before anything starts, whatever else changed
+            elif "testing" in taken:
+                self.work.put(("wake", None))
         return taken
 
     def save_config(self):
