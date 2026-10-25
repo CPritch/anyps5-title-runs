@@ -163,11 +163,24 @@ class LocalTests:
             else:
                 pusher_of(pull)
 
+    def trusted_push(self, pusher, author):
+        """Whether a commit pushed by pusher to author's pull request is tested: the author's own, or one by a person the
+        tester trusts to push to others' pull requests (a maintainer rebasing it, say)."""
+        return bool(pusher) and pusher.lower() in {author.lower(), *(login.lower() for login in self.config.local_trusted)}
+
     def _apply(self, data, numbers, pulls, pushers, now):
         """refresh()'s change to the list: what it read, and the new heads. A head whose pusher it didn't get to (GitHub's
-        limit) waits for the next refresh."""
+        limit) waits for the next refresh. A head skipped as someone else's push waits to be tested again once the tester
+        trusts that person, while it is still the pull request's latest."""
         stamp = formats.iso(now)
         added = []
+        for entry in data["entries"]:
+            pull = pulls.get(entry["pr"])
+            if (entry["status"] == "skipped" and entry.get("pusher") and pull and pull["head"] == entry["head"] and pull["state"] == "open"
+                    and self.trusted_push(entry["pusher"], entry["author"])):
+                entry.update(status="queued", added=stamp)
+                entry.pop("reason", None)
+                self.log(f"local tests: #{entry['pr']} {entry['head'][:9]} by {entry['author']}: queued ({entry['pusher']} is trusted)")
         prs = data.setdefault("prs", {})
         for number, pull in pulls.items():
             old = prs.get(str(number)) or {}
@@ -183,7 +196,7 @@ class LocalTests:
                     fixes[str(number)] = data["fixes"][str(number)]
                 continue
             pusher = pushers.get(pull["head"])
-            problem = ("" if pusher and pusher.lower() == pull["author"].lower() else
+            problem = ("" if self.trusted_push(pusher, pull["author"]) else
                        f"its latest commit {pull['head'][:9]} was pushed by {pusher}, not its author" if pusher else
                        f"GitHub doesn't show who pushed its latest commit {pull['head'][:9]}")
             fixes[str(number)] = {"head": pull["head"], "title": pull["title"][:200], "author": pull["author"], "state": pull["state"],
@@ -202,7 +215,7 @@ class LocalTests:
                      "status": "queued", "pusher": pusher}
             if pusher is None:
                 entry.update(status="skipped", reason="GitHub doesn't show who pushed this commit")
-            elif pusher.lower() != pull["author"].lower():
+            elif not self.trusted_push(pusher, pull["author"]):
                 entry.update(status="skipped", reason=f"{pusher} pushed this commit, not the author")
             # An older head of the same PR still queued is replaced: only the newest is worth testing.
             for old in data["entries"]:

@@ -379,6 +379,18 @@ def run_local_follow(ctx, args, follow=True):
     return Out(f"Following {', '.join(people) or 'nobody'}.", {"people": people})
 
 
+def run_local_trust(ctx, args, trust=True):
+    engine = ctx.engine
+    trusted = list(ctx.config.local_trusted)
+    for login in args.people:
+        if trust and login.lower() not in (t.lower() for t in trusted):
+            trusted.append(login)
+        if not trust:
+            trusted = [t for t in trusted if t.lower() != login.lower()]
+    engine.local_save(ctx.config.local_repository, list(ctx.config.local_people), list(ctx.config.local_fixes), trusted)
+    return Out(f"Trusted to push to others' pull requests: {', '.join(trusted) or 'nobody'}.", {"trusted": trusted})
+
+
 def run_local_fixes(ctx, args):
     engine = ctx.engine
     if args.prs or args.none:
@@ -587,6 +599,15 @@ COMMANDS = [
             "Every new commit they push to one of their pull requests is tested without you checking it first, so only follow "
             "people whose code you'd run.", "Your settings.", '{"people": [...]}',
             ("title-runs local follow LOGIN",), lambda p: p.add_argument("people", nargs="+", metavar="LOGIN"), run_local_follow),
+    Command(("local", "trust"), "local", "Test commits these people push to others' pull requests too.",
+            "Normally only commits a pull request's author pushed are tested. A person trusted here (a maintainer who rebases "
+            "pull requests, say) counts as the author for any pull request on your list, so only trust people whose code you'd run. "
+            "Commits skipped because they pushed them wait to be tested again, while they're the pull request's latest.",
+            "Your settings.", '{"trusted": [...]}', ("title-runs local trust oneandonlydean",),
+            lambda p: p.add_argument("people", nargs="+", metavar="LOGIN"), run_local_trust),
+    Command(("local", "untrust"), "local", "Stop testing commits these people push to others' pull requests.", "", "Your settings.",
+            '{"trusted": [...]}', ("title-runs local untrust oneandonlydean",), lambda p: p.add_argument("people", nargs="+", metavar="LOGIN"),
+            lambda ctx, args: run_local_trust(ctx, args, trust=False)),
     Command(("local", "unfollow"), "local", "Stop following these people; pull requests you added by number stay.", "", "Your settings.",
             '{"people": [...]}', ("title-runs local unfollow LOGIN",), lambda p: p.add_argument("people", nargs="+", metavar="LOGIN"),
             lambda ctx, args: run_local_follow(ctx, args, follow=False)),

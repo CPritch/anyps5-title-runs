@@ -113,6 +113,11 @@ class LocalTestsPage(QWidget):
         self.people.setPlaceholderText("GitHub names (optional)")
         form.addRow("People", self.people)
         form.addRow(rich("Their open pull requests are tested too, including every new commit they push, without you checking it first.", role="muted"))
+        self.trusted = QLineEdit(", ".join(config.local_trusted))
+        self.trusted.setPlaceholderText("GitHub names (optional)")
+        form.addRow("Trusted to push", self.trusted)
+        form.addRow(rich("Commits these people push to someone else's pull request are tested too: a maintainer rebasing it, say. "
+                         "Otherwise only the author's own commits are.", role="muted"))
         self.fixes = QLineEdit(", ".join(str(n) for n in config.local_fixes))
         self.fixes.setPlaceholderText("pull request numbers (optional)")
         form.addRow("Fixes to include", self.fixes)
@@ -136,7 +141,7 @@ class LocalTestsPage(QWidget):
 
     def save(self):
         self.engine.local_save(self.repository.text().strip(), [a for a in self.people.text().replace(",", " ").split() if a],
-                               numbers(self.fixes.text()))
+                               numbers(self.fixes.text()), [a for a in self.trusted.text().replace(",", " ").split() if a])
         self.refresh()
 
     def refresh(self):

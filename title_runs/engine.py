@@ -318,8 +318,10 @@ class Engine:
     def local_posted(self, number, head, posted=True, at=None):
         return self.local.mark_posted(number, head, posted, at)
 
-    def local_save(self, repository, people, fixes):
+    def local_save(self, repository, people, fixes, trusted=None):
         self.config.local_repository, self.config.local_people, self.config.local_fixes = repository, people, fixes
+        if trusted is not None:
+            self.config.local_trusted = trusted
         self.save_config()
         self.work.put(("local", None))
 
@@ -410,7 +412,7 @@ class Engine:
             self._config_base, self._config_mtime = configfile.snapshot(disk), mtime
         if taken:
             self.log(f"settings changed in {self.config.path}: {', '.join(taken)}")
-            if {"testing", "local_prs", "local_people", "local_fixes", "local_repository"} & set(taken):
+            if {"testing", "local_prs", "local_people", "local_trusted", "local_fixes", "local_repository"} & set(taken):
                 self.work.put(("local" if "testing" not in taken else "wake", None))
         return taken
 

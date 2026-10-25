@@ -89,6 +89,19 @@ class List(unittest.TestCase):
             self.assertEqual(self.repo.pull.call_count, 5)
         self.assertEqual(self.night.read()["prs"]["9289"]["state"], "closed")
 
+    def test_a_trusted_persons_push_is_tested(self):
+        with self.github():
+            self.night.refresh()
+            self.assertEqual({e["pr"]: e["status"] for e in self.night.read()["entries"]}[9289], "skipped")  # somebody-else's push
+            self.config.local_trusted = ["Somebody-Else"]
+            self.night.refresh()
+        entry = next(e for e in self.night.read()["entries"] if e["pr"] == 9289)
+        self.assertEqual((entry["status"], "reason" in entry), ("queued", False))  # back on the list, as it's still the latest
+        self.assertTrue(self.night.trusted_push("somebody-else", "Celegans12"))
+        self.assertTrue(self.night.trusted_push("Celegans12", "celegans12"))
+        self.assertFalse(self.night.trusted_push("stranger", "Celegans12"))
+        self.assertFalse(self.night.trusted_push(None, "Celegans12"))
+
     def test_a_list_longer_than_the_limit_gets_through_over_several_refreshes(self):
         from title_runs import gh
         now = formats.parse_time("2026-10-24T23:00:00Z")
@@ -141,7 +154,7 @@ class List(unittest.TestCase):
         path.write_text(f'state_dir = "{self.config.state_dir}"\n[overnight]\nrepository = "boykopovar/AnyPS5"\nprs = [8104]\nauthors = ["Celegans12"]\n')
         old = configs.load(path)
         self.assertEqual((old.local_repository, old.local_prs, old.local_people), ("boykopovar/AnyPS5", [8104], ["Celegans12"]))
-        self.assertEqual(configfile.config_data(old)["local"], {"repository": "boykopovar/AnyPS5", "prs": [8104], "people": ["Celegans12"], "fixes": []})
+        self.assertEqual(configfile.config_data(old)["local"], {"repository": "boykopovar/AnyPS5", "prs": [8104], "people": ["Celegans12"], "trusted": [], "fixes": []})
 
     def test_main_is_pinned_for_the_night(self):
         now = formats.parse_time("2026-10-22T00:30:00Z")

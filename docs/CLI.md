@@ -29,6 +29,8 @@ Local tests (pull requests you choose, tested on this computer)
   local files             The traces to attach to a pull request's report, and the folder they're in.
   local posted            Mark a pull request's report as posted by you (--undo: not posted).
   local follow            Also test every open pull request of these people.
+  local trust             Test commits these people push to others' pull requests too.
+  local untrust           Stop testing commits these people push to others' pull requests.
   local unfollow          Stop following these people; pull requests you added by number stay.
   local fixes             Show or set the pull requests merged into both builds as fixes (--none: no fixes).
   local main              The version of main local tests are tested against (--latest: the newest, from the next test).
@@ -474,6 +476,55 @@ JSON (--json): {"people": [...]}
 
 Examples:
   title-runs local follow LOGIN
+```
+
+### `title-runs local trust`
+
+Test commits these people push to others' pull requests too.
+
+```
+usage: title-runs local trust [-h] LOGIN [LOGIN ...]
+
+Test commits these people push to others' pull requests too.
+
+Normally only commits a pull request's author pushed are tested. A person trusted here (a maintainer
+who rebases pull requests, say) counts as the author for any pull request on your list, so only
+trust people whose code you'd run. Commits skipped because they pushed them wait to be tested again,
+while they're the pull request's latest.
+
+positional arguments:
+  LOGIN
+
+options:
+  -h, --help  show this help message and exit
+
+Changes: Your settings.
+JSON (--json): {"trusted": [...]}
+
+Examples:
+  title-runs local trust oneandonlydean
+```
+
+### `title-runs local untrust`
+
+Stop testing commits these people push to others' pull requests.
+
+```
+usage: title-runs local untrust [-h] LOGIN [LOGIN ...]
+
+Stop testing commits these people push to others' pull requests.
+
+positional arguments:
+  LOGIN
+
+options:
+  -h, --help  show this help message and exit
+
+Changes: Your settings.
+JSON (--json): {"trusted": [...]}
+
+Examples:
+  title-runs local untrust oneandonlydean
 ```
 
 ### `title-runs local unfollow`

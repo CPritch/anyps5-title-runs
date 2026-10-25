@@ -162,8 +162,9 @@ or the Xbox View button) acts as the touchpad. DESIGN.md ("Recorded play") expla
 A pull request's code runs on the tester's machine. What stands between that code and the machine:
 
 - **Which commits run.** Only pull requests the tester added, or that were opened by people they follow, and of those
-  only commits the pull request's author pushed (GitHub's first workflow run for a commit names who pushed it). Nobody
-  reviews a change before it runs, so choosing it means trusting its author.
+  only commits the pull request's author pushed (GitHub's first workflow run for a commit names who pushed it), or a
+  person the tester trusts to push to others' pull requests, such as a maintainer who rebases them (Local tests, Trusted
+  to push; `title-runs local trust`). Nobody reviews a change before it runs, so choosing it means trusting its author.
 - **The build runs in the build sandbox**: the same bubblewrap setup without the GPU, the display or the network. The
   source tree, its git directory and prebuilt dependencies are read-only, and only the build directory is writable.
   The commit, main and submodule pins are fetched before the build, outside the sandbox. A malicious pull request

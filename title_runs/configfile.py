@@ -79,7 +79,8 @@ def config_data(config):
         "sandbox": {"mode": config.sandbox, "shutdown_wait": config.shutdown_wait},
         "run": {"allocator": config.allocator},
         "titles": titles,
-        "local": {"repository": config.local_repository, "prs": list(config.local_prs), "people": list(config.local_people), "fixes": list(config.local_fixes)},
+        "local": {"repository": config.local_repository, "prs": list(config.local_prs), "people": list(config.local_people),
+                  "trusted": list(config.local_trusted), "fixes": list(config.local_fixes)},
     }
 
 
