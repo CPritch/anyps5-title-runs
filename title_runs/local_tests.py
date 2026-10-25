@@ -97,7 +97,9 @@ class LocalTests:
         in one call; the API is asked only what git can't tell: a head new to the list (the pull request's title, author
         and state, and who pushed it), whether a listed pull request closed (every STATE_HOURS), and the listed people's
         open pull requests (its search). A head not yet on the list is added if its author pushed it; one the list has
-        tested is left alone. A PR the tester removed stays off it. Raises gh.RateLimited when GitHub's limit is used up."""
+        tested is left alone. A PR the tester removed stays off it. Raises gh.RateLimited when GitHub's limit is used up,
+        after keeping what it read before then: the next refresh carries on from there instead of reading it all again (a
+        list longer than one hour's 60 reads without a sign-in never got through otherwise)."""
         if not self.enabled():
             return []
         now = now or formats.now()
@@ -106,10 +108,20 @@ class LocalTests:
         known = self.read()
         removed = set(known.get("removed", []))
         numbers = set(self.config.local_prs)
-        for login in self.config.local_people:
-            numbers.update(pull["number"] for pull in repo.open_pulls_by(login) if not pull["draft"] and pull["number"] not in removed)
         seen, fixes_seen = known.get("prs") or {}, known.get("fixes") or {}
         pulls, pushers = {}, {}
+        try:
+            self._read(repo, heads, known, removed, numbers, seen, fixes_seen, pulls, pushers, now)
+        except gh.RateLimited:
+            self.change(lambda data: self._apply(data, numbers, pulls, pushers, now))
+            raise
+        return self.change(lambda data: self._apply(data, numbers, pulls, pushers, now))
+
+    def _read(self, repo, heads, known, removed, numbers, seen, fixes_seen, pulls, pushers, now):
+        """refresh()'s reading from GitHub, into numbers, pulls and pushers as it goes (so what it read is there when
+        GitHub's limit stops it)."""
+        for login in self.config.local_people:
+            numbers.update(pull["number"] for pull in repo.open_pulls_by(login) if not pull["draft"] and pull["number"] not in removed)
 
         def due(number):
             old = seen.get(str(number))
@@ -151,50 +163,56 @@ class LocalTests:
             else:
                 pusher_of(pull)
 
-        def apply(data):
-            stamp = formats.iso(now)
-            added = []
-            prs = data.setdefault("prs", {})
-            for number, pull in pulls.items():
-                old = prs.get(str(number)) or {}
-                prs[str(number)] = {"head": pull["head"], "state": pull["state"], "title": pull["title"][:200], "author": pull["author"],
-                                    "checked": stamp if pull["fresh"] else old.get("checked", stamp)}
-            fixes = {}
-            for number in self.config.local_fixes:
-                pull = pulls.get(number)
-                if pull is None:
-                    continue
-                pusher = pushers.get(pull["head"])
-                problem = ("" if pusher and pusher.lower() == pull["author"].lower() else
-                           f"its latest commit {pull['head'][:9]} was pushed by {pusher}, not its author" if pusher else
-                           f"GitHub doesn't show who pushed its latest commit {pull['head'][:9]}")
-                fixes[str(number)] = {"head": pull["head"], "title": pull["title"][:200], "author": pull["author"], "state": pull["state"],
-                                      "pusher": pusher, "problem": problem}
-            data["fixes"] = fixes
-            for number in sorted(numbers):
-                pull = pulls.get(number)
-                if pull is None or pull["state"] != "open" or number in data.get("removed", []):
-                    continue
-                if any(e["pr"] == number and e["head"] == pull["head"] for e in data["entries"]):
-                    continue
-                pusher = pushers.get(pull["head"])
-                entry = {"pr": number, "head": pull["head"], "title": pull["title"][:200], "author": pull["author"], "added": stamp,
-                         "status": "queued", "pusher": pusher}
-                if pusher is None:
-                    entry.update(status="skipped", reason="GitHub doesn't show who pushed this commit")
-                elif pusher.lower() != pull["author"].lower():
-                    entry.update(status="skipped", reason=f"{pusher} pushed this commit, not the author")
-                # An older head of the same PR still queued is replaced: only the newest is worth testing.
-                for old in data["entries"]:
-                    if old["pr"] == number and old["status"] == "queued":
-                        old.update(status="replaced", reason=f"{pull['head'][:9]} was pushed")
-                data["entries"].append(entry)
-                added.append(entry)
-                self.log(f"local tests: #{number} {pull['head'][:9]} by {pull['author']}: {entry['status']}"
-                         f"{' (' + entry.get('reason', '') + ')' if entry.get('reason') else ''}")
-            return added
-
-        return self.change(apply)
+    def _apply(self, data, numbers, pulls, pushers, now):
+        """refresh()'s change to the list: what it read, and the new heads. A head whose pusher it didn't get to (GitHub's
+        limit) waits for the next refresh."""
+        stamp = formats.iso(now)
+        added = []
+        prs = data.setdefault("prs", {})
+        for number, pull in pulls.items():
+            old = prs.get(str(number)) or {}
+            prs[str(number)] = {"head": pull["head"], "state": pull["state"], "title": pull["title"][:200], "author": pull["author"],
+                                "checked": stamp if pull["fresh"] else old.get("checked", stamp)}
+        fixes = {}
+        for number in self.config.local_fixes:
+            pull = pulls.get(number)
+            if pull is None:
+                continue
+            if pull["head"] not in pushers:  # not looked up yet: as it was until the next refresh
+                if str(number) in (data.get("fixes") or {}):
+                    fixes[str(number)] = data["fixes"][str(number)]
+                continue
+            pusher = pushers.get(pull["head"])
+            problem = ("" if pusher and pusher.lower() == pull["author"].lower() else
+                       f"its latest commit {pull['head'][:9]} was pushed by {pusher}, not its author" if pusher else
+                       f"GitHub doesn't show who pushed its latest commit {pull['head'][:9]}")
+            fixes[str(number)] = {"head": pull["head"], "title": pull["title"][:200], "author": pull["author"], "state": pull["state"],
+                                  "pusher": pusher, "problem": problem}
+        data["fixes"] = fixes
+        for number in sorted(numbers):
+            pull = pulls.get(number)
+            if pull is None or pull["state"] != "open" or number in data.get("removed", []):
+                continue
+            if any(e["pr"] == number and e["head"] == pull["head"] for e in data["entries"]):
+                continue
+            if pull["head"] not in pushers:  # not looked up yet: the next refresh
+                continue
+            pusher = pushers.get(pull["head"])
+            entry = {"pr": number, "head": pull["head"], "title": pull["title"][:200], "author": pull["author"], "added": stamp,
+                     "status": "queued", "pusher": pusher}
+            if pusher is None:
+                entry.update(status="skipped", reason="GitHub doesn't show who pushed this commit")
+            elif pusher.lower() != pull["author"].lower():
+                entry.update(status="skipped", reason=f"{pusher} pushed this commit, not the author")
+            # An older head of the same PR still queued is replaced: only the newest is worth testing.
+            for old in data["entries"]:
+                if old["pr"] == number and old["status"] == "queued":
+                    old.update(status="replaced", reason=f"{pull['head'][:9]} was pushed")
+            data["entries"].append(entry)
+            added.append(entry)
+            self.log(f"local tests: #{number} {pull['head'][:9]} by {pull['author']}: {entry['status']}"
+                     f"{' (' + entry.get('reason', '') + ')' if entry.get('reason') else ''}")
+        return added
 
     def queued(self):
         return [e for e in self.read()["entries"] if e["status"] == "queued"]

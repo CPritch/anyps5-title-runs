@@ -89,6 +89,31 @@ class List(unittest.TestCase):
             self.assertEqual(self.repo.pull.call_count, 5)
         self.assertEqual(self.night.read()["prs"]["9289"]["state"], "closed")
 
+    def test_a_list_longer_than_the_limit_gets_through_over_several_refreshes(self):
+        from title_runs import gh
+        now = formats.parse_time("2026-10-24T23:00:00Z")
+        self.pushers[B] = "Celegans12"
+        reset = now + datetime.timedelta(hours=1)
+        with self.github():
+            pushers = self.repo.workflow_runs.side_effect
+            calls = []
+
+            def runs(**kwargs):  # the limit runs out after the first pusher
+                calls.append(kwargs)
+                if len(calls) > 1:
+                    raise gh.RateLimited("used up", reset)
+                return pushers(**kwargs)
+            self.repo.workflow_runs.side_effect = runs
+            with self.assertRaises(gh.RateLimited):
+                self.night.refresh(now)
+            kept = self.night.read()
+            self.assertEqual(sorted(kept["prs"]), ["8104", "9289"])  # both read, and kept
+            self.assertEqual([e["pr"] for e in kept["entries"]], [8104])  # 9289's pusher waits: not skipped
+            self.repo.workflow_runs.side_effect = pushers
+            self.night.refresh(now + datetime.timedelta(hours=1))
+        self.assertEqual(self.repo.pull.call_count, 2)  # neither read again
+        self.assertEqual([(e["pr"], e["status"]) for e in self.night.read()["entries"]], [(8104, "queued"), (9289, "queued")])
+
     def test_a_used_up_limit_is_waited_out(self):
         from title_runs import engine, gh
         reset = formats.now() + datetime.timedelta(minutes=20)
