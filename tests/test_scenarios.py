@@ -75,6 +75,7 @@ class ScenarioFile(unittest.TestCase):
         save = {"url": "https://example.org/1.zip", "sha256": "0" * 64}
         cases = {"Bad_Name": {}, "long": {"scene": "x" * 121}, "plain": {"save": dict(save, url="http://example.org/1.zip", into={"memory_slot": 0})},
                  "nosha": {"save": dict(save, sha256="abc", into={"memory_slot": 0})},
+                 "member": {"save": {"sha256": "0" * 64, "file": "savedata0/memory.dat", "file_sha256": "0" * 64, "into": {"memory_slot": 0}}},
                  "dir": {"save": dict(save, into={"directory": "SAVEDATASGTA50000"})},
                  "frame": {"frame": {"colours": [0.5, 0.5], "max_distance": 0.25}},
                  "still": {"still": {"press": "jump", "every": 10}}, "often": {"still": {"press": "left", "every": 40}}}
@@ -128,6 +129,19 @@ class Save(unittest.TestCase):
         missing = dict(self.scenario["save"], file="savedata0/../../etc/passwd")
         with self.assertRaisesRegex(scenarios.ScenarioError, "no savedata0"):
             scenarios.fetch(missing, self.dir / "saves", Opener(self.archive))
+
+    def test_a_save_of_this_computers_own_is_taken_from_the_saves_folder_never_downloaded(self):
+        path, _ = scenario_file(self.dir, "own", save={"about": "a save made in play", "sha256": sha(SAVE), "into": {"memory_slot": 0}})
+        own = scenarios.load(path)
+        opener = Opener(SAVE)
+        with self.assertRaisesRegex(scenarios.ScenarioError, "is this computer's own"):
+            scenarios.fetch(own["save"], self.dir / "saves", opener)
+        kept = self.dir / "saves" / sha(SAVE) / "save.bin"
+        kept.parent.mkdir(parents=True)
+        kept.write_bytes(SAVE)
+        self.assertEqual(scenarios.fetch(own["save"], self.dir / "saves", opener), kept)
+        self.assertEqual(opener.calls, 0)
+        self.assertIn("a save made in play (not published, sha256 " + sha(SAVE)[:12], scenarios.save_words(own))
 
     def test_it_goes_where_anyps5_keeps_save_data_memory(self):
         [(source, relative)] = scenarios.files(self.scenario, self.dir / "saves", Opener(self.archive))

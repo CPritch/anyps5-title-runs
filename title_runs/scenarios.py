@@ -20,7 +20,8 @@ it the same every time. A scenario file:
                "from": the scenario it was recorded from, "recorded": {"at", "main", "controller"}}}
 
 The save is downloaded once, outside the sandbox, checked against its sha256 and kept in <state>/saves/<sha256>/; it is
-never stored in this repository (a save's licence is its source's). "into" says where AnyPS5 keeps it in the game
+never stored in this repository (a save's licence is its source's). A save with no url is one of this computer's own (a
+save made in play): the tester puts it in <state>/saves/<sha256>/save.bin, and the report says it was not published. "into" says where AnyPS5 keeps it in the game
 directory: memory_slot N is save-data memory, _sd_mem/u<user>/slot<N>.bin (libSceSaveData.native's mem_path), where
 GTA V keeps its autosave on PS4 and reads it on PS5. Save directories (_sd/<name>/) are not supported yet.
 
@@ -101,8 +102,11 @@ def load(path):
     scenario["route"] = route if route.is_absolute() else ROOT / route
     save = scenario.get("save")
     if save is not None:
-        if not str(save.get("url", "")).startswith("https://"):
+        own = "url" not in save  # this computer's own, already in <state>/saves/
+        if not own and not str(save["url"]).startswith("https://"):
             raise ScenarioError(f"{path}: save.url is not an https URL")
+        if own and save.get("file"):
+            raise ScenarioError(f"{path}: save.file is a member of a download, and the save has no url")
         for key in ("sha256",) + (("file_sha256",) if save.get("file") else ()):
             if not SHA256.fullmatch(str(save.get(key, ""))):
                 raise ScenarioError(f"{path}: save.{key} is not a sha256")
@@ -193,6 +197,8 @@ def fetch(save, cache, opener=urllib.request.urlopen):
     kept = Path(cache) / want / "save.bin"
     if kept.exists() and _sha256(kept.read_bytes()) == want:
         return kept
+    if "url" not in save:
+        raise ScenarioError(f"the save {save.get('about', '')!r} is this computer's own, and {kept} is not it")
     try:
         with opener(save["url"], timeout=120) as response:
             data = response.read(64 * 1024 * 1024 + 1)
@@ -232,7 +238,8 @@ def save_words(scenario):
     if not save:
         return ""
     member = f", its {Path(save['file']).name}" if save.get("file") else ""
-    return (f"The save is {save['about']} ({save.get('page') or save['url']}{member}, sha256 {(save.get('file_sha256') or save['sha256'])[:12]}), "
+    where = save.get("page") or save.get("url") or "not published"
+    return (f"The save is {save['about']} ({where}{member}, sha256 {(save.get('file_sha256') or save['sha256'])[:12]}), "
             f"loaded as save-data memory slot {save['into']['memory_slot']} (_sd_mem/u{USER}/slot{save['into']['memory_slot']}.bin).")
 
 
